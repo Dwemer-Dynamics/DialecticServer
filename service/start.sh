@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PORT=12346
+PORT=12347
 SERVER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE_LOG="$SERVER_ROOT/log/service.log"
 FALLBACK_SERVICE_LOG="/tmp/dialectic_service.log"
