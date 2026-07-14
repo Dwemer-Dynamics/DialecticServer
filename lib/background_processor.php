@@ -10,9 +10,9 @@
 
 function dialecticBackgroundProcessorPort(): int
 {
-    // CHIM owns 12345. Dialectic must use a distinct heartbeat so one
-    // server cannot mistake the other server's worker for its own.
-    return 12346;
+    // CHIM owns 12345 and Stobe owns 12346. Keep Dialectic isolated so
+    // one server cannot mistake another server's worker for its own.
+    return 12347;
 }
 
 function dialecticBackgroundProcessorStartScriptPath(): string
