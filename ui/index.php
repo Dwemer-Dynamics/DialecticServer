@@ -185,7 +185,7 @@ if (sizeof($_GET)==0) {
  }
  
  if ($isEmptyIndexGet) {
-  header("Location: core/config_hub.php");
+  header("Location: home.php");
   exit;
  }
 }
