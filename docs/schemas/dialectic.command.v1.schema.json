@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dialectic.command.v1",
+  "title": "Dialectic Command Payload",
+  "type": "object",
+  "required": ["schema", "command_name", "command_args", "args"],
+  "properties": {
+    "schema": { "const": "dialectic.command.v1" },
+    "command_name": { "type": "string", "minLength": 1 },
+    "command_args": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "args": { "type": "object" }
+  },
+  "additionalProperties": false
+}

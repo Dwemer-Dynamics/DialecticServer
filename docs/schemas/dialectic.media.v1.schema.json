@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dialectic.media.v1",
+  "title": "Dialectic Media Endpoints",
+  "oneOf": [
+    {
+      "title": "STT Upload Metadata",
+      "type": "object",
+      "required": ["schema", "game"],
+      "properties": {
+        "schema": { "const": "dialectic.stt.v1" },
+        "game": { "const": "fnv" }
+      },
+      "additionalProperties": true
+    },
+    {
+      "title": "Voice Sample Upload Metadata",
+      "type": "object",
+      "required": ["schema", "actor_name"],
+      "properties": {
+        "schema": { "const": "dialectic.voice_sample.v1" },
+        "actor_name": { "type": "string", "minLength": 1 },
+        "original_name": { "type": "string" },
+        "reference_text": { "type": "string" },
+        "game": { "const": "fnv" }
+      },
+      "additionalProperties": true
+    },
+    {
+      "title": "Player TTS Request",
+      "type": "object",
+      "required": ["schema", "text"],
+      "properties": {
+        "schema": { "const": "dialectic.player_tts.v1" },
+        "player": { "type": "string" },
+        "text": { "type": "string" },
+        "game": { "const": "fnv" }
+      },
+      "additionalProperties": true
+    }
+  ]
+}

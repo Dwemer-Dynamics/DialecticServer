@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dialectic.common.v1",
+  "title": "Dialectic Common Definitions",
+  "$defs": {
+    "actorRef": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "refid": { "type": "string" },
+        "baseid": { "type": "string" },
+        "formid": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "audienceSnapshot": {
+      "type": "object",
+      "properties": {
+        "people": { "type": "string" },
+        "target_only": { "type": "boolean" },
+        "target_form_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dialectic.gamedata.response.v1",
+  "title": "Dialectic Gamedata Response",
+  "type": "object",
+  "required": ["schema", "ok"],
+  "properties": {
+    "schema": { "const": "dialectic.gamedata.response.v1" },
+    "request_id": { "type": "string" },
+    "ok": { "type": "boolean" },
+    "error": { "type": "string" }
+  },
+  "additionalProperties": true
+}

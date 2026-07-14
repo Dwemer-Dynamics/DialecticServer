@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dialectic.response.v1",
+  "title": "Dialectic Response Envelope",
+  "type": "object",
+  "required": ["schema", "ok", "lines", "close"],
+  "properties": {
+    "schema": { "const": "dialectic.response.v1" },
+    "request_id": { "type": "string" },
+    "ok": { "type": "boolean" },
+    "lines": {
+      "type": "array",
+      "items": { "$ref": "dialectic.response.line.v1.schema.json" }
+    },
+    "close": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

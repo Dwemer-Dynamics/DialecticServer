@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dialectic.action.v1",
+  "title": "Dialectic Server Action",
+  "type": "object",
+  "required": ["schema", "actor", "action", "parameter", "parameter_string"],
+  "properties": {
+    "schema": { "const": "dialectic.action.v1" },
+    "actor": { "type": "string" },
+    "action": { "type": "string", "minLength": 1 },
+    "parameter": {},
+    "parameter_string": { "type": "string" }
+  },
+  "additionalProperties": false
+}

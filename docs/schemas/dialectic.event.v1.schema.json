@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dialectic.event.v1",
+  "title": "Dialectic Event Envelope",
+  "type": "object",
+  "required": ["schema", "type", "game"],
+  "properties": {
+    "schema": { "const": "dialectic.event.v1" },
+    "type": { "type": "string", "minLength": 1 },
+    "ts": { "type": ["integer", "number", "string"] },
+    "gamets": { "type": ["integer", "number", "string"] },
+    "game": { "const": "fnv" },
+    "payload": {
+      "oneOf": [
+        { "type": "object" },
+        { "type": "array" },
+        { "type": "string" },
+        { "type": "null" }
+      ]
+    },
+    "audience_snapshot": { "$ref": "dialectic.common.v1.schema.json#/$defs/audienceSnapshot" },
+    "request_id": { "type": "string" }
+  },
+  "additionalProperties": true
+}

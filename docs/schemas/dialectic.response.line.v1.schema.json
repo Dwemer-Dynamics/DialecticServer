@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dialectic.response.line.v1",
+  "title": "Dialectic Response Line",
+  "type": "object",
+  "required": ["speaker", "action", "text"],
+  "properties": {
+    "schema": { "const": "dialectic.response.line.v1" },
+    "speaker": { "type": "string" },
+    "action": { "enum": ["say", "rolecommand"] },
+    "text": { "type": "string" },
+    "subtitle": { "type": "string" },
+    "tts_text": { "type": "string" },
+    "tts_cache_key": { "type": "string" },
+    "request_id": { "type": "string" },
+    "command": { "type": "string" },
+    "command_name": { "type": "string" },
+    "command_args": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "listener": { "type": "string" },
+    "rechat_target": { "type": "string" },
+    "utterance_id": { "type": "string" },
+    "metadata": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "action": { "const": "rolecommand" } },
+        "required": ["action"]
+      },
+      "then": {
+        "required": ["schema", "command_name", "command_args"]
+      }
+    }
+  ],
+  "additionalProperties": true
+}

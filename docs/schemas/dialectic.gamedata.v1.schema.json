@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dialectic.gamedata.v1",
+  "title": "Dialectic Gamedata Payload",
+  "type": "object",
+  "required": ["schema", "type", "game"],
+  "properties": {
+    "schema": {
+      "enum": [
+        "dialectic.actor_profile.v1",
+        "dialectic.nearby_actors.v1",
+        "dialectic.nearby_items.v1",
+        "dialectic.points_of_interest.v1",
+        "dialectic.world_context.v1",
+        "dialectic.active_quests.v1",
+        "dialectic.trade_summary.v1",
+        "dialectic.activity_status_bulk.v1",
+        "dialectic.dialogue_delivery.v1",
+        "dialectic.action_result.v1",
+        "dialectic.rpg_event.v1",
+        "dialectic.bored_event.v1",
+        "dialectic.captured_dialogue.v1",
+        "dialectic.dialogue_prompt_bridge.v1"
+      ]
+    },
+    "type": { "type": "string", "minLength": 1 },
+    "game": { "const": "fnv" },
+    "ts": { "type": ["integer", "number", "string"] },
+    "gamets": { "type": ["integer", "number", "string"] },
+    "request_id": { "type": "string" },
+    "actor_name": { "type": "string" },
+    "actor_type": { "type": "string" },
+    "refid": { "type": "string" },
+    "baseid": { "type": "string" },
+    "player": { "type": "string" },
+    "speaker": { "type": "string" },
+    "speaker_formid": { "type": "string" },
+    "text": { "type": "string" },
+    "people": { "type": "string" },
+    "quests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "formid": { "type": "string" },
+          "id_quest": { "type": "string" },
+          "quest_id": { "type": "string" },
+          "name": { "type": "string" },
+          "editor_id": { "type": "string" },
+          "briefing": { "type": "string" },
+          "status": { "type": "string" },
+          "selected": { "type": "boolean" },
+          "active_selected": { "type": "boolean" },
+          "objectives": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": ["integer", "number", "string"] },
+                "text": { "type": "string" }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "audience_snapshot": { "$ref": "dialectic.common.v1.schema.json#/$defs/audienceSnapshot" }
+  },
+  "additionalProperties": true
+}

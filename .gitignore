@@ -1,0 +1,47 @@
+/connector/vendor/
+/unittests/vendor/
+
+# Runtime logs
+/log.txt
+/log/*
+!/log/.gitkeep
+
+# Generated TTS cache
+/soundcache/*
+!/soundcache/.gitkeep
+
+# Local config
+conf/character_map.json
+conf/conf.php
+conf/conf_*.php
+!conf/conf_loader.php
+!conf/conf_schema.json
+
+# Generated model and voice data
+data/CurrentModel_*.json
+/data/.manager.state.json
+/data/pipeline_status.json
+/data/voice_sync_status.json
+/data/voices/*
+!/data/voices/TheNarrator.wav
+
+# Local developer tooling
+/.vscode/
+/.idea/
+*.code-workspace
+
+# Local env / temp files
+/.env
+/.env.*
+!/.env.example
+/.phpunit.result.cache
+/tmp/
+/data/tmp/
+/uploads/
+*.tmp
+*.bak
+*.orig
+*.swp
+*.swo
+*.log
+*/Zone.Identifier
