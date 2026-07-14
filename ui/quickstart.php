@@ -118,6 +118,13 @@ function dialecticQuickstartEnsureActiveSttConnectorId(STTConnector $connector):
         }
     }
 
+    $migrated = $connector->ensureLegacySelectionFromGlobals();
+    if ($migrated && !empty($migrated['id'])) {
+        $activeId = intval($migrated['id']);
+        dialecticSetGeneralSetting('GLOBAL_STT_CONNECTOR_ID', $activeId, dialecticGetSchemaDescription('GLOBAL_STT_CONNECTOR_ID'));
+        return $activeId;
+    }
+
     $rows = $connector->readAll();
     if (!empty($rows)) {
         $activeId = intval($rows[0]['id'] ?? 0);
@@ -411,8 +418,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['qs_action'])) {
             $result = ($savedTtsId > 0) && (intval($savedSttId ?? 0) > 0);
         } catch (Throwable $_e) {
             $result = false;
+            $saveError = $_e->getMessage();
         }
-        echo json_encode([ 'ok' => $result ]);
+        echo json_encode([
+            'ok' => $result,
+            'error' => $result ? '' : ($saveError ?? 'Could not save the selected TTS and STT connectors.'),
+        ]);
         exit;
     }
 
@@ -1221,8 +1232,29 @@ echo '<script>
 const WEB_ROOT = '.json_encode($webRoot).';
 
 async function saveQuickstartAndDB(){
+  const saveButton = document.querySelector(".qs-save-btn");
+  const originalLabel = saveButton ? saveButton.textContent : "";
   try {
+    if (saveButton) {
+      saveButton.disabled = true;
+      saveButton.textContent = "Saving...";
+    }
     const finishUrl = WEB_ROOT + "/ui/home.php";
+    const postQuickstart = async (formData, stepName) => {
+      const response = await fetch("quickstart.php", { method: "POST", body: formData, cache: "no-store", credentials: "same-origin" });
+      let result = null;
+      try {
+        result = await response.json();
+      } catch (_parseError) {
+        throw new Error(stepName + " returned an invalid server response.");
+      }
+      if (!response.ok || !result || result.ok !== true) {
+        const detail = result && result.error ? String(result.error) : ("HTTP " + response.status);
+        throw new Error(stepName + " failed: " + detail);
+      }
+      return result;
+    };
+
     // 1) Save API keys
     const fd = new FormData();
     const orKey = document.getElementById("qs_openrouter_api_key");
@@ -1230,26 +1262,30 @@ async function saveQuickstartAndDB(){
     fd.append("qs_action", "api_badge_quicksave");
     fd.append("openrouter_api_key", orKey ? orKey.value : "");
     fd.append("deepgram_api_key", dgKey ? dgKey.value : "");
-    await fetch("quickstart.php", { method: "POST", body: fd, cache: "no-store", credentials: "same-origin" });
+    await postQuickstart(fd, "API key setup");
 
     // 2) Save profile metadata flags
     const fdm = new FormData();
     try { fdm.append("player2_force_all_llm", document.getElementById("qs_player2_force_all_llm").checked ? "1" : "0"); } catch(_e){}
     fdm.append("qs_action", "profile_quicksave_metadata");
-    await fetch("quickstart.php", { method: "POST", body: fdm, cache: "no-store", credentials: "same-origin" });
+    await postQuickstart(fdm, "Profile setup");
 
     // 3) Save quickstart selections to the database
     const form = document.getElementById("top");
     const fdw = new FormData(form);
     fdw.append("qs_action", "save_quickstart");
-    await fetch("quickstart.php", { method: "POST", body: fdw, cache: "no-store", credentials: "same-origin" });
+    await postQuickstart(fdw, "Connector setup");
 
     // Notify user, then redirect
     try { alert("Quickstart settings have been saved."); } catch(_a){}
     window.location.href = finishUrl;
   } catch (_e) {
-    try { alert("Save failed or partially completed. Redirecting to home."); } catch(_a){}
-    window.location.href = finishUrl;
+    const message = (_e && _e.message) ? _e.message : "Quickstart setup failed.";
+    try { alert(message); } catch(_a){}
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = originalLabel || "Save and Continue";
+    }
   }
 }
 

@@ -305,6 +305,23 @@ class STTConnector
         return $metadata;
     }
 
+    public function ensureLegacySelectionFromGlobals(string $label = ''): ?array
+    {
+        $payload = $this->buildLegacyConnectorPayloadFromGlobals(null, $label);
+        if (!$payload) {
+            return null;
+        }
+
+        $match = $this->findMatchingConnector($payload);
+        if ($match) {
+            return $match;
+        }
+
+        $payload['label'] = $this->uniqueLabel($payload['label'] ?? '', 0);
+        $newId = $this->create($payload);
+        return $newId > 0 ? $this->getById($newId) : null;
+    }
+
     public function setOldGlobals($currentConnectorData)
     {
         if (!$currentConnectorData) {
@@ -356,6 +373,38 @@ class STTConnector
     private function normalizeDriver($driver): string
     {
         return strtolower(trim(strval($driver)));
+    }
+
+    private function buildLegacyConnectorPayloadFromGlobals($driver = null, string $label = ''): ?array
+    {
+        $driver = $this->normalizeDriver($driver ?? ($GLOBALS["STTFUNCTION"] ?? 'none'));
+        if ($driver === '') {
+            $driver = 'none';
+        }
+
+        $providerKey = $this->getProviderKeyFromDriver($driver);
+        $metadata = [];
+        if ($providerKey !== '' && isset($GLOBALS["STT"][$providerKey]) && is_array($GLOBALS["STT"][$providerKey])) {
+            $metadata = $GLOBALS["STT"][$providerKey];
+        }
+
+        $metadata = $this->decodeMetadata($metadata);
+        $url = $this->normalizeUrlForDriver($driver, null, $metadata);
+        $apiBadgeId = $this->resolveApiBadgeIdForMetadata($driver, $metadata, null);
+
+        if ($label === '') {
+            $label = ($driver === 'none')
+                ? 'Disabled STT'
+                : ('Global ' . $this->getDisplayName($driver));
+        }
+
+        return [
+            'driver' => $driver,
+            'label' => trim($label),
+            'metadata' => $this->canonicalJson($metadata),
+            'api_badge_id' => $apiBadgeId,
+            'url' => $url,
+        ];
     }
 
     private function loadRawSchema(): array
