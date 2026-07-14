@@ -35,6 +35,27 @@ The UI is available at:
 http://127.0.0.1:8085/DialecticServer/ui/index.php
 ```
 
+## Quickstart
+
+After DialecticServer and its database are running, open:
+
+```text
+http://127.0.0.1:8085/DialecticServer/ui/quickstart.php
+```
+
+The Quickstart Setup page follows the HerikaServer onboarding flow and configures
+the settings needed for a first in-game response:
+
+1. Enter an OpenRouter API key, or enable the local Player2 connector.
+2. Select the initial TTS connector.
+3. Select Parakeet or Deepgram for microphone STT.
+4. Enter a Deepgram key when Deepgram is selected.
+5. Review the Standard, Fast, Powerful, and Experimental LLM presets.
+6. Click **Save and Continue**. The page validates every save step before opening the home page.
+
+The player name is detected from Fallout: New Vegas and is not entered manually.
+Advanced connector configuration remains available from the Configuration Hub.
+
 ## Database
 
 DialecticServer uses its own PostgreSQL database named `dialectic` on the local WSL PostgreSQL service.

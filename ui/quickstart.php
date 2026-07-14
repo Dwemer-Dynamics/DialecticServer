@@ -118,6 +118,13 @@ function dialecticQuickstartEnsureActiveSttConnectorId(STTConnector $connector):
         }
     }
 
+    $migrated = $connector->ensureLegacySelectionFromGlobals();
+    if ($migrated && !empty($migrated['id'])) {
+        $activeId = intval($migrated['id']);
+        dialecticSetGeneralSetting('GLOBAL_STT_CONNECTOR_ID', $activeId, dialecticGetSchemaDescription('GLOBAL_STT_CONNECTOR_ID'));
+        return $activeId;
+    }
+
     $rows = $connector->readAll();
     if (!empty($rows)) {
         $activeId = intval($rows[0]['id'] ?? 0);
@@ -128,12 +135,14 @@ function dialecticQuickstartEnsureActiveSttConnectorId(STTConnector $connector):
     }
 
     $driverOptions = $connector->getDriverOptions();
-    $defaultDriver = 'deepgram';
-    foreach ($driverOptions as $driverOption) {
-        $candidate = $connector->normalizeDriverValue($driverOption);
-        if ($candidate !== '' && $candidate !== 'none') {
-            $defaultDriver = $candidate;
-            break;
+    $normalizedDriverOptions = array_map([$connector, 'normalizeDriverValue'], $driverOptions);
+    $defaultDriver = 'parakeet';
+    if (!in_array($defaultDriver, $normalizedDriverOptions, true)) {
+        foreach ($normalizedDriverOptions as $candidate) {
+            if ($candidate !== '' && $candidate !== 'none') {
+                $defaultDriver = $candidate;
+                break;
+            }
         }
     }
 
@@ -411,8 +420,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['qs_action'])) {
             $result = ($savedTtsId > 0) && (intval($savedSttId ?? 0) > 0);
         } catch (Throwable $_e) {
             $result = false;
+            $saveError = $_e->getMessage();
         }
-        echo json_encode([ 'ok' => $result ]);
+        echo json_encode([
+            'ok' => $result,
+            'error' => $result ? '' : ($saveError ?? 'Could not save the selected TTS and STT connectors.'),
+        ]);
         exit;
     }
 
@@ -490,31 +503,6 @@ echo '<div class="qs-shell">
 // Main Heading
 echo '<section class="qs-section qs-header-card">
         <h1 class="qs-title">Quickstart Menu</h1>
-      </section>';
-
-// PLAYER_NAME at top
-$playerNameVal = 'Prisoner'; // Default value
-// Try to get from core_player table first
-try {
-    require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPARATOR . "player.class.php");
-    $player = new Player();
-    $nameFromPlayer = $player->get('player_name');
-    if ($nameFromPlayer !== null && $nameFromPlayer !== '') {
-        $playerNameVal = $nameFromPlayer;
-    }
-} catch (Exception $e) {
-    // Fall back to conf value if core_player fails
-    if (isset($currentConf['PLAYER_NAME']['currentValue']) && $currentConf['PLAYER_NAME']['currentValue'] !== '') {
-        $playerNameVal = (string)$currentConf['PLAYER_NAME']['currentValue'];
-    }
-}
-echo '<section class="qs-section">
-        <h2 class="qs-section-title">Player</h2>
-        <div class="form-group qs-field">
-            <label for="PLAYER_NAME">Player Name</label>
-            <input type="text" class="form-control" id="PLAYER_NAME" value="' . htmlspecialchars($playerNameVal) . '" readonly>
-            <small class="form-text">Detected automatically from Fallout when telemetry arrives. Player details can still be managed in <a href="' . $webRoot . '/ui/core/config_hub.php?tab=player" target="_blank" style="color:#4a8ab6;">Player Management</a>.</small>
-        </div>
       </section>';
 
 // API Keys section (OpenRouter only here; Deepgram rendered under STT)
@@ -653,6 +641,8 @@ foreach ($quickstartConf as $pname => $parms) {
             $parms["values"] = ["parakeet", "deepgram"];
             if (in_array($quickstartActiveSttDriver, $parms["values"], true)) {
                 $parms["currentValue"] = $quickstartActiveSttDriver;
+            } else {
+                $parms["currentValue"] = "parakeet";
             }
             $recommendedValues = ["parakeet", "deepgram"];
             $parms["description"] = "Select the STT service you wish to use. Recommended: Parakeet or Deepgram. For provider-specific settings and endpoint editing, use the <a href='" . $webRoot . "/ui/stt_connectors.php' target='_blank'>STT Connectors</a> page.";
@@ -1221,8 +1211,29 @@ echo '<script>
 const WEB_ROOT = '.json_encode($webRoot).';
 
 async function saveQuickstartAndDB(){
+  const saveButton = document.querySelector(".qs-save-btn");
+  const originalLabel = saveButton ? saveButton.textContent : "";
   try {
+    if (saveButton) {
+      saveButton.disabled = true;
+      saveButton.textContent = "Saving...";
+    }
     const finishUrl = WEB_ROOT + "/ui/home.php";
+    const postQuickstart = async (formData, stepName) => {
+      const response = await fetch("quickstart.php", { method: "POST", body: formData, cache: "no-store", credentials: "same-origin" });
+      let result = null;
+      try {
+        result = await response.json();
+      } catch (_parseError) {
+        throw new Error(stepName + " returned an invalid server response.");
+      }
+      if (!response.ok || !result || result.ok !== true) {
+        const detail = result && result.error ? String(result.error) : ("HTTP " + response.status);
+        throw new Error(stepName + " failed: " + detail);
+      }
+      return result;
+    };
+
     // 1) Save API keys
     const fd = new FormData();
     const orKey = document.getElementById("qs_openrouter_api_key");
@@ -1230,26 +1241,30 @@ async function saveQuickstartAndDB(){
     fd.append("qs_action", "api_badge_quicksave");
     fd.append("openrouter_api_key", orKey ? orKey.value : "");
     fd.append("deepgram_api_key", dgKey ? dgKey.value : "");
-    await fetch("quickstart.php", { method: "POST", body: fd, cache: "no-store", credentials: "same-origin" });
+    await postQuickstart(fd, "API key setup");
 
     // 2) Save profile metadata flags
     const fdm = new FormData();
     try { fdm.append("player2_force_all_llm", document.getElementById("qs_player2_force_all_llm").checked ? "1" : "0"); } catch(_e){}
     fdm.append("qs_action", "profile_quicksave_metadata");
-    await fetch("quickstart.php", { method: "POST", body: fdm, cache: "no-store", credentials: "same-origin" });
+    await postQuickstart(fdm, "Profile setup");
 
     // 3) Save quickstart selections to the database
     const form = document.getElementById("top");
     const fdw = new FormData(form);
     fdw.append("qs_action", "save_quickstart");
-    await fetch("quickstart.php", { method: "POST", body: fdw, cache: "no-store", credentials: "same-origin" });
+    await postQuickstart(fdw, "Connector setup");
 
     // Notify user, then redirect
     try { alert("Quickstart settings have been saved."); } catch(_a){}
     window.location.href = finishUrl;
   } catch (_e) {
-    try { alert("Save failed or partially completed. Redirecting to home."); } catch(_a){}
-    window.location.href = finishUrl;
+    const message = (_e && _e.message) ? _e.message : "Quickstart setup failed.";
+    try { alert(message); } catch(_a){}
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = originalLabel || "Save and Continue";
+    }
   }
 }
 
