@@ -135,12 +135,14 @@ function dialecticQuickstartEnsureActiveSttConnectorId(STTConnector $connector):
     }
 
     $driverOptions = $connector->getDriverOptions();
-    $defaultDriver = 'deepgram';
-    foreach ($driverOptions as $driverOption) {
-        $candidate = $connector->normalizeDriverValue($driverOption);
-        if ($candidate !== '' && $candidate !== 'none') {
-            $defaultDriver = $candidate;
-            break;
+    $normalizedDriverOptions = array_map([$connector, 'normalizeDriverValue'], $driverOptions);
+    $defaultDriver = 'parakeet';
+    if (!in_array($defaultDriver, $normalizedDriverOptions, true)) {
+        foreach ($normalizedDriverOptions as $candidate) {
+            if ($candidate !== '' && $candidate !== 'none') {
+                $defaultDriver = $candidate;
+                break;
+            }
         }
     }
 
@@ -503,31 +505,6 @@ echo '<section class="qs-section qs-header-card">
         <h1 class="qs-title">Quickstart Menu</h1>
       </section>';
 
-// PLAYER_NAME at top
-$playerNameVal = 'Prisoner'; // Default value
-// Try to get from core_player table first
-try {
-    require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPARATOR . "player.class.php");
-    $player = new Player();
-    $nameFromPlayer = $player->get('player_name');
-    if ($nameFromPlayer !== null && $nameFromPlayer !== '') {
-        $playerNameVal = $nameFromPlayer;
-    }
-} catch (Exception $e) {
-    // Fall back to conf value if core_player fails
-    if (isset($currentConf['PLAYER_NAME']['currentValue']) && $currentConf['PLAYER_NAME']['currentValue'] !== '') {
-        $playerNameVal = (string)$currentConf['PLAYER_NAME']['currentValue'];
-    }
-}
-echo '<section class="qs-section">
-        <h2 class="qs-section-title">Player</h2>
-        <div class="form-group qs-field">
-            <label for="PLAYER_NAME">Player Name</label>
-            <input type="text" class="form-control" id="PLAYER_NAME" value="' . htmlspecialchars($playerNameVal) . '" readonly>
-            <small class="form-text">Detected automatically from Fallout when telemetry arrives. Player details can still be managed in <a href="' . $webRoot . '/ui/core/config_hub.php?tab=player" target="_blank" style="color:#4a8ab6;">Player Management</a>.</small>
-        </div>
-      </section>';
-
 // API Keys section (OpenRouter only here; Deepgram rendered under STT)
 try { $openrouterRow = $db->fetchOne("SELECT api_key FROM core_api_badge WHERE lower(label)='openrouter' LIMIT 1"); } catch (Throwable $_e) { $openrouterRow = []; }
 $openrouterKey = isset($openrouterRow["api_key"]) ? $openrouterRow["api_key"] : "";
@@ -664,6 +641,8 @@ foreach ($quickstartConf as $pname => $parms) {
             $parms["values"] = ["parakeet", "deepgram"];
             if (in_array($quickstartActiveSttDriver, $parms["values"], true)) {
                 $parms["currentValue"] = $quickstartActiveSttDriver;
+            } else {
+                $parms["currentValue"] = "parakeet";
             }
             $recommendedValues = ["parakeet", "deepgram"];
             $parms["description"] = "Select the STT service you wish to use. Recommended: Parakeet or Deepgram. For provider-specific settings and endpoint editing, use the <a href='" . $webRoot . "/ui/stt_connectors.php' target='_blank'>STT Connectors</a> page.";

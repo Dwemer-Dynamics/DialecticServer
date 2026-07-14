@@ -299,7 +299,7 @@ $TTSFUNCTION_PLAYER_VOICE_ID=0; // id for multivoice models
 $TTSFUNCTION_PLAYER_LANGUAGE="";
 
 //[Speech-to-Text Service]
-$STTFUNCTION="whisper";
+$STTFUNCTION="parakeet";
 
 //[Speech-to-Text Endpoints]
 //OpenAI Whisper STT
