@@ -80,10 +80,15 @@ function dialecticBackgroundProcessorIsRunning(float $timeoutSeconds = 0.15): bo
         $timeoutSeconds = 2.0;
     }
 
-    $socket = @fsockopen('127.0.0.1', $port, $errno, $errstr, $timeoutSeconds);
-    if (is_resource($socket)) {
-        @fclose($socket);
-        return true;
+    for ($attempt = 0; $attempt < 3; $attempt++) {
+        $socket = @fsockopen('127.0.0.1', $port, $errno, $errstr, $timeoutSeconds);
+        if (is_resource($socket)) {
+            @fclose($socket);
+            return true;
+        }
+        if ($attempt < 2) {
+            usleep(40000);
+        }
     }
 
     return false;
@@ -147,9 +152,15 @@ function dialecticEnsureBackgroundProcessorRunning(bool $logFailures = true): bo
         $command = 'nohup bash ' . escapeshellarg($startScript) . ' > /dev/null 2>&1 < /dev/null &';
         @shell_exec($command);
 
-        // Do not hold a game request open while the daemon completes startup.
-        usleep(100000);
-        $running = dialecticBackgroundProcessorIsRunning(0.1);
+        // Give the detached service a short bounded window to bind its socket.
+        $running = false;
+        for ($attempt = 0; $attempt < 6; $attempt++) {
+            usleep(100000);
+            if (dialecticBackgroundProcessorIsRunning(0.1)) {
+                $running = true;
+                break;
+            }
+        }
         dialecticBackgroundProcessorLog($running ? 'info' : 'warn', $running
             ? 'Background processor started'
             : 'Background processor start requested; service is not ready yet', [
