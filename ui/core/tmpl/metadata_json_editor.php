@@ -443,6 +443,9 @@ function consolidation() {
 
     document.addEventListener("DOMContentLoaded", function() {
         const miniUpdateAppearance = document.getElementById('small_update_appearance');
+        if (!miniUpdateAppearance) {
+            return;
+        }
         miniUpdateAppearance.addEventListener('click', async function(e){
             
             e.preventDefault();

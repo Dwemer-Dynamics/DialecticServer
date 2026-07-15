@@ -450,6 +450,24 @@ if (!function_exists('dialecticNpcRelationshipSaveRequested')) {
  }
 }
 
+if (!function_exists('dialecticUiSaveAutoLockProfileSettingFromPost')) {
+ function dialecticUiSaveAutoLockProfileSettingFromPost(): void
+ {
+  if (!array_key_exists('auto_lock_profile_present', $_POST)) {
+   return;
+  }
+
+  $raw = $_POST['auto_lock_profile'] ?? '0';
+  $enabled = in_array(strtolower(trim((string)$raw)), ['1', 'true', 'yes', 'on'], true);
+  $description = 'When enabled, saving an NPC profile in the Dialectic NPC page automatically locks it to prevent history updates from overwriting manual edits.';
+  if (!dialecticSetGeneralSetting('AUTO_LOCK_PROFILE', $enabled, $description)) {
+   throw new RuntimeException('Failed to save Auto Lock Profiles setting.');
+  }
+
+  $GLOBALS['AUTO_LOCK_PROFILE'] = $enabled;
+ }
+}
+
 if (!function_exists('dialecticResolveNpcIdAfterCreate')) {
  function dialecticResolveNpcIdAfterCreate($npcName): int
  {
@@ -466,8 +484,8 @@ if (!function_exists('dialecticResolveNpcIdAfterCreate')) {
 
 // Handle Create
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create"])) {
- if (dialecticUiAutoLockProfileEnabled() && !array_key_exists('lock_profile', $_POST)) {
- $_POST['lock_profile'] = 1;
+ if (dialecticUiAutoLockProfileEnabled()) {
+  $_POST['lock_profile'] = 1;
  }
  $npc->create($_POST);
  if (dialecticNpcRelationshipSaveRequested()) {
@@ -482,8 +500,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create"])) {
 
 // Handle Update
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["update"])) {
- if (dialecticUiAutoLockProfileEnabled() && !array_key_exists('lock_profile', $_POST)) {
- $_POST['lock_profile'] = 1;
+ if (dialecticUiAutoLockProfileEnabled()) {
+  $_POST['lock_profile'] = 1;
  }
  $_POST["md5"]=md5($_POST["npc_name"]);
  $npc->update($_POST["id"], $_POST);
@@ -570,8 +588,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
  $_POST['dynamic_profile'] = ($dynVal === '1' || $dynVal === 1 || $dynVal === true) ? 1 : 0;
  }
  }
- if (dialecticUiAutoLockProfileEnabled() && !array_key_exists('lock_profile', $_POST)) {
- $_POST['lock_profile'] = 1;
+ if (dialecticUiAutoLockProfileEnabled()) {
+  $_POST['lock_profile'] = 1;
  }
  if ($id <= 0) {
  $npc->create($_POST);
@@ -596,6 +614,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
  }
  } catch (Throwable $e) {
  echo json_encode(["ok"=>false, "error"=>$e->getMessage()]);
+ }
+ exit;
+}
+
+// Save global auto-lock preference (AJAX)
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["set_auto_lock_profile"])) {
+ try { while (ob_get_level() > 0) { ob_end_clean(); } } catch (Throwable $e) {}
+ header('Content-Type: application/json');
+ try {
+  $_POST['auto_lock_profile_present'] = '1';
+  dialecticUiSaveAutoLockProfileSettingFromPost();
+  echo json_encode(["ok"=>true, "enabled"=>dialecticUiAutoLockProfileEnabled()]);
+ } catch (Throwable $e) {
+  echo json_encode(["ok"=>false, "error"=>$e->getMessage()]);
  }
  exit;
 }
@@ -646,6 +678,31 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["toggle_lock"])) {
  exit;
 }
 
+// Bulk unlock all NPC profiles (AJAX). The narrator is stored separately in Dialectic.
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["bulk_unlock_npcs"])) {
+ try { while (ob_get_level() > 0) { ob_end_clean(); } } catch (Throwable $e) {}
+ header('Content-Type: application/json');
+ try {
+  $confirm = trim((string)($_POST['confirm'] ?? ''));
+  if ($confirm !== 'Unlock') { echo json_encode(["ok"=>false, "error"=>"Confirmation text mismatch"]); exit; }
+
+  $sql = "WITH upd AS (
+             UPDATE core_npc_master
+             SET lock_profile = 0
+             WHERE COALESCE(lock_profile, 0) = 1
+               AND trim(lower(npc_name)) <> 'the narrator'
+             RETURNING 1
+          )
+          SELECT COUNT(*) AS c FROM upd";
+  $row = $GLOBALS['db']->fetchOne($sql);
+  $unlocked = intval($row['c'] ?? 0);
+  echo json_encode(["ok"=>true, "unlocked"=>$unlocked]);
+ } catch (Throwable $e) {
+  echo json_encode(["ok"=>false, "error"=>$e->getMessage()]);
+ }
+ exit;
+}
+
 // Bulk delete unlocked NPCs except The Narrator (AJAX)
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["bulk_delete_npcs"])) {
  try { while (ob_get_level() > 0) { ob_end_clean(); } } catch (Throwable $e) {}
@@ -653,9 +710,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["bulk_delete_npcs"])) 
  try {
  $confirm = trim((string)($_POST['confirm'] ?? ''));
  if ($confirm !== 'Delete') { echo json_encode(["ok"=>false, "error"=>"Confirmation text mismatch"]); exit; }
- // Delete all unlocked NPCs except The Narrator (by name or id=1)
- // Use trim and case-insensitive comparison for robustness, and ensure lock_profile is explicitly compared as integer
- $sql = "with del as (delete from core_npc_master where (lock_profile is null or lock_profile = 0) and id <> 1 and trim(lower(npc_name)) <> 'the narrator' returning 1) select count(*) as c from del";
+ // The narrator is stored in core_narrator, but preserve any stale imported narrator row by name.
+ $sql = "with del as (delete from core_npc_master where (lock_profile is null or lock_profile = 0) and trim(lower(npc_name)) <> 'the narrator' returning 1) select count(*) as c from del";
  $row = $GLOBALS['db']->fetchOne($sql);
  $deleted = intval($row['c'] ?? 0);
  echo json_encode(["ok"=>true, "deleted"=>$deleted]);
@@ -1132,7 +1188,7 @@ if (!function_exists('renderNpcToolbar')) {
  $pageStart = max(1, min($page - 4, $totalPages - $pageWindow + 1));
  $pageEnd = min($totalPages, $pageStart + $pageWindow - 1);
 
-?><div class="pagination npc-toolbar"><div class="npc-toolbar-main"><div class="npc-toolbar-actions"><button id="npc_create_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action">+ Create NPC</button><button id="npc_import_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action" title="Import NPC from JSON file">Import NPC</button><button id="npc_bulk_switch_profile_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action npc-toolbar-btn-switch" title="Switch all NPCs from one profile to another">Mass Switch Profile</button><button id="npc_bulk_delete_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-danger" title="Delete all unlocked NPCs (excludes The Narrator and locked)">❌ Delete All Profiles</button></div><div class="npc-toolbar-tools"><input id="npc_search" type="text" placeholder="Search..." value="<?= htmlspecialchars($q) ?>" /><select id="npc_profile_filter" title="Filter by profile"><option value="">All Profiles</option><?php foreach ($profileRows as $pr): ?><?php $pid = (string)($pr['id'] ?? ''); $lbl = $pr['label'] ?? ('Profile #' . $pid); ?><option value="<?= htmlspecialchars($pid) ?>" <?= ($profileIdFilter !== '' && $profileIdFilter === $pid) ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select></div></div><div class="npc-toolbar-subrow"><div class="npc-toolbar-pager"><button type="button" class="npc-letter-btn npc-page-link<?= $page <= 1 ? ' disabled' : '' ?>" data-page="1" <?= $page <= 1 ? 'disabled aria-disabled="true"' : '' ?>>First</button><button type="button" class="npc-letter-btn npc-page-link<?= $page <= 1 ? ' disabled' : '' ?>" data-page="<?= max(1, $page - 1) ?>" <?= $page <= 1 ? 'disabled aria-disabled="true"' : '' ?>>Prev</button><?php for ($p = $pageStart; $p <= $pageEnd; $p++): ?><button type="button" class="npc-letter-btn npc-page-link<?= $p === $page ? ' active' : '' ?>" data-page="<?= $p ?>" <?= $p === $page ? 'disabled aria-current="page"' : '' ?>><?= $p ?></button><?php endfor; ?><button type="button" class="npc-letter-btn npc-page-link<?= $page >= $totalPages ? ' disabled' : '' ?>" data-page="<?= min($totalPages, $page + 1) ?>" <?= $page >= $totalPages ? 'disabled aria-disabled="true"' : '' ?>>Next</button><button type="button" class="npc-letter-btn npc-page-link<?= $page >= $totalPages ? ' disabled' : '' ?>" data-page="<?= $totalPages ?>" <?= $page >= $totalPages ? 'disabled aria-disabled="true"' : '' ?>>Last</button><div class="npc-page-indicator" title="Current page"><?= $page ?>/<?= $totalPages ?></div></div></div><div class="npc-toolbar-letter-row"><?php renderNpcLetterFilter($nameLetterFilter); ?><div class="npc-toolbar-summary"><div class="npc-filter-dropdown"><button type="button" id="npc_filter_btn<?= $suffix ?>" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action npc-toolbar-filter-btn" title="Filters" aria-label="Filters"> Filters</button><div id="npc_filter_menu<?= $suffix ?>" class="npc-filter-menu" style="display:none;"><label><input type="checkbox" id="npc_filter_fav<?= $suffix ?>" <?= $favOnly ? 'checked' : '' ?>> Favorites</label><label><input type="checkbox" id="npc_filter_dyn<?= $suffix ?>" <?= $dynOnly ? 'checked' : '' ?>> Dynamic profile</label><label><input type="checkbox" id="npc_filter_mtm<?= $suffix ?>" <?= $mtmOnly ? 'checked' : '' ?>> Middle-term memory</label><label><input type="checkbox" id="npc_filter_lock<?= $suffix ?>" <?= $lockOnly ? 'checked' : '' ?>> Locked</label><label><input type="checkbox" id="npc_filter_sal<?= $suffix ?>" <?= $salOnly ? 'checked' : '' ?>> Auto Greeting</label></div></div><div class="npc-total-pill" title="Total NPC profiles"><div class="npc-total-pill-icon"></div><div class="npc-total-pill-value"><?= $totalRows ?></div></div></div></div></div><?php
+?><div class="pagination npc-toolbar"><div class="npc-toolbar-main"><div class="npc-toolbar-actions"><button id="npc_create_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action">+ Create NPC</button><button id="npc_import_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action" title="Import NPC from JSON file">Import NPC</button><button id="npc_bulk_switch_profile_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action npc-toolbar-btn-switch" title="Switch all NPCs from one profile to another">Mass Switch Profile</button><button id="npc_bulk_unlock_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action" title="Unlock every NPC profile">&#x1F513; Unlock All Profiles</button><button id="npc_bulk_delete_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-danger" title="Delete all unlocked NPCs (excludes The Narrator and locked)">❌ Delete All Profiles</button></div><div class="npc-toolbar-tools"><input id="npc_search" type="text" placeholder="Search..." value="<?= htmlspecialchars($q) ?>" /><select id="npc_profile_filter" title="Filter by profile"><option value="">All Profiles</option><?php foreach ($profileRows as $pr): ?><?php $pid = (string)($pr['id'] ?? ''); $lbl = $pr['label'] ?? ('Profile #' . $pid); ?><option value="<?= htmlspecialchars($pid) ?>" <?= ($profileIdFilter !== '' && $profileIdFilter === $pid) ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select></div></div><div class="npc-toolbar-subrow"><div class="npc-toolbar-pager"><button type="button" class="npc-letter-btn npc-page-link<?= $page <= 1 ? ' disabled' : '' ?>" data-page="1" <?= $page <= 1 ? 'disabled aria-disabled="true"' : '' ?>>First</button><button type="button" class="npc-letter-btn npc-page-link<?= $page <= 1 ? ' disabled' : '' ?>" data-page="<?= max(1, $page - 1) ?>" <?= $page <= 1 ? 'disabled aria-disabled="true"' : '' ?>>Prev</button><?php for ($p = $pageStart; $p <= $pageEnd; $p++): ?><button type="button" class="npc-letter-btn npc-page-link<?= $p === $page ? ' active' : '' ?>" data-page="<?= $p ?>" <?= $p === $page ? 'disabled aria-current="page"' : '' ?>><?= $p ?></button><?php endfor; ?><button type="button" class="npc-letter-btn npc-page-link<?= $page >= $totalPages ? ' disabled' : '' ?>" data-page="<?= min($totalPages, $page + 1) ?>" <?= $page >= $totalPages ? 'disabled aria-disabled="true"' : '' ?>>Next</button><button type="button" class="npc-letter-btn npc-page-link<?= $page >= $totalPages ? ' disabled' : '' ?>" data-page="<?= $totalPages ?>" <?= $page >= $totalPages ? 'disabled aria-disabled="true"' : '' ?>>Last</button><div class="npc-page-indicator" title="Current page"><?= $page ?>/<?= $totalPages ?></div></div></div><div class="npc-toolbar-letter-row"><?php renderNpcLetterFilter($nameLetterFilter); ?><label class="npc-auto-lock-profile" title="When enabled, saving an NPC profile automatically locks it to prevent history updates from overwriting manual edits."><input id="npc_auto_lock_profile" type="checkbox" <?= dialecticUiAutoLockProfileEnabled() ? 'checked' : '' ?>> Auto Lock Profiles on Edit</label><div class="npc-toolbar-summary"><div class="npc-filter-dropdown"><button type="button" id="npc_filter_btn<?= $suffix ?>" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action npc-toolbar-filter-btn" title="Filters" aria-label="Filters"> Filters</button><div id="npc_filter_menu<?= $suffix ?>" class="npc-filter-menu" style="display:none;"><label><input type="checkbox" id="npc_filter_fav<?= $suffix ?>" <?= $favOnly ? 'checked' : '' ?>> Favorites</label><label><input type="checkbox" id="npc_filter_dyn<?= $suffix ?>" <?= $dynOnly ? 'checked' : '' ?>> Dynamic profile</label><label><input type="checkbox" id="npc_filter_mtm<?= $suffix ?>" <?= $mtmOnly ? 'checked' : '' ?>> Middle-term memory</label><label><input type="checkbox" id="npc_filter_lock<?= $suffix ?>" <?= $lockOnly ? 'checked' : '' ?>> Locked</label><label><input type="checkbox" id="npc_filter_sal<?= $suffix ?>" <?= $salOnly ? 'checked' : '' ?>> Auto Greeting</label></div></div><div class="npc-total-pill" title="Total NPC profiles"><div class="npc-total-pill-icon"></div><div class="npc-total-pill-value"><?= $totalRows ?></div></div></div></div></div><?php
  }
 }
 
@@ -1512,7 +1568,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  .label-with-toggle input[type="checkbox"] { accent-color:#176529; transform: scale(1.8); transform-origin:center; cursor:pointer; }
  .span-2 { grid-column: 1 / -1; margin-bottom:12px; }
  .checkbox-inline { display:flex; align-items:center; gap:8px; }
-</style><?php if ($editItem): ?><input type="hidden" name="id" value="<?= htmlspecialchars($editItem["id"]) ?>"><?php endif; ?><?php $isPartial = (isset($_GET['partial']) && $_GET['partial']=='1'); $isFav = !empty($editItem['npc_favorite']); $isLock = !empty($editItem['lock_profile']); ?><?php if ($isPartial): ?><div class="modal-inline-actions"><input type="hidden" id="modal_favorite_value" name="npc_favorite" value="<?= $isFav ? '1' : '0' ?>" /><input type="hidden" id="modal_lock_value" name="lock_profile" value="<?= $isLock ? '1' : '0' ?>" /><p style="margin:0; color:rgb(255, 182, 65) ;">Tags:</p><input type="text" id="modal_tags_input" name="tags" value="<?= htmlspecialchars($editItem['tags'] ?? '') ?>" placeholder="tags" style="max-width:240px; font-size:12px; padding:4px 6px; border-radius:6px; border:1px solid #4a4a4a; background:#2a2a2a; color:#e9efff;" title="Tags help with searching and grouping" /><a id="modal_fav_btn" class="btn btn-toggle<?= $isFav? ' active':'' ?>" href="#" title="Toggle favorite" data-favorite><?= $isFav? '&#x2605;' : '&#x2606;' ?></a><a id="modal_lock_btn" class="btn btn-toggle<?= $isLock? ' active':'' ?>" href="#" title="Toggle lock - Locked profiles are protected from history pullback when loading saves" data-lock><?= $isLock? '&#x1F512;' : '&#x1F513;' ?></a></div><?php
+</style><?php if ($editItem): ?><input type="hidden" name="id" value="<?= htmlspecialchars($editItem["id"]) ?>"><?php endif; ?><?php $isPartial = (isset($_GET['partial']) && $_GET['partial']=='1'); $isFav = !empty($editItem['npc_favorite']); $isLock = !empty($editItem['lock_profile']); ?><?php if ($isPartial): ?><div class="modal-inline-actions"><input type="hidden" id="modal_favorite_value" name="npc_favorite" value="<?= $isFav ? '1' : '0' ?>" /><p style="margin:0; color:rgb(255, 182, 65) ;">Tags:</p><input type="text" id="modal_tags_input" name="tags" value="<?= htmlspecialchars($editItem['tags'] ?? '') ?>" placeholder="tags" style="max-width:240px; font-size:12px; padding:4px 6px; border-radius:6px; border:1px solid #4a4a4a; background:#2a2a2a; color:#e9efff;" title="Tags help with searching and grouping" /><a id="modal_fav_btn" class="btn btn-toggle<?= $isFav? ' active':'' ?>" href="#" title="Toggle favorite" data-favorite><?= $isFav? '&#x2605;' : '&#x2606;' ?></a></div><?php
  // Render LLM summary container (will live-update via JS)
  $curPid = (string)($editItem['profile_id'] ?? '');
  $pc = ($curPid !== '' && isset($profilesConnById[$curPid])) ? $profilesConnById[$curPid] : null;
@@ -1648,8 +1704,8 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  }
  }
  })();
-</script><?php endif; ?><div class="form-grid"><div class="form-item span-2"><label for="npc_name">NPC Name</label><input type="text" id="npc_name" name="npc_name" placeholder="e.g. NCR Ranger" value="<?= htmlspecialchars($editItem["npc_name"] ?? "") ?>"><small class="hint">The character's name. Must match their Fallout in-game name!</small></div><div class="form-item"><label for="profile_id">Profile</label><select id="profile_id" name="profile_id"><option value="">Use Default NPC Profile</option><?php foreach (($profileRows ?? []) as $pr): $pid=(string)($pr['id']??''); $lbl=$pr['label']??('Profile #'.$pid); $sel = ((string)($editItem['profile_id'] ?? '') === $pid) ? ' selected' : ((empty($editItem) && $firstProfileId === $pid) ? ' selected' : ''); ?><option value="<?= htmlspecialchars($pid) ?>"<?= $sel ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select><small class="hint">Select which profile the NPC uses.</small></div><div class="form-item" style='<?= (isset($_GET['partial']) && $_GET['partial']=='1')?"display:none":"" ?>'><label for="lock_profile" class="label-with-toggle">Lock Profile
- <input type="checkbox" id="lock_profile" name="lock_profile" value="1" <?= !empty($editItem["lock_profile"]) ? "checked" : "" ?>></label><small class="hint">Prevents dynamic systems from modifying this NPC's profile.</small></div><div class="form-item" style='<?= (isset($_GET['partial']) && $_GET['partial']=='1')?"display:none":"" ?>'><label for="npc_favorite" class="label-with-toggle">Favorite
+</script><?php endif; ?><div class="form-grid"><div class="form-item span-2"><label for="npc_name">NPC Name</label><input type="text" id="npc_name" name="npc_name" placeholder="e.g. NCR Ranger" value="<?= htmlspecialchars($editItem["npc_name"] ?? "") ?>"><small class="hint">The character's name. Must match their Fallout in-game name!</small></div><div class="form-item"><label for="profile_id">Profile</label><select id="profile_id" name="profile_id"><option value="">Use Default NPC Profile</option><?php foreach (($profileRows ?? []) as $pr): $pid=(string)($pr['id']??''); $lbl=$pr['label']??('Profile #'.$pid); $sel = ((string)($editItem['profile_id'] ?? '') === $pid) ? ' selected' : ((empty($editItem) && $firstProfileId === $pid) ? ' selected' : ''); ?><option value="<?= htmlspecialchars($pid) ?>"<?= $sel ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select><small class="hint">Select which profile the NPC uses.</small></div><div class="form-item"><label for="lock_profile" class="label-with-toggle">Lock This NPC
+ <input type="hidden" name="lock_profile" value="0"><input type="checkbox" id="lock_profile" name="lock_profile" value="1" <?= !empty($editItem["lock_profile"]) ? "checked" : "" ?>></label><small class="hint">Prevents dynamic systems from modifying this NPC's profile.</small></div><div class="form-item" style='<?= (isset($_GET['partial']) && $_GET['partial']=='1')?"display:none":"" ?>'><label for="npc_favorite" class="label-with-toggle">Favorite
  <input type="checkbox" id="npc_favorite" name="npc_favorite" value="1" <?= !empty($editItem["npc_favorite"]) ? "checked" : "" ?>></label><small class="hint">Pin this NPC for quick access.</small></div><div class="form-item"><label for="gender">Gender</label><input type="text" id="gender" name="gender" placeholder="female, male" value="<?= htmlspecialchars($editItem["gender"] ?? "") ?>"><small class="hint">Used for prompts.</small></div><div class="form-item"><label for="race">Race</label><input type="text" id="race" name="race" placeholder="human, ghoul, super mutant" value="<?= htmlspecialchars($editItem["race"] ?? "") ?>"><small class="hint">Lore-accurate race label used in prompts.</small></div><div class="form-item"><label for="base">Base</label><input type="text" id="base" name="base" placeholder="Bandit Reaver" value="<?= htmlspecialchars($editItem["base"] ?? "") ?>"><small class="hint">Optional: base form identifier or template this NPC derives from.</small></div><div class="form-item"><label for="refid">Ref ID</label><input type="text" id="refid" name="refid" placeholder="Game reference ID (000A2C94)" value="<?= htmlspecialchars($editItem["refid"] ?? "") ?>"><small class="hint">Fallout reference ID for in-game linkage.</small></div><div class="form-item"><label for="worldknowledge_tags">Knowledge Tags</label><input type="text" id="worldknowledge_tags" name="worldknowledge_tags" placeholder="Comma-separated knowledge tags" value="<?= htmlspecialchars($editItem["worldknowledge_tags"] ?? "") ?>"><small class="hint">Used by knowledge systems for lookup restrictions.</small></div><div class="form-item"><label for="voiceid">Voice ID</label><input type="text" id="voiceid" name="voiceid" placeholder="Optional TTS voice id" value="<?= htmlspecialchars($editItem["voiceid"] ?? "") ?>"><small class="hint">Voice ID for TTS.</small></div><?php
  // Check profile-level settings for these features
  $profileDynEnabled = false;
@@ -2110,14 +2166,12 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  </script><script>
  (function(){
  const favBtn = document.getElementById('modal_fav_btn');
- const lockBtn = document.getElementById('modal_lock_btn');
  const favValue = document.getElementById('modal_favorite_value');
- const lockValue = document.getElementById('modal_lock_value');
  const idVal = <?= json_encode($editItem['id'] ?? '') ?>;
  function setToggle(btn, input, active){
  if (btn) {
  btn.classList.toggle('active', active);
- btn.textContent = btn.hasAttribute('data-favorite') ? (active ? '\u2605' : '\u2606') : (active ? '\uD83D\uDD12' : '\uD83D\uDD13');
+ btn.textContent = active ? '\u2605' : '\u2606';
  }
  if (input) {
  input.value = active ? '1' : '0';
@@ -2135,21 +2189,6 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  const res = await fetch('npc_master.php', { method:'POST', body: fd });
  let json={}; try{ json=await res.json(); }catch(_e){}
  if (json && json.ok){ const active = Number(json.favorite||0)===1; setToggle(favBtn, favValue, active); }
- }catch(_e){}
- });
- }
- if (lockBtn){
- lockBtn.addEventListener('click', async function(e){
- e.preventDefault();
- if (!idVal) {
- setToggle(lockBtn, lockValue, !(lockValue && lockValue.value === '1'));
- return;
- }
- try{
- const fd = new FormData(); fd.append('toggle_lock','1'); fd.append('id', idVal);
- const res = await fetch('npc_master.php', { method:'POST', body: fd });
- let json={}; try{ json=await res.json(); }catch(_e){}
- if (json && json.ok){ const active = Number(json.locked||0)===1; setToggle(lockBtn, lockValue, active); }
  }catch(_e){}
  });
  }
@@ -2579,6 +2618,19 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  flex-direction:column;
  align-items:stretch;
  justify-content:flex-start;
+}
+.pagination.npc-toolbar .npc-auto-lock-profile {
+ display:flex;
+ align-items:center;
+ gap:8px;
+ color:#e9efff;
+ font-size:13px;
+ font-weight:600;
+ cursor:pointer;
+}
+.pagination.npc-toolbar .npc-auto-lock-profile input {
+ accent-color:rgb(255,182,65);
+ cursor:pointer;
 }
 .pagination.npc-toolbar .npc-toolbar-pager {
  flex:1 1 auto;
@@ -3753,6 +3805,51 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  window.bindNpcBulkDelete = bindBulk;
  bindBulk(document.getElementById('npc_bulk_delete_btn'));
  })();
+ // Bulk unlock wiring
+ (function(){
+ function bindBulkUnlock(btn){
+ if (!btn || btn.dataset.bound === '1') return;
+ btn.dataset.bound = '1';
+ btn.addEventListener('click', function(){
+ const box = document.createElement('div');
+ box.style.position='fixed'; box.style.inset='0'; box.style.zIndex='10050'; box.style.display='flex'; box.style.alignItems='center'; box.style.justifyContent='center'; box.style.background='rgba(0,0,0,0.65)';
+ box.innerHTML = '<div style="background:#2a2a2a; border:1px solid #4a4a4a; border-radius:8px; padding:16px; max-width:520px; width:92%; color:#e9efff;">\
+ <div style="font-weight:700; color:rgb(255,182,65); margin-bottom:8px;">Unlock All NPC Profiles</div>\
+ <div style="font-size:13px; color:#cfd9ea; margin-bottom:8px;">This unlocks every NPC profile.</div>\
+ <div style="font-size:12px; color:#ffd166; margin-bottom:12px;">If Auto Lock Profiles on Edit is enabled, a profile will lock again after it is edited and saved.</div>\
+ <label style="display:block; font-size:13px; margin:6px 0; color:#cfd9ea;">Type <b style="color:#ffd166">Unlock</b> to confirm:</label>\
+ <input id="bulk_unlock_confirm" type="text" style="width:100%; padding:8px; border-radius:6px; border:1px solid #4a4a4a; background:#2a2a2a; color:#e9efff;"/>\
+ <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">\
+ <button id="bulk_unlock_cancel" class="btn-cancel">Cancel</button>\
+ <button id="bulk_unlock_ok" class="btn-rel-build" disabled>Unlock All Profiles</button>\
+ </div></div>';
+ document.body.appendChild(box);
+ const confirmEl = box.querySelector('#bulk_unlock_confirm');
+ const okEl = box.querySelector('#bulk_unlock_ok');
+ const cancelEl = box.querySelector('#bulk_unlock_cancel');
+ function updateState(){ okEl.disabled = String(confirmEl.value || '').trim() !== 'Unlock'; }
+ confirmEl.addEventListener('input', updateState); updateState(); confirmEl.focus();
+ cancelEl.addEventListener('click', function(){ document.body.removeChild(box); });
+ okEl.addEventListener('click', async function(){
+ okEl.disabled = true;
+ try {
+ const fd = new FormData(); fd.append('bulk_unlock_npcs', '1'); fd.append('confirm', String(confirmEl.value || ''));
+ const res = await fetch('npc_master.php', { method:'POST', body: fd });
+ let j = {}; try { j = await res.json(); } catch(_){ j = { ok:false, error:'Invalid JSON response' }; }
+ document.body.removeChild(box);
+ if (j && j.ok) {
+ try { const toast=document.getElementById('toast'); if (toast){ toast.querySelector('.message').textContent='Unlocked '+String(j.unlocked||0)+' NPC profiles'; toast.classList.add('show'); setTimeout(()=>toast.classList.remove('show'), 2400); } } catch(_){}
+ refreshList(1);
+ } else {
+ alert('Bulk unlock failed: ' + (j && j.error ? j.error : 'Unknown'));
+ }
+ } catch(_e) { okEl.disabled = false; }
+ });
+ });
+ }
+ window.bindNpcBulkUnlock = bindBulkUnlock;
+ bindBulkUnlock(document.getElementById('npc_bulk_unlock_btn'));
+ })();
  // Bulk profile switch wiring
  (function(){
  const profileOptions = Array.isArray(PROFILE_OPTIONS) ? PROFILE_OPTIONS : [];
@@ -3896,6 +3993,32 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  });
  });
  }
+ function bindAutoLockProfile(control){
+ if (!control || control.dataset.bound === '1') return;
+ control.dataset.bound = '1';
+ control.addEventListener('change', async function(){
+ const requested = !!control.checked;
+ control.disabled = true;
+ try {
+ const fd = new FormData();
+ fd.append('set_auto_lock_profile', '1');
+ fd.append('auto_lock_profile', requested ? '1' : '0');
+ const res = await fetch('npc_master.php', { method:'POST', body:fd });
+ let json = {};
+ try { json = await res.json(); } catch(_e) { json = { ok:false, error:'Invalid response' }; }
+ if (!json || !json.ok) {
+ control.checked = !requested;
+ alert('Failed to save Auto Lock Profiles: ' + (json && json.error ? json.error : 'Unknown error'));
+ }
+ } catch(_e) {
+ control.checked = !requested;
+ alert('Failed to save Auto Lock Profiles.');
+ } finally {
+ control.disabled = false;
+ }
+ });
+ }
+ bindAutoLockProfile(document.getElementById('npc_auto_lock_profile'));
  async function refreshList(page){
  const params = new URLSearchParams(window.location.search);
  const si = document.getElementById('npc_search');
@@ -3979,6 +4102,8 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  try { if (window.bindNpcImportButton) window.bindNpcImportButton(document.getElementById('npc_import_btn')); } catch(_){}
  // rebind bulk delete in refreshed DOM
  try { if (window.bindNpcBulkDelete) window.bindNpcBulkDelete(document.getElementById('npc_bulk_delete_btn')); } catch(_){}
+ // rebind bulk unlock in refreshed DOM
+ try { if (window.bindNpcBulkUnlock) window.bindNpcBulkUnlock(document.getElementById('npc_bulk_unlock_btn')); } catch(_){}
  // rebind mass switch in refreshed DOM
  try { if (window.bindNpcBulkSwitchProfile) window.bindNpcBulkSwitchProfile(document.getElementById('npc_bulk_switch_profile_btn')); } catch(_){}
  // Hook pagination links to AJAX
@@ -4001,6 +4126,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  }
  const newProfileSel = document.getElementById('npc_profile_filter');
  if (newProfileSel){ newProfileSel.addEventListener('change', function(){ refreshList(1); }); }
+ bindAutoLockProfile(document.getElementById('npc_auto_lock_profile'));
  }
  }
  // Simple debounce for input
