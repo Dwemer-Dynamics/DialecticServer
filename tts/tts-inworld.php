@@ -141,6 +141,33 @@ function clearInworldLastError(): void {
     unset($GLOBALS["INWORLD_LAST_ERROR_MESSAGE"]);
 }
 
+function getInworldAttemptKey(string $voiceName, ?array $config = null): string {
+    $config = is_array($config) ? $config : getInworldActiveConfig();
+    return getInworldVoiceCachePrefix($config) . strtolower(trim($voiceName));
+}
+
+function rememberInworldAttemptFailure(string $voiceName, string $message, ?array $config = null): void {
+    if (!isset($GLOBALS['INWORLD_FAILED_ATTEMPTS']) || !is_array($GLOBALS['INWORLD_FAILED_ATTEMPTS'])) {
+        $GLOBALS['INWORLD_FAILED_ATTEMPTS'] = [];
+    }
+    $GLOBALS['INWORLD_FAILED_ATTEMPTS'][getInworldAttemptKey($voiceName, $config)] = trim($message);
+}
+
+function getInworldAttemptFailure(string $voiceName, ?array $config = null): string {
+    return trim(strval($GLOBALS['INWORLD_FAILED_ATTEMPTS'][getInworldAttemptKey($voiceName, $config)] ?? ''));
+}
+
+function clearInworldAttemptFailure(string $voiceName, ?array $config = null): void {
+    unset($GLOBALS['INWORLD_FAILED_ATTEMPTS'][getInworldAttemptKey($voiceName, $config)]);
+}
+
+function findInworldVoiceSamplePath(string $voiceName): string {
+    $candidate = __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'data' .
+        DIRECTORY_SEPARATOR . 'voices' . DIRECTORY_SEPARATOR . $voiceName . '.wav';
+    $resolved = realpath($candidate);
+    return ($resolved !== false && is_file($resolved) && filesize($resolved) > 44) ? $resolved : '';
+}
+
 function ensureInworldDb() {
     if (!isset($GLOBALS["db"]) || !$GLOBALS["db"]) {
         require_once(__DIR__ . "/../lib/{$GLOBALS["DBDRIVER"]}.class.php");
@@ -530,6 +557,23 @@ function getExistingInworldVoiceIdByName($voiceName, ?array $config = null): str
     return '';
 }
 
+function getInworldVoiceStatus(string $voiceName, ?array $config = null): array {
+    $config = is_array($config) ? $config : getInworldActiveConfig();
+    $samplePath = findInworldVoiceSamplePath($voiceName);
+    $cachedVoiceId = getCachedInworldVoiceId($voiceName, $config);
+    $remoteVoiceId = getExistingInworldVoiceIdByName($voiceName, $config);
+
+    return [
+        'voice' => $voiceName,
+        'local_sample' => $samplePath !== '',
+        'sample_path' => $samplePath,
+        'cached' => $cachedVoiceId !== '',
+        'cached_voice_id' => $cachedVoiceId,
+        'remote' => $remoteVoiceId !== '',
+        'remote_voice_id' => $remoteVoiceId,
+    ];
+}
+
 
 /**
  * Get or create Inworld voice ID for a given voice sample
@@ -552,48 +596,31 @@ function getOrCreateInworldVoice($voiceName) {
         return $cachedVoiceId;
     }
 
+    $previousFailure = getInworldAttemptFailure($voiceName, $config);
+    if ($previousFailure !== '') {
+        setInworldLastError($previousFailure);
+        Logger::warn("Skipping repeated Inworld voice setup for {$voiceName} in this request: {$previousFailure}");
+        return false;
+    }
+
     $existingVoiceId = getExistingInworldVoiceIdByName($voiceName, $config);
     if ($existingVoiceId !== '') {
         Logger::info("Found existing Inworld voice for {$voiceName}: {$existingVoiceId}");
         storeCachedInworldVoiceId($voiceName, $existingVoiceId, $config);
+        clearInworldAttemptFailure($voiceName, $config);
         return $existingVoiceId;
     }
     
     // No cached voice ID, need to clone the voice
     Logger::info("No cached Inworld voice ID found for {$voiceName}, cloning voice...");
     
-    // Try multiple path formats
-    $baseDir = dirname(__FILE__);
-    $possiblePaths = array(
-        $baseDir . "/../data/voices/{$voiceName}.wav",
-        $baseDir . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "data" . DIRECTORY_SEPARATOR . "voices" . DIRECTORY_SEPARATOR . "{$voiceName}.wav",
-        __DIR__ . "/../data/voices/{$voiceName}.wav"
-    );
+    $voiceSamplePath = findInworldVoiceSamplePath($voiceName);
     
-    $voiceSamplePath = null;
-    foreach ($possiblePaths as $testPath) {
-        $normalized = realpath($testPath);
-        if ($normalized !== false && file_exists($normalized)) {
-            $voiceSamplePath = $normalized;
-            break;
-        }
-    }
-    
-    if ($voiceSamplePath === null || !file_exists($voiceSamplePath)) {
-        setInworldLastError("Voice sample not found for {$voiceName}.");
-        Logger::error("Voice sample not found: {$voiceName}.wav");
-        Logger::error("Searched paths:");
-        foreach ($possiblePaths as $testPath) {
-            $normalized = realpath($testPath);
-            Logger::error("  - {$testPath} " . ($normalized !== false && file_exists($normalized) ? "(found)" : "(not found)"));
-        }
-        // Check if voices directory exists
-        $voicesDir = dirname(__FILE__) . "/../data/voices";
-        if (!is_dir($voicesDir)) {
-            Logger::error("Voices directory does not exist: {$voicesDir}");
-        } else {
-            Logger::error("Voices directory exists but file not found. Available files: " . implode(", ", array_slice(scandir($voicesDir), 2)));
-        }
+    if ($voiceSamplePath === '') {
+        $message = "Voice sample not found for {$voiceName} in data/voices.";
+        setInworldLastError($message);
+        rememberInworldAttemptFailure($voiceName, $message, $config);
+        Logger::error($message);
         return false;
     }
     
@@ -606,11 +633,13 @@ function getOrCreateInworldVoice($voiceName) {
         if (getInworldLastError() === '') {
             setInworldLastError("Failed to clone voice {$voiceName} to Inworld.");
         }
+        rememberInworldAttemptFailure($voiceName, getInworldLastError(), $config);
         Logger::error("Failed to clone voice {$voiceName} to Inworld");
         return false;
     }
     
     storeCachedInworldVoiceId($voiceName, $inworldVoiceId, $config);
+    clearInworldAttemptFailure($voiceName, $config);
     clearInworldLastError();
     
     Logger::info("Successfully cloned voice {$voiceName} to Inworld with ID: {$inworldVoiceId}");
@@ -1083,8 +1112,14 @@ $GLOBALS["TTS_IN_USE"] = function($textString, $mood, $stringforhash) {
     $inworldVoiceId = getOrCreateInworldVoice($voiceName);
     
     if ($inworldVoiceId === false || empty($inworldVoiceId)) {
-        Logger::error("Failed to get or create Inworld voice for {$voiceName}");
-        return false;
+        $fallbackVoiceId = trim(strval($config['fallback_voice_id'] ?? ''));
+        if ($fallbackVoiceId !== '' && strpos($fallbackVoiceId, '__') !== false) {
+            Logger::warn("Using configured Inworld fallback voice for {$voiceName}: {$fallbackVoiceId}");
+            $inworldVoiceId = $fallbackVoiceId;
+        } else {
+            Logger::error("Failed to get or create Inworld voice for {$voiceName}: " . getInworldLastError());
+            return false;
+        }
     }
     
     // Validate voice ID format (should be workspace__voice format)

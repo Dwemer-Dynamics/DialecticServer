@@ -91,6 +91,7 @@ class TTSConnector
             'model_id' => 'inworld-tts-1',
             'temperature' => 1.0,
             'speed' => 1.0,
+            'fallback_voice_id' => '',
         ],
         '11labs' => [
             'optimize_streaming_latency' => '0',

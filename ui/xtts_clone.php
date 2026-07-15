@@ -3470,6 +3470,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         white-space: nowrap;
     }
 
+    .voice-status-item.inworld-voice-status-item {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px 12px;
+    }
+
+    .inworld-voice-status-item .voice-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .inworld-voice-status-item .inworld-status-badges {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 12px;
+    }
+
+    .inworld-voice-status-item .inworld-status-badges .status-icon {
+        margin: 0;
+        font-size: 11px;
+        line-height: 1.2;
+        white-space: nowrap;
+    }
+
+    .inworld-voice-status-item .voice-id {
+        grid-column: 1 / -1;
+        margin: 0;
+        max-width: 100%;
+    }
+
     /* Responsive Design */
     @media (max-width: 768px) {
         main {
@@ -4381,6 +4414,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $inworldConfigured = $inworldStatus['configured'];
             $localVoices = getLocalVoices();
             $clonedVoices = getClonedVoices('inworld');
+            $inworldDisplayVoices = array_values(array_unique(array_merge($localVoices, array_keys($clonedVoices))));
+            natcasesort($inworldDisplayVoices);
+            $inworldDisplayVoices = array_values($inworldDisplayVoices);
             $missingVoices = array_diff($localVoices, array_keys($clonedVoices));
             ?>
 
@@ -4397,16 +4433,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
 
             <div class="voice-status-grid">
-                <?php foreach ($localVoices as $voice): ?>
-                    <?php $isCloned = isset($clonedVoices[$voice]); ?>
-                    <div class="voice-status-item" onclick="copyToClipboard('<?php echo htmlspecialchars($voice, ENT_QUOTES); ?>')" title="Click to copy voice name">
+                <?php foreach ($inworldDisplayVoices as $voice): ?>
+                    <?php
+                    $voiceStatus = getInworldVoiceStatus($voice);
+                    $isCloned = $voiceStatus['cached'];
+                    $isRemote = $voiceStatus['remote'];
+                    $hasSample = $voiceStatus['local_sample'];
+                    ?>
+                    <div class="voice-status-item inworld-voice-status-item" onclick="copyToClipboard('<?php echo htmlspecialchars($voice, ENT_QUOTES); ?>')" title="Click to copy voice name">
                         <span class="voice-name"><?php echo htmlspecialchars($voice); ?></span>
-                        <span class="status-icon <?php echo $isCloned ? 'cloned' : 'not-cloned'; ?>">
-                            <?php echo $isCloned ? '✓' : '✗'; ?>
-                        </span>
+                        <div class="inworld-status-badges">
+                            <span class="status-icon <?php echo $hasSample ? 'cloned' : 'not-cloned'; ?>" title="Local WAV">
+                                WAV: <?php echo $hasSample ? 'YES' : 'NO'; ?>
+                            </span>
+                            <span class="status-icon <?php echo $isCloned ? 'cloned' : 'not-cloned'; ?>" title="Cached voice ID">
+                                CACHE: <?php echo $isCloned ? 'YES' : 'NO'; ?>
+                            </span>
+                            <span class="status-icon <?php echo $isRemote ? 'cloned' : 'not-cloned'; ?>" title="Voice found in configured Inworld workspace">
+                                REMOTE: <?php echo $isRemote ? 'YES' : 'NO'; ?>
+                            </span>
+                        </div>
                         <?php if ($isCloned): ?>
-                            <span class="voice-id" title="<?php echo htmlspecialchars($clonedVoices[$voice]); ?>">
-                                <?php echo htmlspecialchars(substr($clonedVoices[$voice], 0, 15)) . (strlen($clonedVoices[$voice]) > 15 ? '...' : ''); ?>
+                            <span class="voice-id" title="<?php echo htmlspecialchars($voiceStatus['cached_voice_id']); ?>">
+                                <?php echo htmlspecialchars(substr($voiceStatus['cached_voice_id'], 0, 15)) . (strlen($voiceStatus['cached_voice_id']) > 15 ? '...' : ''); ?>
                             </span>
                         <?php endif; ?>
                         <div class="button-container">
@@ -4424,7 +4473,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                     </div>
                 <?php endforeach; ?>
-                <?php if (empty($localVoices)): ?>
+                <?php if (empty($inworldDisplayVoices)): ?>
                     <p>No voice files found in <code>data/voices</code>. Upload voice samples in the XTTS tab first.</p>
                 <?php endif; ?>
             </div>

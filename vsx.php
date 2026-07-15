@@ -99,7 +99,7 @@ function normalize_endpoint_url($url)
 function dialecticVsxResolveCloneTtsRuntime(string $actorName): array
 {
     $ttsConnector = new TTSConnector();
-    $supportedCloneDrivers = ['xtts-fastapi', 'chatterbox', 'pockettts'];
+    $supportedCloneDrivers = ['xtts-fastapi', 'chatterbox', 'pockettts', 'inworld'];
 
     $fallbackDriver = $ttsConnector->normalizeDriverValue($GLOBALS["TTSFUNCTION"] ?? 'pockettts');
     if ($fallbackDriver === '') {
@@ -234,54 +234,38 @@ if (empty($_FILES["file"]["tmp_name"]) || !is_file($_FILES["file"]["tmp_name"]))
     dialecticVsxRespond(400, false, 'No voice sample uploaded');
 }
 
-$already   = ($ttsEndpoint !== '') ? file_exists($ttsEndpoint . "/sample/$codename.wav") : false;
 $finalName = __DIR__ . DIRECTORY_SEPARATOR . "soundcache/_vsx_" . md5($_FILES["file"]["tmp_name"]) . ".$ext";
 @copy($_FILES["file"]["tmp_name"], $finalName);
+$voiceCacheFile = $path . "data/voices/$codename.wav";
+$cacheAlreadyAvailable = is_file($voiceCacheFile) && filesize($voiceCacheFile) > 44;
 
-if (! $already) {
-
-    if (file_exists($path . "data/voices/$codename.wav")) {
-        // File exists in data/voices. Do not convert again.
-        $finalFile = $path . "data/voices/$codename.wav";
-
-    } else {
-
-        if (filesize($_FILES["file"]["tmp_name"]) == 0) {
-            Logger::error("Empty file {$_FILES["file"]["tmp_name"]}");
-            dialecticVsxRespond(400, false, 'Uploaded voice sample was empty');
-        }
-
-        Logger::info("Received sample: {$sourcePath}");
-
-        if ($ext === "fuz") {
-            $finalFile = fuzToWav($finalName);
-
-        } else if ($ext === "xwm") {
-
-            $finalFile = xwmToWav($finalName);
-
-        } else if ($ext === "wav") {
-
-            $finalFile = wavToWav($finalName);
-        } else if ($ext === "ogg") {
-
-            $finalFile = oggToWav($finalName);
-        }
-    }
-    if ($ttsEndpoint === '') {
-        dialecticVsxRespond(500, false, 'No clone TTS endpoint configured');
-    }
+if ($cacheAlreadyAvailable) {
+    // File exists in data/voices. Do not convert again.
+    $finalFile = $voiceCacheFile;
 
 } else {
-    Logger::info("Empty file {$_FILES["file"]["tmp_name"]} already exists at {$ttsEndpoint}/sample/$codename.wav");
 
-}
+    if (filesize($_FILES["file"]["tmp_name"]) == 0) {
+        Logger::error("Empty file {$_FILES["file"]["tmp_name"]}");
+        dialecticVsxRespond(400, false, 'Uploaded voice sample was empty');
+    }
 
-if ($already) {
-    dialecticVsxRespond(200, true, 'Voice sample already available', [
-        'codename' => $codename,
-        'already_available' => true,
-    ]);
+    Logger::info("Received sample: {$sourcePath}");
+
+    if ($ext === "fuz") {
+        $finalFile = fuzToWav($finalName);
+
+    } else if ($ext === "xwm") {
+
+        $finalFile = xwmToWav($finalName);
+
+    } else if ($ext === "wav") {
+
+        $finalFile = wavToWav($finalName);
+    } else if ($ext === "ogg") {
+
+        $finalFile = oggToWav($finalName);
+    }
 }
 
 if (empty($finalFile) || !file_exists($finalFile) || filesize($finalFile) <= 0) {
@@ -291,8 +275,7 @@ if (empty($finalFile) || !file_exists($finalFile) || filesize($finalFile) <= 0) 
     ]);
 }
 
-// Lets store voice files
-$voiceCacheFile = $path . "data/voices/$codename.wav";
+// Store every converted sample locally. Cloud connectors such as Inworld clone from this cache.
 $finalRealPath = realpath($finalFile);
 $cacheRealPath = realpath($voiceCacheFile);
 $cacheAlreadyIsFinalFile = $finalRealPath !== false
@@ -306,24 +289,25 @@ if (!$cacheCopyOk || !file_exists($voiceCacheFile) || filesize($voiceCacheFile) 
     ]);
 }
 
-$url  = $ttsEndpoint . '/upload_sample';
-$curl = curl_init();
-
-// Set cURL options
-curl_setopt_array($curl, [
-    CURLOPT_URL            => $url,
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_POST           => true,
-    CURLOPT_POSTFIELDS     => [
-        'wavFile' => new CURLFile($finalFile, 'audio/wav', "$codename.wav"),
-    ],
-    CURLOPT_HTTPHEADER     => [
-        'Content-Type: multipart/form-data',
-    ],
-]);
-
-// Execute cURL request and get response
-$response = curl_exec($curl);
+if ($ttsEndpoint !== '') {
+    $url  = $ttsEndpoint . '/upload_sample';
+    $curl = curl_init();
+    curl_setopt_array($curl, [
+        CURLOPT_URL            => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => [
+            'wavFile' => new CURLFile($finalFile, 'audio/wav', "$codename.wav"),
+        ],
+        CURLOPT_HTTPHEADER     => [
+            'Content-Type: multipart/form-data',
+        ],
+    ]);
+    curl_exec($curl);
+    curl_close($curl);
+} else {
+    Logger::info("[vsx] Cached {$codename}.wav locally for {$vsxTtsRuntime['driver']}; no local clone endpoint required");
+}
 dialectic_sync_voice_clone_sample($codename, $finalFile, [
     'root' => $path,
     'actor_name' => $actorName,
@@ -334,4 +318,6 @@ audit_log("vsx.php voice available for {$actorName}");
 dialecticVsxRespond(200, true, 'Voice sample uploaded', [
     'codename' => $codename,
     'driver' => $vsxTtsRuntime['driver'] ?? '',
+    'already_available' => $cacheAlreadyAvailable,
+    'cached_path' => "data/voices/$codename.wav",
 ]);
