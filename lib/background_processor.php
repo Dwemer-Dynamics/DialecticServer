@@ -12,11 +12,17 @@ function dialecticBackgroundProcessorPort(): int
 {
     // CHIM owns 12345 and Stobe owns 12346. Keep Dialectic isolated so
     // one server cannot mistake another server's worker for its own.
-    return 12347;
+    $configuredPort = (int)(getenv('DIALECTIC_BACKGROUND_PORT') ?: 12347);
+    return ($configuredPort >= 1 && $configuredPort <= 65535) ? $configuredPort : 12347;
 }
 
 function dialecticBackgroundProcessorStartScriptPath(): string
 {
+    $configuredPath = trim((string)getenv('DIALECTIC_BACKGROUND_START_SCRIPT'));
+    if ($configuredPath !== '') {
+        return $configuredPath;
+    }
+
     if (isset($GLOBALS['ENGINE_ROOT']) && is_string($GLOBALS['ENGINE_ROOT']) && $GLOBALS['ENGINE_ROOT'] !== '') {
         $engineRoot = rtrim($GLOBALS['ENGINE_ROOT'], DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
     } elseif (defined('BASE_PATH')) {
@@ -26,6 +32,13 @@ function dialecticBackgroundProcessorStartScriptPath(): string
     }
 
     return $engineRoot . 'service' . DIRECTORY_SEPARATOR . 'start.sh';
+}
+
+function dialecticBackgroundProcessorStateDirectory(): string
+{
+    $configuredPath = trim((string)getenv('DIALECTIC_BACKGROUND_STATE_DIR'));
+    $stateDirectory = $configuredPath !== '' ? $configuredPath : sys_get_temp_dir();
+    return rtrim($stateDirectory, DIRECTORY_SEPARATOR);
 }
 
 function dialecticBackgroundProcessorLog(string $level, string $message, array $context = []): void
@@ -54,7 +67,7 @@ function dialecticBackgroundProcessorLog(string $level, string $message, array $
     error_log('[HELPER] ' . $message);
 }
 
-function dialecticBackgroundProcessorIsRunning(float $timeoutSeconds = 0.8): bool
+function dialecticBackgroundProcessorIsRunning(float $timeoutSeconds = 0.15): bool
 {
     $port = dialecticBackgroundProcessorPort();
     if ($port < 1 || $port > 65535) {
@@ -67,13 +80,10 @@ function dialecticBackgroundProcessorIsRunning(float $timeoutSeconds = 0.8): boo
         $timeoutSeconds = 2.0;
     }
 
-    for ($attempt = 0; $attempt < 4; $attempt++) {
-        $socket = @fsockopen('127.0.0.1', $port, $errno, $errstr, $timeoutSeconds);
-        if (is_resource($socket)) {
-            @fclose($socket);
-            return true;
-        }
-        usleep(100000);
+    $socket = @fsockopen('127.0.0.1', $port, $errno, $errstr, $timeoutSeconds);
+    if (is_resource($socket)) {
+        @fclose($socket);
+        return true;
     }
 
     return false;
@@ -102,32 +112,54 @@ function dialecticEnsureBackgroundProcessorRunning(bool $logFailures = true): bo
         return false;
     }
 
-    $command = 'nohup bash ' . escapeshellarg($startScript) . ' > /dev/null 2>&1 < /dev/null &';
-    @shell_exec($command);
-
-    $running = false;
-    for ($attempt = 0; $attempt < 20; $attempt++) {
-        usleep(150000);
-        if (dialecticBackgroundProcessorIsRunning(0.25)) {
-            $running = true;
-            break;
+    $stateDirectory = dialecticBackgroundProcessorStateDirectory();
+    if (!is_dir($stateDirectory) && !@mkdir($stateDirectory, 0775, true) && !is_dir($stateDirectory)) {
+        if ($logFailures) {
+            dialecticBackgroundProcessorLog('warn', 'Background processor state directory is unavailable', [
+                'path' => $stateDirectory,
+            ]);
         }
+        return false;
     }
 
-    if ($running) {
-        dialecticBackgroundProcessorLog('info', 'Background processor started', [
+    $lockPath = $stateDirectory . DIRECTORY_SEPARATOR . 'dialectic_background_processor_start.lock';
+    $attemptPath = $stateDirectory . DIRECTORY_SEPARATOR . 'dialectic_background_processor_start.attempt';
+    $lockHandle = @fopen($lockPath, 'c');
+    if (!is_resource($lockHandle) || !@flock($lockHandle, LOCK_EX | LOCK_NB)) {
+        if (is_resource($lockHandle)) {
+            @fclose($lockHandle);
+        }
+        return false;
+    }
+
+    try {
+        if (dialecticBackgroundProcessorIsRunning(0.1)) {
+            return true;
+        }
+
+        $cooldownSeconds = max(5, (int)(getenv('DIALECTIC_BACKGROUND_START_COOLDOWN_SECONDS') ?: 30));
+        $lastAttempt = is_file($attemptPath) ? (int)@filemtime($attemptPath) : 0;
+        if ($lastAttempt > 0 && (time() - $lastAttempt) < $cooldownSeconds) {
+            return false;
+        }
+
+        @touch($attemptPath);
+        $command = 'nohup bash ' . escapeshellarg($startScript) . ' > /dev/null 2>&1 < /dev/null &';
+        @shell_exec($command);
+
+        // Do not hold a game request open while the daemon completes startup.
+        usleep(100000);
+        $running = dialecticBackgroundProcessorIsRunning(0.1);
+        dialecticBackgroundProcessorLog($running ? 'info' : 'warn', $running
+            ? 'Background processor started'
+            : 'Background processor start requested; service is not ready yet', [
             'port' => dialecticBackgroundProcessorPort(),
             'script' => $startScript,
+            'cooldown_seconds' => $cooldownSeconds,
         ]);
-        return true;
+        return $running;
+    } finally {
+        @flock($lockHandle, LOCK_UN);
+        @fclose($lockHandle);
     }
-
-    if ($logFailures) {
-        dialecticBackgroundProcessorLog('warn', 'Background processor failed to start', [
-            'port' => dialecticBackgroundProcessorPort(),
-            'script' => $startScript,
-        ]);
-    }
-
-    return false;
 }
