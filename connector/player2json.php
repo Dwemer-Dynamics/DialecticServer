@@ -411,7 +411,7 @@ class player2json
                                 $GLOBALS["PATCH_STORE_FUNC_RES"]="{$GLOBALS["DIALECTIC_NAME"]} issued ACTION, but {$element["content"]}";
                                 $contextDataCopy[]=[
                                     "role"=>"user",
-                                    "content"=>"The Narrator: ({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]}"
+                                    "content"=>dialecticBuildNarratorContextLine("({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]}")
                                     
                                 ];
                             } else {
@@ -419,7 +419,7 @@ class player2json
                                 $GLOBALS["PATCH_STORE_FUNC_RES"]=strtr($lastAction,["#RESULT#"=>$element["content"]]);
                                 $contextDataCopy[]=[
                                     "role"=>"user",
-                                    "content"=>"The Narrator: ({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]} ",
+                                    "content"=>dialecticBuildNarratorContextLine("({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]}"),
                                     
                                 ];
                             }

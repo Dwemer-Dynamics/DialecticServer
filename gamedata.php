@@ -174,10 +174,10 @@ try {
             handleLoadedPluginsUpdate($data);
             break;
         case 'world_locations':
-            handleWorldLocationsUpdate($data);
+            $responseExtra = handleWorldLocationsUpdate($data);
             break;
         case 'world_factions':
-            handleWorldFactionsUpdate($data);
+            $responseExtra = handleWorldFactionsUpdate($data);
             break;
         case 'dialogue_delivery':
             handleDialogueDeliveryUpdate($data);
@@ -359,16 +359,16 @@ function handleLoadedPluginsUpdate(array $data): void
     Logger::debug("[gamedata.php] Updated loaded plugin manifest ({$pluginCount} plugins)");
 }
 
-function handleWorldLocationsUpdate(array $data): void
+function handleWorldLocationsUpdate(array $data): array
 {
     $db = $GLOBALS['db'];
-    $locations = $data['locations'] ?? [];
-    if (!is_array($locations)) {
-        Logger::warn("[gamedata.php] world_locations missing locations payload");
-        return;
+    if (!array_key_exists('locations', $data) || !is_array($data['locations'])) {
+        throw new InvalidArgumentException('world_locations missing locations payload');
     }
+    $locations = $data['locations'];
 
-    if (filter_var($data['replace'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+    $replace = filter_var($data['replace'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    if ($replace) {
         $db->execQuery("TRUNCATE TABLE public.locations");
     }
 
@@ -417,18 +417,25 @@ function handleWorldLocationsUpdate(array $data): void
     }
 
     Logger::debug("[gamedata.php] Updated world locations ({$saved} rows)");
+    return [
+        'received' => count($locations),
+        'saved' => $saved,
+        'replace' => $replace,
+        'batch_index' => max(0, (int)($data['batch_index'] ?? 0)),
+        'batch_count' => max(0, (int)($data['batch_count'] ?? 0)),
+    ];
 }
 
-function handleWorldFactionsUpdate(array $data): void
+function handleWorldFactionsUpdate(array $data): array
 {
     $db = $GLOBALS['db'];
-    $factions = $data['factions'] ?? [];
-    if (!is_array($factions)) {
-        Logger::warn("[gamedata.php] world_factions missing factions payload");
-        return;
+    if (!array_key_exists('factions', $data) || !is_array($data['factions'])) {
+        throw new InvalidArgumentException('world_factions missing factions payload');
     }
+    $factions = $data['factions'];
 
-    if (filter_var($data['replace'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+    $replace = filter_var($data['replace'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    if ($replace) {
         $db->execQuery("TRUNCATE TABLE public.factions");
     }
 
@@ -458,6 +465,13 @@ function handleWorldFactionsUpdate(array $data): void
     }
 
     Logger::debug("[gamedata.php] Updated world factions ({$saved} rows)");
+    return [
+        'received' => count($factions),
+        'saved' => $saved,
+        'replace' => $replace,
+        'batch_index' => max(0, (int)($data['batch_index'] ?? 0)),
+        'batch_count' => max(0, (int)($data['batch_count'] ?? 0)),
+    ];
 }
 
 function handleDialogueDeliveryUpdate(array $data): void

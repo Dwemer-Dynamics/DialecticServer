@@ -101,7 +101,7 @@ $columnHeaders = [
     'ts' => 'TS',
 ];
 
-$mappedResults = array_map(function ($row) use ($columnHeaders) {
+$mappedResults = array_map(function ($row) use ($columnHeaders, $rawFormat) {
     $mappedRow = [];
     
     // Derive People Present from JSON in data if people field is empty
@@ -119,8 +119,14 @@ $mappedResults = array_map(function ($row) use ($columnHeaders) {
             }
         }
     }
+    if (function_exists('dialecticRenderNarratorRoleplayText')) {
+        $peoplePresent = dialecticRenderNarratorRoleplayText($peoplePresent);
+    }
     
     foreach ($row as $key => $value) {
+        if ($key === 'data' && function_exists('dialecticRenderNarratorRoleplayText')) {
+            $value = dialecticRenderNarratorRoleplayText($value);
+        }
         if ($key === 'gamets' && !empty($value)) {
             // Convert gamets to Fallout date format
             $value = convert_gamets2fallout_long_date2($value);
@@ -172,7 +178,10 @@ $response = [
     'data' => $mappedResults,
     'timestamp' => time(),
     'new_count' => count($mappedResults),
-    'latest_gamets' => $latestGamets
+    'latest_gamets' => $latestGamets,
+    'narrator_name' => function_exists('dialecticGetNarratorRoleplayName')
+        ? dialecticGetNarratorRoleplayName()
+        : 'The Narrator'
 ];
 
 // Only include pagination if not doing incremental update

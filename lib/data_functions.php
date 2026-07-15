@@ -63,10 +63,18 @@ function ReplacePlayerNamePlaceholder($s_input) {
     //replace #PLAYER_NAME# with player name
     $s_res = $s_input;
     if ((strlen(trim($s_input))) > 12) {
+        $promptCharacterName = function_exists('dialecticGetPromptCharacterName')
+            ? dialecticGetPromptCharacterName()
+            : $GLOBALS["DIALECTIC_NAME"];
+        $narratorRoleplayName = function_exists('dialecticGetNarratorRoleplayName')
+            ? dialecticGetNarratorRoleplayName()
+            : 'The Narrator';
         $s_res = strtr($s_input, [
-            "{DIALECTIC_NAME}" =>$GLOBALS["DIALECTIC_NAME"],
+            "{DIALECTIC_NAME}" =>$promptCharacterName,
+            "{NARRATOR_NAME}" =>$narratorRoleplayName,
             "{PLAYER_NAME}"=>$GLOBALS["PLAYER_NAME"],
-            "#DIALECTIC_NAME#" =>$GLOBALS["DIALECTIC_NAME"],
+            "#DIALECTIC_NAME#" =>$promptCharacterName,
+            "#NARRATOR_NAME#" =>$narratorRoleplayName,
             "#PLAYER_NAME#"=>$GLOBALS["PLAYER_NAME"]
         ]);
     }

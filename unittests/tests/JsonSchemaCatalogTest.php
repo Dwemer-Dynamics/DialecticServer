@@ -4,6 +4,8 @@ use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'response.php';
 require_once dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'logger.php';
+require_once dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'core'
+    .DIRECTORY_SEPARATOR.'narrator.class.php';
 
 final class JsonSchemaCatalogTest extends TestCase
 {
@@ -69,6 +71,22 @@ final class JsonSchemaCatalogTest extends TestCase
         $this->assertSame('rolecommand', $line['action']);
         $this->assertSame('Follow', $line['command_name']);
         $this->assertSame(['Graussy'], $line['command_args']);
+    }
+
+    public function testNarratorResponseKeepsCanonicalSpeakerAndAddsDisplayName(): void
+    {
+        $GLOBALS['DIALECTIC_RESPONSE_FORMAT'] = 'json';
+        $GLOBALS['DIALECTIC_RESPONSE_STREAMING'] = false;
+        $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'] = [];
+        $GLOBALS['NARRATOR_ROLEPLAY_NAME'] = 'Mercy';
+
+        dialectic_buffer_response_line('The Narrator', 'say', 'Welcome back.');
+
+        $this->assertCount(1, $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES']);
+        $line = $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'][0];
+        $this->assertSame('The Narrator', $line['speaker']);
+        $this->assertSame('Mercy', $line['display_name']);
+        $this->assertSame('Welcome back.', $line['subtitle']);
     }
 
     public function testRechatSpeechCarriesExactFacingTargetFormId(): void
