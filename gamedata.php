@@ -472,7 +472,7 @@ function handleDialogueDeliveryUpdate(array $data): void
         return;
     }
 
-    $allowedStates = ['emitted', 'spoken', 'aborted', 'failed'];
+    $allowedStates = ['emitted', 'spoken', 'text_only', 'aborted', 'failed'];
     if (!in_array($state, $allowedStates, true)) {
         Logger::warn("[gamedata.php] dialogue_delivery ignored invalid state '{$state}'");
         return;
