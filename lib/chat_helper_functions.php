@@ -3032,6 +3032,10 @@ function normalizeDialogueListenerName($listenerName)
         return trim((string)$GLOBALS["PLAYER_NAME"]);
     }
 
+    if (function_exists('dialecticNormalizeNarratorRoleplayActorName')) {
+        return dialecticNormalizeNarratorRoleplayActorName($listenerName);
+    }
+
     return $listenerName;
 }
 
@@ -5112,11 +5116,18 @@ function arrayToBulletedList($items, $bulletChar = " *") {
  */
 function make_replacements_bracketed($text)
 {
+    $promptCharacterName = function_exists('dialecticGetPromptCharacterName')
+        ? dialecticGetPromptCharacterName()
+        : $GLOBALS["DIALECTIC_NAME"];
+    $narratorRoleplayName = function_exists('dialecticGetNarratorRoleplayName')
+        ? dialecticGetNarratorRoleplayName()
+        : 'The Narrator';
 
     return strtr($text, [
         "{LOCATION}" => DataLastKnownLocationHuman(),
         "{PLAYER_NAME}"   => $GLOBALS["PLAYER_NAME"],
-        "{DIALECTIC_NAME}"   => $GLOBALS["DIALECTIC_NAME"],
+        "{DIALECTIC_NAME}"   => $promptCharacterName,
+        "{NARRATOR_NAME}" => $narratorRoleplayName,
         "{TEMPLATE_DIALOG}"   => $GLOBALS["TEMPLATE_DIALOG"],
     ]);
 }

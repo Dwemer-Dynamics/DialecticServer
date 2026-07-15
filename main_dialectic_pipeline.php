@@ -1744,7 +1744,7 @@ if (in_array('Training', $GLOBALS["ENABLED_FUNCTIONS"]) && isset($currentNpcData
         $functionName = "Train" . ucfirst($skill);
         $GLOBALS["FUNCTIONS"][] = [
             "name" => $functionName,
-            "description" => "{$GLOBALS["DIALECTIC_NAME"]} offers {$tier} {$skill} training.",
+            "description" => (function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : $GLOBALS["DIALECTIC_NAME"]) . " offers {$tier} {$skill} training.",
             "parameters" => [
                 "type" => "object",
                 "properties" => [
@@ -1785,7 +1785,8 @@ if (!empty($GLOBALS["NARRATOR_BORED_EVENT_ACTIVE"]) && $gameRequest[0] == "bored
     }
 
     $PROMPTS["bored"]["cue"] = [strtr($boredPrompt, [
-        '{DIALECTIC_NAME}' => $GLOBALS["DIALECTIC_NAME"] ?? 'The Narrator',
+        '{DIALECTIC_NAME}' => function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : ($GLOBALS["DIALECTIC_NAME"] ?? 'The Narrator'),
+        '{NARRATOR_NAME}' => function_exists('dialecticGetNarratorRoleplayName') ? dialecticGetNarratorRoleplayName() : 'The Narrator',
         '{PLAYER_NAME}' => $GLOBALS["PLAYER_NAME"] ?? 'Player',
         '{TEMPLATE_DIALOG}' => $GLOBALS["TEMPLATE_DIALOG"] ?? '',
     ])];
@@ -2444,7 +2445,8 @@ if (isset($GLOBALS["TTSFUNCTION"]) && !empty($GLOBALS["TTSFUNCTION"])) {
 
 $promptInjectionContext = [
     "game_request" => $gameRequest,
-    "dialectic_name" => $GLOBALS["DIALECTIC_NAME"] ?? "",
+    "dialectic_name" => function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : ($GLOBALS["DIALECTIC_NAME"] ?? ""),
+    "narrator_name" => function_exists('dialecticGetNarratorRoleplayName') ? dialecticGetNarratorRoleplayName() : 'The Narrator',
     "player_name" => $GLOBALS["PLAYER_NAME"] ?? "",
 ];
 $characterBottomInjections = function_exists('dialecticRenderPromptInjections')
@@ -2469,7 +2471,11 @@ $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
 $systemPrompt = dialecticFormatPromptXmlSections(
     strtr(
         $systemPromptRaw,
-        ["#PLAYER_NAME#" => $GLOBALS["PLAYER_NAME"], "#DIALECTIC_NAME#" => $GLOBALS["DIALECTIC_NAME"]]
+        [
+            "#PLAYER_NAME#" => $GLOBALS["PLAYER_NAME"],
+            "#DIALECTIC_NAME#" => function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : $GLOBALS["DIALECTIC_NAME"],
+            "#NARRATOR_NAME#" => function_exists('dialecticGetNarratorRoleplayName') ? dialecticGetNarratorRoleplayName() : 'The Narrator',
+        ]
     )
 );
 
@@ -2554,6 +2560,10 @@ if ($gameRequest[0] == "funcret") {
 
     $contextData = array_merge($head, ($contextDataFull), $prompt);
     
+}
+
+if (isset($contextData) && is_array($contextData) && function_exists('dialecticApplyNarratorRoleplayNameToContext')) {
+    $contextData = dialecticApplyNarratorRoleplayNameToContext($contextData);
 }
 
 

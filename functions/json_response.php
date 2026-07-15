@@ -188,6 +188,9 @@
     // specify the available actions which will be made available in the context
     if (!function_exists('setActions')) {
     Function setActions() {
+        $promptCharacterName = function_exists('dialecticGetPromptCharacterName')
+            ? dialecticGetPromptCharacterName()
+            : ($GLOBALS["DIALECTIC_NAME"] ?? 'The Narrator');
         // Initialize actions list
         $GLOBALS["PROMPT_ACTIONS_LIST"] = "";
         $GLOBALS["COMMAND_PROMPT_FUNCTIONS"] = $GLOBALS["COMMAND_PROMPT_FUNCTIONS"] ?? "";
@@ -243,7 +246,7 @@
                 } else if ($fname == "TakeCapsFromPlayer") {
                     $GLOBALS["PROMPT_ACTIONS_LIST"].="\nAVAILABLE ACTION: {$function["name"]} ({$actionDescription}). Put the caps amount in 'amount'.";
                 } else if ($fname == "Consume") {
-				$GLOBALS["PROMPT_ACTIONS_LIST"].="\nAVAILABLE ACTION: {$function["name"]} ({$actionDescription}). Put the exact item name from <inventory> in the 'target' field. Only use this for food, drinks, chems, or aid items already in inventory. Leave 'item' blank unless you need it as a fallback copy of the same item name. The spoken reply for this action happens after the item is consumed, so use it only when {$GLOBALS["DIALECTIC_NAME"]} is actually going to use that item.";
+                $GLOBALS["PROMPT_ACTIONS_LIST"].="\nAVAILABLE ACTION: {$function["name"]} ({$actionDescription}). Put the exact item name from <inventory> in the 'target' field. Only use this for food, drinks, chems, or aid items already in inventory. Leave 'item' blank unless you need it as a fallback copy of the same item name. The spoken reply for this action happens after the item is consumed, so use it only when {$promptCharacterName} is actually going to use that item.";
                 } else if ($fname == "GiveItemTo") {
                     $GLOBALS["PROMPT_ACTIONS_LIST"].="\nAVAILABLE ACTION: {$function["name"]} ({$actionDescription}). Put the recipient in 'target', exact inventory item name in 'item', and quantity in 'amount'.";
                 } else if ($fname == "PickupItem") {
@@ -265,6 +268,9 @@
     // specify the json object that will be requested from the LLM (via prompt, not enforced)
     if (!function_exists('setResponseTemplate')) {
     Function setResponseTemplate() {
+        $promptCharacterName = function_exists('dialecticGetPromptCharacterName')
+            ? dialecticGetPromptCharacterName()
+            : ($GLOBALS["DIALECTIC_NAME"] ?? 'The Narrator');
         $moods=normalizeEmoteMoods($GLOBALS["EMOTEMOODS"] ?? "");
         shuffle($moods);
         $moodDescription = empty($moods)
@@ -285,9 +291,9 @@
         }
     
         // Build listener description - for rechat events, encourage addressing the previous speaker
-        $listenerDesc = "specify who {$GLOBALS["DIALECTIC_NAME"]} is talking to, comma separated, max two listeners, in addressing order";
+        $listenerDesc = "specify who {$promptCharacterName} is talking to, comma separated, max two listeners, in addressing order";
         if (dialecticIsVisionRequest()) {
-            $listenerDesc = "leave blank unless {$GLOBALS["DIALECTIC_NAME"]} directly addresses someone while explaining the current scene";
+            $listenerDesc = "leave blank unless {$promptCharacterName} directly addresses someone while explaining the current scene";
         } elseif (
             isset($GLOBALS["gameRequest"]) &&
             (
@@ -297,7 +303,7 @@
         ) {
             $listenerDesc = function_exists('dialecticLoadManagedRechatListenerPrompt')
                 ? dialecticLoadManagedRechatListenerPrompt()
-                : "specify who {$GLOBALS["DIALECTIC_NAME"]} is talking to. Address whoever just spoke - can be any person in the conversation.";
+                : "specify who {$promptCharacterName} is talking to. Address whoever just spoke - can be any person in the conversation.";
         }
     
         // Determine message description based on inline narration mode.
@@ -311,9 +317,9 @@
         $inlineNarrationEnabled = $inlineNarrationMode !== 'disabled';
         $messageDescription = "lines of dialogue";
         if (dialecticIsVisionRequest()) {
-            $messageDescription = "{$GLOBALS["DIALECTIC_NAME"]}'s spoken explanation of the current scene. Describe only what is visibly present right now through {$GLOBALS["PLAYER_NAME"]}'s eyes, focusing on people, environment, objects, and immediate activity. Do not continue unrelated conversation, do not answer stale dialogue, and do not invent unseen details.";
+            $messageDescription = "{$promptCharacterName}'s spoken explanation of the current scene. Describe only what is visibly present right now through {$GLOBALS["PLAYER_NAME"]}'s eyes, focusing on people, environment, objects, and immediate activity. Do not continue unrelated conversation, do not answer stale dialogue, and do not invent unseen details.";
         } elseif ($inlineNarrationEnabled) {
-            $messageDescription = "If needed, start with one brief third-person narration block in single asterisks, then put {$GLOBALS["DIALECTIC_NAME"]}'s spoken text after it. Example: *She smiles* It's good to see you again, my friend! Do not wrap the entire reply in asterisks, and keep spoken dialogue outside the asterisks.";
+            $messageDescription = "If needed, start with one brief third-person narration block in single asterisks, then put {$promptCharacterName}'s spoken text after it. Example: *She smiles* It's good to see you again, my friend! Do not wrap the entire reply in asterisks, and keep spoken dialogue outside the asterisks.";
         } elseif (dialecticIsDirectNarratorDialogue()) {
             $messageDescription = "plain spoken dialogue addressed directly to {$GLOBALS["PLAYER_NAME"]}. Keep the spoken reply consistent with the chosen narrator action when you use one. Do not include third-person narration, scene description, stage directions, or text in asterisks.";
         }
@@ -387,12 +393,15 @@
     // for use with openai and openrouter providers that support structured outputs to enforce a json schema
     if (!function_exists('setStructuredOutputTemplate')) {
     Function setStructuredOutputTemplate() {
+        $promptCharacterName = function_exists('dialecticGetPromptCharacterName')
+            ? dialecticGetPromptCharacterName()
+            : ($GLOBALS["DIALECTIC_NAME"] ?? 'The Narrator');
         $moods=normalizeEmoteMoods($GLOBALS["EMOTEMOODS"] ?? "");
         shuffle($moods);
         $moodDescription = "choose exactly one mood while speaking, never combine moods";
         $listenerDescription = dialecticIsVisionRequest()
-            ? "leave blank unless {$GLOBALS["DIALECTIC_NAME"]} directly addresses someone while explaining the current scene"
-            : "specify who {$GLOBALS["DIALECTIC_NAME"]} is talking to, comma separated, max two listeners, in addressing order";
+            ? "leave blank unless {$promptCharacterName} directly addresses someone while explaining the current scene"
+            : "specify who {$promptCharacterName} is talking to, comma separated, max two listeners, in addressing order";
 
         // Determine message description based on inline narration mode.
         $inlineNarrationMode = strtolower(trim((string)($GLOBALS["INLINE_NARRATION_MODE"] ?? '')));
@@ -403,11 +412,11 @@
             $inlineNarrationMode = 'disabled';
         }
         $inlineNarrationEnabled = $inlineNarrationMode !== 'disabled';
-        $messageDescription = "lines of {$GLOBALS["DIALECTIC_NAME"]}'s dialogue";
+        $messageDescription = "lines of {$promptCharacterName}'s dialogue";
         if (dialecticIsVisionRequest()) {
-            $messageDescription = "{$GLOBALS["DIALECTIC_NAME"]}'s spoken explanation of the current scene. Describe only what is visibly present right now through {$GLOBALS["PLAYER_NAME"]}'s eyes, focusing on people, environment, objects, and immediate activity. Do not continue unrelated conversation, do not answer stale dialogue, and do not invent unseen details.";
+            $messageDescription = "{$promptCharacterName}'s spoken explanation of the current scene. Describe only what is visibly present right now through {$GLOBALS["PLAYER_NAME"]}'s eyes, focusing on people, environment, objects, and immediate activity. Do not continue unrelated conversation, do not answer stale dialogue, and do not invent unseen details.";
         } elseif ($inlineNarrationEnabled) {
-            $messageDescription = "If needed, start with one brief third-person narration block in single asterisks, then put {$GLOBALS["DIALECTIC_NAME"]}'s spoken text after it. Example: *She smiles* It's good to see you again, my friend! Do not wrap the entire reply in asterisks, and keep spoken dialogue outside the asterisks.";
+            $messageDescription = "If needed, start with one brief third-person narration block in single asterisks, then put {$promptCharacterName}'s spoken text after it. Example: *She smiles* It's good to see you again, my friend! Do not wrap the entire reply in asterisks, and keep spoken dialogue outside the asterisks.";
         } elseif (dialecticIsDirectNarratorDialogue()) {
             $messageDescription = "plain spoken dialogue addressed directly to {$GLOBALS["PLAYER_NAME"]}. Keep the spoken reply consistent with the chosen narrator action when you use one. Do not include third-person narration, scene description, stage directions, or text in asterisks.";
         }
@@ -421,7 +430,7 @@
                     "properties" => array(
                         "character" => array(
                             "type" => "string",
-                            "description" => $GLOBALS["DIALECTIC_NAME"]
+                            "description" => $promptCharacterName
                         ),
                         "listener" => array(
                             "type" => "string",

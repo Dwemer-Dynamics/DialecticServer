@@ -70,6 +70,12 @@ function dialectic_buffer_response_line(string $speaker, string $action, string 
         "text" => $text,
     ];
 
+    if (strcasecmp($speaker, 'The Narrator') === 0) {
+        $line["display_name"] = function_exists('dialecticGetNarratorRoleplayName')
+            ? dialecticGetNarratorRoleplayName()
+            : 'The Narrator';
+    }
+
     if (strtolower($action) === "say") {
         $textOnly = strtolower(trim(strval($metadata["listener"] ?? ""))) === "__player_text_only" ||
             !empty($metadata["text_only"]);
@@ -130,9 +136,10 @@ function dialectic_buffer_response_line(string $speaker, string $action, string 
             "task_id",
             "speech",
             "request_type",
+            "display_name",
         ];
         foreach ($topLevelMetadataKeys as $metadataKey) {
-        if (isset($metadata[$metadataKey]) && trim(strval($metadata[$metadataKey])) !== "") {
+            if (isset($metadata[$metadataKey]) && trim(strval($metadata[$metadataKey])) !== "") {
                 $line[$metadataKey] = trim(strval($metadata[$metadataKey]));
             }
         }

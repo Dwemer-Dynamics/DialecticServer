@@ -1280,16 +1280,43 @@ FROM restore
             'sync_sample' => false,
         ]);
 
+        $usesVoiceSample = dialectic_tts_active_provider_uses_voice_sample();
+        $fallbackReason = '';
+        if ($usesVoiceSample && $voiceSample === '') {
+            $fallbackVoice = trim(strval($voiceResolution['fallback_voice'] ?? ''));
+            if ($fallbackVoice !== '' && strcasecmp($fallbackVoice, $resolvedVoice) !== 0) {
+                $fallbackSample = dialectic_resolve_voice_clone_wav($fallbackVoice, [
+                    'actor_name' => $currentNpcData['npc_name'] ?? '',
+                    'sync_sample' => false,
+                ]);
+                $voiceResolution['resolved_voice'] = $fallbackVoice;
+                $voiceResolution['used_fallback'] = true;
+                $voiceResolution['fallback_reason'] = 'sample_missing';
+                $resolvedVoice = $fallbackVoice;
+                $voiceSample = $fallbackSample;
+                $fallbackReason = 'sample_missing';
+
+                if (class_exists('Logger')) {
+                    Logger::warn('[TTS FALLBACK] Requested NPC voice sample is unavailable; using connector fallback' . Logger::formatContext([
+                        'npc' => $currentNpcData['npc_name'] ?? '',
+                        'requested_voice' => $voiceResolution['original_voice'] ?? '',
+                        'fallback_voice' => $fallbackVoice,
+                    ]));
+                }
+            }
+        }
+
         if (class_exists('Logger')) {
             Logger::phaseEnd('voice_clone_resolve_wav', [
                 'voice' => $resolvedVoice,
                 'sample' => $voiceSample !== '' ? 'yes' : 'no',
                 'sync_sample' => 'false',
+                'fallback_reason' => $fallbackReason,
             ], 'info');
         }
 
         $voiceResolution['resolved_voice_sample'] = $voiceSample;
-        $voiceResolution['resolved_voice_reference'] = ($voiceSample !== '' && dialectic_tts_active_provider_uses_voice_sample())
+        $voiceResolution['resolved_voice_reference'] = ($voiceSample !== '' && $usesVoiceSample)
             ? $voiceSample
             : $resolvedVoice;
         return $voiceResolution;

@@ -77,9 +77,12 @@ if ($gameRequest[0] == "funcret") { // Take out the functions part
 	}
 	
 	// Use configurable DIARY_PROMPT or fallback to default
+	$diaryCharacterName = function_exists('dialecticGetPromptCharacterName')
+		? dialecticGetPromptCharacterName()
+		: $GLOBALS["DIALECTIC_NAME"];
 	$diaryPrompt = isset($GLOBALS["DIARY_PROMPT"]) && !empty($GLOBALS["DIARY_PROMPT"]) 
-		? strtr($GLOBALS["DIARY_PROMPT"],['{$GLOBALS["DIALECTIC_NAME"]}'=>$GLOBALS["DIALECTIC_NAME"],'{$GLOBALS["PLAYER_NAME"]}'=>$GLOBALS["PLAYER_NAME"],'#DIALECTIC_NAME#'=>$GLOBALS["DIALECTIC_NAME"],'#PLAYER_NAME#'=>$GLOBALS["PLAYER_NAME"]])
-		: "Please write a short summary of {$GLOBALS["PLAYER_NAME"]} and {$GLOBALS["DIALECTIC_NAME"]}s last dialogues and events written above into {$GLOBALS["DIALECTIC_NAME"]}s diary . WRITE AS IF YOU WERE {$GLOBALS["DIALECTIC_NAME"]}.";
+		? strtr($GLOBALS["DIARY_PROMPT"],['{$GLOBALS["DIALECTIC_NAME"]}'=>$diaryCharacterName,'{$GLOBALS["PLAYER_NAME"]}'=>$GLOBALS["PLAYER_NAME"],'#DIALECTIC_NAME#'=>$diaryCharacterName,'#NARRATOR_NAME#'=>function_exists('dialecticGetNarratorRoleplayName') ? dialecticGetNarratorRoleplayName() : 'The Narrator','#PLAYER_NAME#'=>$GLOBALS["PLAYER_NAME"]])
+		: "Please write a short summary of {$GLOBALS["PLAYER_NAME"]} and {$diaryCharacterName}s last dialogues and events written above into {$diaryCharacterName}s diary . WRITE AS IF YOU WERE {$diaryCharacterName}.";
 	
 	// Add current game date/time context to the prompt
 	$diaryPrompt = "Current date and time: {$fallout_date}. " . $diaryPrompt;
@@ -100,6 +103,9 @@ if ($gameRequest[0] == "funcret") { // Take out the functions part
 	}
 
 } else if ($gameRequest[0] == "quest" || $gameRequest[0] == "narrator_quest_comment") {
+	$questCharacterName = function_exists('dialecticGetPromptCharacterName')
+		? dialecticGetPromptCharacterName()
+		: $GLOBALS["DIALECTIC_NAME"];
 	// Load quest comment prompt from database with fallback
 	$questPromptText = null;
 	try {
@@ -115,11 +121,13 @@ if ($gameRequest[0] == "funcret") { // Take out the functions part
 	
 	// Hardcoded fallback
 	if (!$questPromptText) {
-		$questPromptText = "{$GLOBALS["DIALECTIC_NAME"]}, what should we do about this new quest?";
+		$questPromptText = "{$questCharacterName}, what should we do about this new quest?";
 	}
 	
-	// Replace {DIALECTIC_NAME} placeholder if present
-	$questPromptText = str_replace('{DIALECTIC_NAME}', $GLOBALS["DIALECTIC_NAME"], $questPromptText);
+	$questPromptText = strtr($questPromptText, [
+		'{DIALECTIC_NAME}' => function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : $GLOBALS["DIALECTIC_NAME"],
+		'{NARRATOR_NAME}' => function_exists('dialecticGetNarratorRoleplayName') ? dialecticGetNarratorRoleplayName() : 'The Narrator',
+	]);
 	
 	// Override the player_request in PROMPTS array
 	$promptKey = $gameRequest[0];
