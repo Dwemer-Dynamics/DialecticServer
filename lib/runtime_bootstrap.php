@@ -145,6 +145,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'core_tts_connector_metadata' => 20260626001,
             'core_tts_connector_omnivoice' => 20260708001,
             'core_tts_connector_removed_drivers' => 20260712001,
+            'tts_gender_fallback_defaults' => 20260715001,
             'legacy_translation_tables_cleanup' => 20260628001,
             'legacy_currentmission_cleanup' => 20260713003,
             'general_settings_seed_repair' => 20260713004,

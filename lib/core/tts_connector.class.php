@@ -58,8 +58,8 @@ class TTSConnector
     ];
 
     private static $sharedMetadataDefaultMap = [
-        'fallback_male' => 'default_male',
-        'fallback_female' => 'default_female',
+        'fallback_male' => 'maleadult02',
+        'fallback_female' => 'femaleadult02',
     ];
 
     private static $metadataDefaultMap = [
@@ -329,11 +329,11 @@ class TTSConnector
         return [
             'fallback_male' => [
                 'type' => 'string',
-                'description' => 'NPC male fallback VoiceID if the NPC voice is blank or the provider rejects it.',
+                'description' => 'NPC male fallback VoiceID if the NPC voice is blank or the provider rejects it. Default: maleadult02.',
             ],
             'fallback_female' => [
                 'type' => 'string',
-                'description' => 'NPC female fallback VoiceID if the NPC voice is blank or the provider rejects it.',
+                'description' => 'NPC female fallback VoiceID if the NPC voice is blank or the provider rejects it. Default: femaleadult02.',
             ],
         ];
     }
