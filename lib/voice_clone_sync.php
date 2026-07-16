@@ -307,7 +307,9 @@ if (!function_exists('dialectic_sync_voice_clone_sample')) {
 
         $endpoint = rtrim(strval($runtime['endpoint']), '/');
         $driver = strval($runtime['driver']);
-        $signature = implode('|', [$driver, $endpoint, $voiceId, strval(@filemtime($wavPath)), strval(@filesize($wavPath))]);
+        $forceUpload = !empty($options['force_upload']);
+        $sampleHash = hash_file('sha256', $wavPath) ?: '';
+        $signature = implode('|', [$driver, $endpoint, $voiceId, $sampleHash, $forceUpload ? 'force' : 'normal']);
         $statusKey = sha1($signature);
 
         if (isset($requestCache[$statusKey])) {
@@ -316,17 +318,17 @@ if (!function_exists('dialectic_sync_voice_clone_sample')) {
 
         $status = dialectic_voice_clone_sync_read_status($root);
         $existing = is_array($status[$statusKey] ?? null) ? $status[$statusKey] : [];
-        if (($existing['status'] ?? '') === 'uploaded') {
+        if (!$forceUpload && ($existing['status'] ?? '') === 'uploaded') {
             $requestCache[$statusKey] = true;
             return true;
         }
-        if (($existing['status'] ?? '') === 'failed' && intval($existing['last_attempt'] ?? 0) > (time() - 300)) {
+        if (!$forceUpload && ($existing['status'] ?? '') === 'failed' && intval($existing['last_attempt'] ?? 0) > (time() - 300)) {
             $requestCache[$statusKey] = false;
             return false;
         }
 
-        $speakers = dialectic_voice_clone_sync_fetch_speakers($endpoint);
-        if (isset($speakers[strtolower($voiceId)])) {
+        $speakers = $forceUpload ? [] : dialectic_voice_clone_sync_fetch_speakers($endpoint);
+        if (!$forceUpload && isset($speakers[strtolower($voiceId)])) {
             $status[$statusKey] = [
                 'status' => 'uploaded',
                 'driver' => $driver,

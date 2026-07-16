@@ -3582,7 +3582,7 @@ if ($checkVersion("core_tts_connector_omnivoice") < 20260708001) {
             SELECT
                 'omnivoice',
                 'OmniVoice Default',
-                '{\"language\":\"en\",\"voicelogic\":\"voicetype\",\"fallback_male\":\"default_male\",\"fallback_female\":\"default_female\"}'::jsonb,
+                '{\"language\":\"en\",\"voicelogic\":\"voicetype\",\"fallback_male\":\"maleadult02\",\"fallback_female\":\"femaleadult02\"}'::jsonb,
                 NULL,
                 'http://127.0.0.1:8021',
                 'voiceid'
@@ -3598,7 +3598,7 @@ if ($checkVersion("core_tts_connector_omnivoice") < 20260708001) {
                SET driver = 'omnivoice',
                    url = 'http://127.0.0.1:8021',
                    voice_field = 'voiceid',
-                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"language\":\"en\",\"voicelogic\":\"voicetype\",\"fallback_male\":\"default_male\",\"fallback_female\":\"default_female\"}'::jsonb
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"language\":\"en\",\"voicelogic\":\"voicetype\",\"fallback_male\":\"maleadult02\",\"fallback_female\":\"femaleadult02\"}'::jsonb
              WHERE lower(coalesce(label, '')) = 'omnivoice default'
         ");
     } catch (Throwable $e) {
@@ -3940,6 +3940,42 @@ if ($checkVersion("general_settings_seed_repair") < 20260713004 || !$managedGene
     if ($b_ok) {
         $updateVersion("general_settings_seed_repair", 20260713004);
         Logger::info("Applied patch general_settings_seed_repair 20260713004");
+    }
+}
+
+if ($checkVersion("tts_gender_fallback_defaults") < 20260715001) {
+    Logger::debug("Applying tts_gender_fallback_defaults 20260715001 - use Fallout adult voice defaults");
+
+    $b_ok = true;
+    try {
+        $db->execQuery("
+            UPDATE public.core_tts_connector
+               SET metadata = jsonb_set(
+                   COALESCE(metadata, '{}'::jsonb),
+                   '{fallback_male}',
+                   '\"maleadult02\"'::jsonb,
+                   true
+               )
+             WHERE lower(trim(COALESCE(metadata->>'fallback_male', ''))) IN ('', 'default_male')
+        ");
+        $db->execQuery("
+            UPDATE public.core_tts_connector
+               SET metadata = jsonb_set(
+                   COALESCE(metadata, '{}'::jsonb),
+                   '{fallback_female}',
+                   '\"femaleadult02\"'::jsonb,
+                   true
+               )
+             WHERE lower(trim(COALESCE(metadata->>'fallback_female', ''))) IN ('', 'default_female')
+        ");
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error updating TTS gender fallback defaults: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("tts_gender_fallback_defaults", 20260715001);
+        Logger::info("Applied patch tts_gender_fallback_defaults 20260715001");
     }
 }
 
