@@ -8,6 +8,7 @@ define("_MAX_SUBTITLE_LENGTH", 1000);
 
 require_once(__DIR__."/utils_game_timestamp.php");
 require_once(__DIR__."/emote_moods.php");
+require_once(__DIR__."/npc_tts_status.php");
 
 function callConfiguredTts($textString, $mood, $stringforhash)
 {
@@ -1146,9 +1147,13 @@ function dialectic_generate_deferred_tts(): void
 
     foreach ($pending as $entry) {
         $text = trim((string)($entry["text"] ?? ""));
+        $cacheSeed = trim((string)($entry["cache_seed"] ?? ($entry["cache_key"] ?? "")));
         $cacheKey = trim((string)($entry["cache_key"] ?? ""));
+        if (dialectic_npc_tts_status_key($cacheKey) === "") {
+            $cacheKey = md5($cacheSeed);
+        }
         $speaker = trim((string)($entry["speaker"] ?? ($GLOBALS["DIALECTIC_NAME"] ?? "")));
-        if ($text === "" || $cacheKey === "") {
+        if ($text === "" || $cacheSeed === "" || $cacheKey === "") {
             continue;
         }
 
@@ -1159,13 +1164,18 @@ function dialectic_generate_deferred_tts(): void
             "cache_key" => $cacheKey,
             "chars" => strlen($text),
         ]);
-        $ttsOutput = callNpcTtsWithFallback($text, (string)($entry["mood"] ?? "default"), $cacheKey);
+        $ttsOutput = callNpcTtsWithFallback($text, (string)($entry["mood"] ?? "default"), $cacheSeed);
         if (!$ttsOutput && isset($GLOBALS["TTS_FALLBACK_FNCT"])) {
-            $ttsOutput = $GLOBALS["TTS_FALLBACK_FNCT"]($text, (string)($entry["mood"] ?? "default"), $cacheKey);
+            $ttsOutput = $GLOBALS["TTS_FALLBACK_FNCT"]($text, (string)($entry["mood"] ?? "default"), $cacheSeed);
         }
 
-        if ($ttsOutput) {
+        $cachePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . "soundcache" . DIRECTORY_SEPARATOR . $cacheKey . ".wav";
+        if ($ttsOutput && is_file($cachePath) && @filesize($cachePath) > 44) {
             $GLOBALS["TRACK"]["FILES_GENERATED"][] = $ttsOutput;
+            dialectic_write_npc_tts_status($cacheKey, "ready", [
+                "speaker" => $speaker,
+                "output" => $ttsOutput,
+            ]);
             Logger::info("[TTS] Generated deferred JSON-mode TTS for {$speaker}: {$ttsOutput}");
             Logger::phaseEnd($phaseName, [
                 "status" => "ok",
@@ -1173,6 +1183,10 @@ function dialectic_generate_deferred_tts(): void
                 "output" => $ttsOutput,
             ], "info");
         } else {
+            dialectic_write_npc_tts_status($cacheKey, "failed", [
+                "speaker" => $speaker,
+                "reason" => "generation_failed",
+            ]);
             Logger::warn("[TTS] Deferred JSON-mode TTS failed for {$speaker}: {$cacheKey}");
             Logger::phaseEnd($phaseName, [
                 "status" => "failed",
@@ -1228,8 +1242,12 @@ function dialectic_spawn_deferred_npc_tts_worker(array $entry): bool
     }
 
     $text = trim((string)($entry['text'] ?? ''));
+    $cacheSeed = trim((string)($entry['cache_seed'] ?? ($entry['cache_key'] ?? '')));
     $cacheKey = trim((string)($entry['cache_key'] ?? ''));
-    if ($text === '' || $cacheKey === '') {
+    if (dialectic_npc_tts_status_key($cacheKey) === '') {
+        $cacheKey = md5($cacheSeed);
+    }
+    if ($text === '' || $cacheSeed === '' || $cacheKey === '') {
         return false;
     }
 
@@ -1238,7 +1256,7 @@ function dialectic_spawn_deferred_npc_tts_worker(array $entry): bool
         @mkdir($jobsDir, 0775, true);
     }
 
-    $jobId = md5($cacheKey);
+    $jobId = $cacheKey;
     $jobPath = $jobsDir . DIRECTORY_SEPARATOR . $jobId . '.json';
     $lockPath = $jobsDir . DIRECTORY_SEPARATOR . $jobId . '.lock';
 
@@ -1258,11 +1276,17 @@ function dialectic_spawn_deferred_npc_tts_worker(array $entry): bool
     }
 
     $entry['lock_path'] = $lockPath;
+    $entry['cache_seed'] = $cacheSeed;
+    $entry['cache_key'] = $cacheKey;
     $entry['engine_root'] = $root;
     $entry['request_id'] = class_exists('Logger') ? Logger::getRequestId() : ($GLOBALS['DIALECTIC_REQUEST_ID'] ?? '');
     $entry['npc_data'] = $GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA'] ?? null;
     $entry['profile_data'] = $GLOBALS['DIALECTIC_CORE_CURRENT_PROFILE_DATA'] ?? null;
     $entry['connector_data'] = $GLOBALS['DIALECTIC_CORE_CURRENT_CONNECTOR_DATA'] ?? null;
+    dialectic_write_npc_tts_status($cacheKey, 'pending', [
+        'speaker' => $entry['speaker'] ?? '',
+        'request_id' => $entry['request_id'],
+    ], $root);
 
     if (@file_put_contents($jobPath, json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), LOCK_EX) === false) {
         @unlink($lockPath);
@@ -1910,7 +1934,8 @@ function returnLines($lines,$writeOutput=true)
                 "speaker" => (string)$GLOBALS["DIALECTIC_NAME"],
                 "text" => $pendingNpcTtsText,
                 "mood" => $pendingNpcTtsMood,
-                "cache_key" => $pendingNpcTtsCacheKey,
+                "cache_seed" => $pendingNpcTtsCacheKey,
+                "cache_key" => md5($pendingNpcTtsCacheKey),
                 "tts_function" => (string)($GLOBALS["TTSFUNCTION"] ?? ""),
             ];
             $spawnedWorker = $streamingMode && dialectic_spawn_deferred_npc_tts_worker($deferredEntry);

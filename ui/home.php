@@ -365,6 +365,15 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
         padding: 18px 10px 52px;
     }
 
+    .home-version-info {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 18px;
+        margin: 0 0 6px;
+        color: var(--dialectic-muted);
+        font-size: 0.9rem;
+    }
+
     .home-heading {
         display: flex;
         justify-content: space-between;
@@ -379,12 +388,6 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
         font-size: 2rem;
         font-weight: 400;
         line-height: 1.1;
-    }
-
-    .home-subtitle {
-        margin: 0;
-        color: var(--dialectic-muted);
-        font-size: 0.95rem;
     }
 
     .player-pill {
@@ -759,11 +762,12 @@ $debugPaneLink = false;
 include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.php");
 ?>
 <main class="container dashboard-shell">
+    <div class="home-version-info" aria-label="Dialectic versions">
+        <span>Server: <?php echo dialectic_home_h($serverVersionDisplay ?? 'N/A'); ?></span>
+        <span>Plugin: <?php echo dialectic_home_h($pluginVersionDisplay ?? 'N/A'); ?></span>
+    </div>
     <div class="home-heading">
-        <div>
-            <h1>Dialectic Dashboard</h1>
-            <p class="home-subtitle">Fallout New Vegas AI runtime, profiles, voice, memory, and recent game events.</p>
-        </div>
+        <h1>Dialectic Dashboard</h1>
         <div class="player-pill">
             <i class="bi bi-person-circle"></i>
             <span><?php echo dialectic_home_h($playerName); ?></span>
