@@ -1755,9 +1755,10 @@ foreach ($GLOBALS["FUNCTIONS"] as $n => $v) {
 dialecticTraceFunctionsIncludePhase(__LINE__, 'enabled_function_filter_done', $startTime);
 
 dialecticTraceFunctionsIncludePhase(__LINE__, 'bug_func_write_start', $startTime);
-file_put_contents(__DIR__ . "/../log/bug_func.txt", print_r($GLOBALS["FUNCTIONS"], true));
-file_put_contents(__DIR__ . "/../log/bug_func.txt", print_r($GLOBALS["ENABLED_FUNCTIONS"], true), FILE_APPEND);
-file_put_contents(__DIR__ . "/../log/bug_func.txt", print_r($GLOBALS["ENABLED_FUNCTIONS"], true), FILE_APPEND);
+Logger::debug(json_encode([
+    "function_count" => count($GLOBALS["FUNCTIONS"]),
+    "enabled_functions" => array_values($GLOBALS["ENABLED_FUNCTIONS"]),
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), __DIR__ . "/../log/bug_func.txt");
 dialecticTraceFunctionsIncludePhase(__LINE__, 'bug_func_write_done', $startTime);
 
 $GLOBALS["FUNCTIONS"] = array_values($GLOBALS["FUNCTIONS"]); //Get rid of array keys
