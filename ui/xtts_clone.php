@@ -2071,7 +2071,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         dialecticTtsStudioApplyConnectorGlobals('cartesia');
         $voice = resolveLocalVoiceName($_POST['voice']);
         if ($voice !== '') {
-            deleteCachedCartesiaVoiceId($voice, null, true);
+            deleteCachedCartesiaVoiceId($voice);
+            deleteCartesiaVoiceMetadata($voice);
             $cartesiaMessage .= "<p style='color:rgb(247, 231, 16);'><strong>Unsynced Cartesia voice cache for " . htmlspecialchars($voice) . ".</strong></p>";
         } else {
             $cartesiaMessage .= "<p style='color:red;'><strong>Voice file not found.</strong></p>";
@@ -2088,8 +2089,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $voice = resolveLocalVoiceName($_POST['voice']);
             $voiceSamplePath = __DIR__ . '/../data/voices/' . $voice . '.wav';
             if ($voice !== '' && file_exists($voiceSamplePath)) {
-                deleteCachedCartesiaVoiceId($voice, null, true);
-                $result = getOrCreateCartesiaVoice($voice);
+                $result = rebuildCartesiaVoice($voice);
                 if ($result !== false && !empty($result)) {
                     header('Location: ' . $webRoot . '/ui/xtts_clone.php?tab=cartesia&synced=' . urlencode($voice));
                     exit;
@@ -2104,12 +2104,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if (isset($_POST['action']) && $_POST['action'] === 'delete_cartesia_single' && isset($_POST['voice'])) {
+        dialecticTtsStudioApplyConnectorGlobals('cartesia');
+        $voice = resolveLocalVoiceName($_POST['voice']);
+        if ($voice !== '' && deleteManagedCartesiaVoice($voice)) {
+            $cartesiaMessage .= "<p style='color:rgb(247, 231, 16);'><strong>Deleted managed Cartesia clone for " . htmlspecialchars($voice) . ".</strong></p>";
+        } else {
+            $error = getCartesiaLastError();
+            $cartesiaMessage .= "<p style='color:red;'><strong>" . htmlspecialchars($error !== '' ? $error : 'Could not delete Cartesia voice.') . "</strong></p>";
+        }
+    }
+
     // Cartesia clear cache handler
     if (isset($_POST['action']) && $_POST['action'] === 'clear_cartesia_cache') {
         $db = $GLOBALS["db"];
         $legacyPrefixEscaped = $db->escape('cartesia_voice_id_');
         $scopedPrefixEscaped = $db->escape('cartesia_voice_scope_');
-        $db->execQuery("DELETE FROM conf_opts WHERE id LIKE '{$legacyPrefixEscaped}%' OR id LIKE '{$scopedPrefixEscaped}%'");
+        $metadataPrefixEscaped = $db->escape('cartesia_voice_meta_');
+        $db->execQuery("DELETE FROM conf_opts WHERE id LIKE '{$legacyPrefixEscaped}%' OR id LIKE '{$scopedPrefixEscaped}%' OR id LIKE '{$metadataPrefixEscaped}%'");
         $cartesiaMessage .= "<p style='color:rgb(247, 231, 16);'><strong>Cartesia voice cache cleared.</strong></p>";
     }
 
@@ -2268,7 +2280,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         dialecticTtsStudioApplyConnectorGlobals('inworld');
         $voice = resolveLocalVoiceName($_POST['voice']);
         if ($voice !== '') {
-            deleteCachedInworldVoiceId($voice, null, true);
+            deleteCachedInworldVoiceId($voice);
+            deleteInworldVoiceMetadata($voice);
             $inworldMessage .= "<p style='color:rgb(247, 231, 16);'><strong>Unsynced Inworld voice cache for " . htmlspecialchars($voice) . ".</strong></p>";
         } else {
             $inworldMessage .= "<p style='color:red;'><strong>Voice file not found.</strong></p>";
@@ -2285,8 +2298,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $voice = resolveLocalVoiceName($_POST['voice']);
             $voiceSamplePath = __DIR__ . '/../data/voices/' . $voice . '.wav';
             if ($voice !== '' && file_exists($voiceSamplePath)) {
-                deleteCachedInworldVoiceId($voice, null, true);
-                $result = getOrCreateInworldVoice($voice);
+                $result = rebuildInworldVoice($voice);
                 if ($result !== false && !empty($result)) {
                     header('Location: ' . $webRoot . '/ui/xtts_clone.php?tab=inworld&synced=' . urlencode($voice));
                     exit;
@@ -2301,12 +2313,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if (isset($_POST['action']) && $_POST['action'] === 'delete_inworld_single' && isset($_POST['voice'])) {
+        dialecticTtsStudioApplyConnectorGlobals('inworld');
+        $voice = resolveLocalVoiceName($_POST['voice']);
+        if ($voice !== '' && deleteManagedInworldVoice($voice)) {
+            $inworldMessage .= "<p style='color:rgb(247, 231, 16);'><strong>Deleted managed Inworld clone for " . htmlspecialchars($voice) . ".</strong></p>";
+        } else {
+            $error = getInworldLastError();
+            $inworldMessage .= "<p style='color:red;'><strong>" . htmlspecialchars($error !== '' ? $error : 'Could not delete Inworld voice.') . "</strong></p>";
+        }
+    }
+
     // Inworld clear cache handler
     if (isset($_POST['action']) && $_POST['action'] === 'clear_inworld_cache') {
         $db = $GLOBALS["db"];
         $legacyPrefixEscaped = $db->escape('inworld_voice_id_');
         $scopedPrefixEscaped = $db->escape('inworld_voice_scope_');
-        $db->execQuery("DELETE FROM conf_opts WHERE id LIKE '{$legacyPrefixEscaped}%' OR id LIKE '{$scopedPrefixEscaped}%'");
+        $metadataPrefixEscaped = $db->escape('inworld_voice_meta_');
+        $db->execQuery("DELETE FROM conf_opts WHERE id LIKE '{$legacyPrefixEscaped}%' OR id LIKE '{$scopedPrefixEscaped}%' OR id LIKE '{$metadataPrefixEscaped}%'");
         $inworldMessage .= "<p style='color:rgb(247, 231, 16);'><strong>Inworld voice cache cleared.</strong></p>";
     }
 
@@ -2956,8 +2980,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     function manageCloudVoice(provider, voiceName, mode) {
         const actionTextMap = {
             unsync: 'Forgetting cached voice ID for ' + provider,
-            resync: 'Regenerating voice for ' + provider
+            resync: 'Rebuilding voice from the local sample for ' + provider,
+            delete: 'Deleting managed cloud voice from ' + provider
         };
+        if (mode === 'delete' && !confirm('Delete the managed ' + provider + ' cloud clone for ' + voiceName + '? The local sample will be kept.')) {
+            return;
+        }
         showLoadingMessage((actionTextMap[mode] || 'Processing voice for ' + provider) + ', please wait...');
 
         const form = document.createElement('form');
@@ -4470,7 +4498,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <div class="voice-status-grid">
                 <?php foreach ($localVoices as $voice): ?>
-                    <?php $isCloned = isset($clonedVoices[$voice]); ?>
+                    <?php
+                    $isCloned = isset($clonedVoices[$voice]);
+                    $cartesiaMetadata = $isCloned ? getCartesiaVoiceMetadata($voice) : [];
+                    $cartesiaManaged = !empty($cartesiaMetadata['managed'])
+                        && trim(strval($cartesiaMetadata['voice_id'] ?? '')) === strval($clonedVoices[$voice] ?? '');
+                    ?>
                     <div class="voice-status-item" onclick="copyToClipboard('<?php echo htmlspecialchars($voice, ENT_QUOTES); ?>')" title="Click to copy voice name">
                         <span class="voice-name"><?php echo htmlspecialchars($voice); ?></span>
                         <span class="status-icon <?php echo $isCloned ? 'cloned' : 'not-cloned'; ?>">
@@ -4488,7 +4521,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <button onclick="event.stopPropagation(); manageCloudVoice('cartesia', '<?php echo htmlspecialchars($voice, ENT_QUOTES); ?>', 'unsync')"
                                         class="unsync-btn" title="Forget cached Cartesia voice ID">×</button>
                                 <button onclick="event.stopPropagation(); manageCloudVoice('cartesia', '<?php echo htmlspecialchars($voice, ENT_QUOTES); ?>', 'resync')"
-                                        class="resync-btn" title="Forget cached ID and generate a new Cartesia voice" <?php echo !$cartesiaConfigured ? 'disabled' : ''; ?>>↻</button>
+                                        class="resync-btn" title="Clone again from the local sample, validate it, and switch IDs" <?php echo !$cartesiaConfigured ? 'disabled' : ''; ?>>↻</button>
+                                <?php if ($cartesiaManaged): ?>
+                                    <button onclick="event.stopPropagation(); manageCloudVoice('cartesia', '<?php echo htmlspecialchars($voice, ENT_QUOTES); ?>', 'delete')"
+                                            class="delete-provider-btn" title="Delete this managed Cartesia cloud clone">🗑</button>
+                                <?php endif; ?>
                             <?php else: ?>
                                 <button onclick="event.stopPropagation(); syncSingleVoice('cartesia', '<?php echo htmlspecialchars($voice, ENT_QUOTES); ?>')"
                                         class="sync-btn" title="Sync this voice" <?php echo !$cartesiaConfigured ? 'disabled' : ''; ?>>↻</button>
@@ -4602,6 +4639,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $isCloned = $voiceStatus['cached'];
                     $isRemote = $voiceStatus['remote'];
                     $hasSample = $voiceStatus['local_sample'];
+                    $inworldMetadata = $isCloned ? getInworldVoiceMetadata($voice) : [];
+                    $inworldManaged = !empty($inworldMetadata['managed'])
+                        && trim(strval($inworldMetadata['voice_id'] ?? '')) === strval($voiceStatus['cached_voice_id'] ?? '');
                     ?>
                     <div class="voice-status-item inworld-voice-status-item" onclick="copyToClipboard('<?php echo htmlspecialchars($voice, ENT_QUOTES); ?>')" title="Click to copy voice name">
                         <span class="voice-name"><?php echo htmlspecialchars($voice); ?></span>
@@ -4628,7 +4668,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <button onclick="event.stopPropagation(); manageCloudVoice('inworld', '<?php echo htmlspecialchars($voice, ENT_QUOTES); ?>', 'unsync')"
                                         class="unsync-btn" title="Forget cached Inworld voice ID">×</button>
                                 <button onclick="event.stopPropagation(); manageCloudVoice('inworld', '<?php echo htmlspecialchars($voice, ENT_QUOTES); ?>', 'resync')"
-                                        class="resync-btn" title="Forget cached ID and generate a new Inworld voice" <?php echo !$inworldConfigured ? 'disabled' : ''; ?>>↻</button>
+                                        class="resync-btn" title="Clone again from the local sample, validate it, and switch IDs" <?php echo !$inworldConfigured ? 'disabled' : ''; ?>>↻</button>
+                                <?php if ($inworldManaged): ?>
+                                    <button onclick="event.stopPropagation(); manageCloudVoice('inworld', '<?php echo htmlspecialchars($voice, ENT_QUOTES); ?>', 'delete')"
+                                            class="delete-provider-btn" title="Delete this managed Inworld cloud clone">🗑</button>
+                                <?php endif; ?>
                             <?php else: ?>
                                 <button onclick="event.stopPropagation(); syncSingleVoice('inworld', '<?php echo htmlspecialchars($voice, ENT_QUOTES); ?>')"
                                         class="sync-btn" title="Sync this voice" <?php echo !$inworldConfigured ? 'disabled' : ''; ?>>↻</button>
