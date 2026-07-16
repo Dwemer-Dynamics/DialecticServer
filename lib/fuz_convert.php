@@ -53,6 +53,34 @@ function dialecticRunFfmpeg(array $args)
     return $returnVar;
 }
 
+function dialecticNormalizeVoiceSampleToWav($inputFile, $outputFile, $inputFormat = '')
+{
+    if (!is_file($inputFile) || filesize($inputFile) <= 0) {
+        return '';
+    }
+
+    $args = [];
+    if ($inputFormat !== '') {
+        $args[] = '-f';
+        $args[] = $inputFormat;
+    }
+    $args[] = '-i';
+    $args[] = $inputFile;
+    $args[] = '-vn';
+    $args[] = '-af';
+    $args[] = 'highpass=f=45,lowpass=f=10000,loudnorm=I=-23:LRA=7:TP=-5,apad=whole_dur=5,atrim=duration=15';
+    $args[] = '-ar';
+    $args[] = '22050';
+    $args[] = '-ac';
+    $args[] = '1';
+    $args[] = '-c:a';
+    $args[] = 'pcm_s16le';
+    $args[] = $outputFile;
+
+    $returnVar = dialecticRunFfmpeg($args);
+    return ($returnVar === 0 && is_file($outputFile) && filesize($outputFile) > 44) ? $outputFile : '';
+}
+
 function fuzToWav($fuzFileName)
 {
     if (file_exists($fuzFileName)) {
@@ -107,20 +135,12 @@ function fuzToWav($fuzFileName)
 
                 // Use ffmpeg to specify input format and convert the file
                 
-                $returnVar = dialecticRunFfmpeg([
-                    '-f', 'xwma',
-                    '-i', $tmpXwmFile,
-                    '-ar', '22050',
-                    '-ac', '1',
-                    '-sample_fmt', 's16',
-                    $sOutputXwm,
-                ]);
+                $converted = dialecticNormalizeVoiceSampleToWav($tmpXwmFile, $sOutputXwm, 'xwma');
 
-                if ($returnVar === 0) {
+                if ($converted !== '') {
                     echo "Fuze Decode: success, xwm data written.\n";
                 } else {
                     echo "Fuze Decode: failed, ffmpeg error.\n";
-                    echo implode("\n", $output);
                 }
 
                 // Remove the temporary file
@@ -134,7 +154,7 @@ function fuzToWav($fuzFileName)
             if ($fuzFile) {
                 fclose($fuzFile);
             }
-            return $sOutputXwm;
+            return (is_file($sOutputXwm) && filesize($sOutputXwm) > 44) ? $sOutputXwm : '';
         } else {
             return "";
         }
@@ -158,16 +178,7 @@ function xwmToWav($fuzFileName)
 
         // Extract the xwm data from the fuz data file
         if (!file_exists($sOutputXwm) || true) {
-            $returnVar = dialecticRunFfmpeg([
-                '-f', 'xwma',
-                '-i', $fuzFileName,
-                '-ar', '22050',
-                '-ac', '1',
-                '-sample_fmt', 's16',
-                $sOutputXwm,
-            ]);
-            
-            return ($returnVar === 0 && file_exists($sOutputXwm)) ? $sOutputXwm : "";
+            return dialecticNormalizeVoiceSampleToWav($fuzFileName, $sOutputXwm, 'xwma');
 			
         } else {
             return "";
@@ -184,23 +195,14 @@ function wavToWav($fuzFileName)
         $sOutputPath = dirname($fuzFileName);
 
         // Convert the *.fuz file to *.xwm
-        $sOutputXwmFile = basename($fuzFileName, '.fuz') . '_.wav';
+        $sOutputXwmFile = pathinfo($fuzFileName, PATHINFO_FILENAME) . '_normalized.wav';
 
         // Store the new full path for the xwm
         $sOutputXwm = $sOutputPath . DIRECTORY_SEPARATOR . $sOutputXwmFile;
 
         // Extract the xwm data from the fuz data file
         if (!file_exists($sOutputXwm) || true) {
-            $returnVar = dialecticRunFfmpeg([
-                '-f', 'wav',
-                '-i', $fuzFileName,
-                '-ar', '22050',
-                '-ac', '1',
-                '-sample_fmt', 's16',
-                $sOutputXwm,
-            ]);
-            
-            return ($returnVar === 0 && file_exists($sOutputXwm)) ? $sOutputXwm : "";
+            return dialecticNormalizeVoiceSampleToWav($fuzFileName, $sOutputXwm);
 			
         } else {
             return "";
@@ -217,15 +219,7 @@ function oggToWav($oggFileName)
         $sOutputWavFile = basename($oggFileName, '.ogg') . '.wav';
         $sOutputWav = $sOutputPath . DIRECTORY_SEPARATOR . $sOutputWavFile;
 
-        $returnVar = dialecticRunFfmpeg([
-            '-i', $oggFileName,
-            '-ar', '22050',
-            '-ac', '1',
-            '-sample_fmt', 's16',
-            $sOutputWav,
-        ]);
-
-        return ($returnVar === 0 && file_exists($sOutputWav)) ? $sOutputWav : "";
+        return dialecticNormalizeVoiceSampleToWav($oggFileName, $sOutputWav);
     }
 
     return "";

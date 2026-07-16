@@ -89,6 +89,57 @@ function dialecticVsxDecodeMetadata(): array
     ];
 }
 
+function dialecticVsxReplaceFile(string $source, string $target): bool
+{
+    $targetDir = dirname($target);
+    if (!is_dir($targetDir) && !@mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
+        return false;
+    }
+
+    try {
+        $suffix = bin2hex(random_bytes(6));
+    } catch (Throwable $_e) {
+        $suffix = str_replace('.', '', uniqid('', true));
+    }
+    $temporary = $target . '.tmp.' . $suffix;
+    if (!@copy($source, $temporary) || !is_file($temporary) || filesize($temporary) <= 44) {
+        @unlink($temporary);
+        return false;
+    }
+
+    if (@rename($temporary, $target)) {
+        return true;
+    }
+
+    if (is_file($target) && !@unlink($target)) {
+        @unlink($temporary);
+        return false;
+    }
+    $replaced = @rename($temporary, $target);
+    if (!$replaced) {
+        @unlink($temporary);
+    }
+    return $replaced;
+}
+
+function dialecticVsxWriteSampleMetadata(string $wavPath, string $codename, array $metadata): void
+{
+    $payload = [
+        'schema' => 'dialectic.voice_sample.metadata.v1',
+        'voice_id' => $codename,
+        'source' => strval($metadata['original_name'] ?? ''),
+        'reference_text' => strval($metadata['reference_text'] ?? ''),
+        'game' => strval($metadata['game'] ?? 'fnv'),
+        'sha256' => hash_file('sha256', $wavPath) ?: '',
+        'bytes' => filesize($wavPath),
+        'updated_at' => gmdate('c'),
+    ];
+    @file_put_contents(
+        preg_replace('/\.wav$/i', '.json', $wavPath),
+        json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+    );
+}
+
 function normalize_endpoint_url($url)
 {
     // Remove trailing slashes
@@ -213,6 +264,7 @@ if ($currentNpcData) {
     $extended["voice_refresh_last_result"] = "sample_uploaded";
     $extended["voice_refresh_last_resolved_at"] = time();
     $extended["voice_sample_source"] = $sourcePath;
+    $extended["voice_sample_reference_text"] = $voiceSampleMetadata['reference_text'];
     $currentNpcData = $npcMaster->setExtendedData($currentNpcData, $extended);
     $currentNpcData = $npcMaster->updateByArray($currentNpcData);
 }
@@ -239,33 +291,21 @@ $finalName = __DIR__ . DIRECTORY_SEPARATOR . "soundcache/_vsx_" . md5($_FILES["f
 $voiceCacheFile = $path . "data/voices/$codename.wav";
 $cacheAlreadyAvailable = is_file($voiceCacheFile) && filesize($voiceCacheFile) > 44;
 
-if ($cacheAlreadyAvailable) {
-    // File exists in data/voices. Do not convert again.
-    $finalFile = $voiceCacheFile;
+if (filesize($_FILES["file"]["tmp_name"]) == 0) {
+    Logger::error("Empty file {$_FILES["file"]["tmp_name"]}");
+    dialecticVsxRespond(400, false, 'Uploaded voice sample was empty');
+}
 
+Logger::info("Received sample: {$sourcePath}");
+
+if ($ext === "fuz") {
+    $finalFile = fuzToWav($finalName);
+} else if ($ext === "xwm") {
+    $finalFile = xwmToWav($finalName);
+} else if ($ext === "wav") {
+    $finalFile = wavToWav($finalName);
 } else {
-
-    if (filesize($_FILES["file"]["tmp_name"]) == 0) {
-        Logger::error("Empty file {$_FILES["file"]["tmp_name"]}");
-        dialecticVsxRespond(400, false, 'Uploaded voice sample was empty');
-    }
-
-    Logger::info("Received sample: {$sourcePath}");
-
-    if ($ext === "fuz") {
-        $finalFile = fuzToWav($finalName);
-
-    } else if ($ext === "xwm") {
-
-        $finalFile = xwmToWav($finalName);
-
-    } else if ($ext === "wav") {
-
-        $finalFile = wavToWav($finalName);
-    } else if ($ext === "ogg") {
-
-        $finalFile = oggToWav($finalName);
-    }
+    $finalFile = oggToWav($finalName);
 }
 
 if (empty($finalFile) || !file_exists($finalFile) || filesize($finalFile) <= 0) {
@@ -275,43 +315,25 @@ if (empty($finalFile) || !file_exists($finalFile) || filesize($finalFile) <= 0) 
     ]);
 }
 
-// Store every converted sample locally. Cloud connectors such as Inworld clone from this cache.
-$finalRealPath = realpath($finalFile);
-$cacheRealPath = realpath($voiceCacheFile);
-$cacheAlreadyIsFinalFile = $finalRealPath !== false
-    && $cacheRealPath !== false
-    && $finalRealPath === $cacheRealPath;
-$cacheCopyOk = $cacheAlreadyIsFinalFile || @copy($finalFile, $voiceCacheFile);
+// Always refresh the cache from the newly uploaded source. A bad first import must not become permanent.
+$cacheCopyOk = dialecticVsxReplaceFile($finalFile, $voiceCacheFile);
 if (!$cacheCopyOk || !file_exists($voiceCacheFile) || filesize($voiceCacheFile) <= 0) {
     Logger::error("[vsx] Failed to copy converted voice sample to {$voiceCacheFile}");
     dialecticVsxRespond(500, false, 'Voice sample cache copy failed', [
         'codename' => $codename,
     ]);
 }
+dialecticVsxWriteSampleMetadata($voiceCacheFile, $codename, $voiceSampleMetadata);
+Logger::info("[vsx] Cached normalized voice sample {$codename}.wav sha256=" . hash_file('sha256', $voiceCacheFile));
 
-if ($ttsEndpoint !== '') {
-    $url  = $ttsEndpoint . '/upload_sample';
-    $curl = curl_init();
-    curl_setopt_array($curl, [
-        CURLOPT_URL            => $url,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => [
-            'wavFile' => new CURLFile($finalFile, 'audio/wav', "$codename.wav"),
-        ],
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: multipart/form-data',
-        ],
-    ]);
-    curl_exec($curl);
-    curl_close($curl);
-} else {
+if ($ttsEndpoint === '') {
     Logger::info("[vsx] Cached {$codename}.wav locally for {$vsxTtsRuntime['driver']}; no local clone endpoint required");
 }
-dialectic_sync_voice_clone_sample($codename, $finalFile, [
+dialectic_sync_voice_clone_sample($codename, $voiceCacheFile, [
     'root' => $path,
     'actor_name' => $actorName,
     'driver' => $vsxTtsRuntime['driver'] ?? '',
+    'force_upload' => true,
 ]);
 
 audit_log("vsx.php voice available for {$actorName}");
