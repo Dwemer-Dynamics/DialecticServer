@@ -3441,6 +3441,33 @@ if ($checkVersion("core_action") < 20260624003) {
     }
 }
 
+if ($checkVersion("core_action") < 20260716001) {
+    Logger::debug("Applying core_action 20260716001 - add Fallout narrator actions");
+
+    $b_ok = true;
+    try {
+        $seedPath = realpath(__DIR__ . '/../data/core_action_seed.sql');
+        if ($seedPath === false || !is_file($seedPath)) {
+            throw new RuntimeException("Missing core_action seed file");
+        }
+
+        $seedSql = trim(strval(file_get_contents($seedPath)));
+        if ($seedSql === '') {
+            throw new RuntimeException("Empty core_action seed file");
+        }
+
+        $db->execQuery($seedSql);
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error applying Fallout narrator action seed: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("core_action", 20260716001);
+        Logger::info("Applied patch core_action 20260716001");
+    }
+}
+
 if ($checkVersion("core_tts_connector_metadata") < 20260626001) {
     Logger::debug("Applying core_tts_connector_metadata 20260626001 - remove copied connector metadata references");
 

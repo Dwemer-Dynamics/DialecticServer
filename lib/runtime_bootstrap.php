@@ -134,7 +134,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
 
         $requiredVersions = [
             'conf_opts' => 20260626001,
-            'core_action' => 20260624003,
+            'core_action' => 20260716001,
             'core_player' => 20260707001,
             'general_settings' => 20260511001,
             'core_stt_connector' => 20260502002,

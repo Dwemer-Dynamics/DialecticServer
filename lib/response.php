@@ -129,6 +129,9 @@ function dialectic_buffer_response_line(string $speaker, string $action, string 
             "target_formid",
             "item_refid",
             "item_baseid",
+            "item_plugin",
+            "item_stable_key",
+            "location_refid",
             "baseid",
             "command",
             "command_name",
@@ -143,6 +146,8 @@ function dialectic_buffer_response_line(string $speaker, string $action, string 
             "task_id",
             "speech",
             "request_type",
+            "action_source",
+            "authority",
             "display_name",
         ];
         foreach ($topLevelMetadataKeys as $metadataKey) {
@@ -248,6 +253,18 @@ function dialectic_buffer_command_response_line(string $speaker, string $command
             $metadata["amount"] = $metadata["amount"] ?? ($commandArgs[2] ?? "");
         } elseif (in_array($normalizedCommand, ["pickupitem", "consume"], true)) {
             $metadata["item"] = $metadata["item"] ?? ($commandArgs[0] ?? "");
+        } elseif ($normalizedCommand === "spawncaps") {
+            $metadata["target"] = $metadata["target"] ?? ($commandArgs[0] ?? "");
+            $metadata["amount"] = $metadata["amount"] ?? ($commandArgs[1] ?? "");
+        } elseif ($normalizedCommand === "spawnitem") {
+            $metadata["target"] = $metadata["target"] ?? ($commandArgs[0] ?? "");
+            $metadata["item"] = $metadata["item"] ?? ($commandArgs[1] ?? "");
+            $metadata["amount"] = $metadata["amount"] ?? ($commandArgs[2] ?? "");
+        } elseif ($normalizedCommand === "teleportactor") {
+            $metadata["target"] = $metadata["target"] ?? ($commandArgs[0] ?? "");
+            $metadata["location"] = $metadata["location"] ?? ($commandArgs[1] ?? "");
+        } elseif ($normalizedCommand === "killtarget") {
+            $metadata["target"] = $metadata["target"] ?? ($commandArgs[0] ?? "");
         } elseif ($normalizedCommand === "debugnotification") {
             $metadata["message"] = $metadata["message"] ?? ($commandArgs[0] ?? "");
         } elseif ($normalizedCommand === "refreshnpcvoice") {
@@ -272,7 +289,13 @@ function dialectic_buffer_command_response_line(string $speaker, string $command
         "target_formid",
         "item_refid",
         "item_baseid",
+        "item_plugin",
+        "item_stable_key",
+        "location_refid",
         "baseid",
+        "request_type",
+        "action_source",
+        "authority",
     ] as $key) {
         if (array_key_exists($key, $args) && is_scalar($args[$key]) && trim(strval($args[$key])) !== "") {
             $metadata[$key] = trim(strval($args[$key]));

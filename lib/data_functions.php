@@ -6298,9 +6298,27 @@ function call_llm_internal() {
                     }
                     $commandArgsForResponse = array_values($decodedActionLine['parameter_args'] ?? []);
                     $payload = dialecticEncodeCommandAction($commandName, $commandArgsForResponse);
-                    dialectic_buffer_command_response_line($speaker, $payload, [
+                    $responseMetadata = [
                         "request_type" => $requestTypeForActionEmit,
-                    ]);
+                    ];
+                    $structuredParameter = $decodedActionLine['parameter'] ?? null;
+                    if (!is_array($structuredParameter)) {
+                        $parameterString = trim(strval($decodedActionLine['parameter_string'] ?? ''));
+                        if ($parameterString !== '' && $parameterString[0] === '{') {
+                            $decodedParameter = json_decode($parameterString, true);
+                            if (is_array($decodedParameter)) {
+                                $structuredParameter = $decodedParameter;
+                            }
+                        }
+                    }
+                    if (is_array($structuredParameter)) {
+                        foreach ($structuredParameter as $metadataKey => $metadataValue) {
+                            if (is_string($metadataKey) && is_scalar($metadataValue)) {
+                                $responseMetadata[$metadataKey] = $metadataValue;
+                            }
+                        }
+                    }
+                    dialectic_buffer_command_response_line($speaker, $payload, $responseMetadata);
                     $decodedCommand = dialecticDecodeCommandAction($payload);
                     $commandPayload = $decodedCommand["command_payload"];
                     $pluginOutputLogLines[] = json_encode([
