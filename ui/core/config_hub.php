@@ -25,6 +25,7 @@ $webRoot = rtrim($webRoot, '/');
 
 require_once(__DIR__ . DIRECTORY_SEPARATOR . "../profile_loader.php");
 $TITLE = "Configuration";
+$BODY_CLASS = 'hub-page dialectic-hub-flow';
 ob_start();
 include(__DIR__ . DIRECTORY_SEPARATOR . "../tmpl/head.html");
 include(__DIR__ . DIRECTORY_SEPARATOR . "../tmpl/navbar.php");
@@ -80,7 +81,7 @@ main { padding: 80px 10px 10px; height: 100vh; }
 .embed { width: 100%; height: 100%; border: 0; background: transparent; }
 @media (max-height: 800px) { .embed-wrap { min-height: 420px; } }
 </style>
-<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css">
+<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css?v=<?php echo filemtime(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'hub-navigation.css'); ?>">
 
 <main class="d-flex flex-column">
     <div id="toast" class="toast-notification">

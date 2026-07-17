@@ -26,6 +26,7 @@ $distroDebuggerDialecticEmbedUrl = rtrim($distroDashboardRoot, '/') . '/distro_d
 $distroDatabaseManagerUrl = rtrim($distroDashboardRoot, '/') . '/database_manager.php?server=DialecticServer&embed=1';
 
 $TITLE = "Control Panel";
+$BODY_CLASS = 'hub-page dialectic-hub-flow';
 ob_start();
 include(__DIR__.DIRECTORY_SEPARATOR."tmpl".DIRECTORY_SEPARATOR."head.html");
 include(__DIR__.DIRECTORY_SEPARATOR."tmpl".DIRECTORY_SEPARATOR."navbar.php");
@@ -130,7 +131,7 @@ main { padding-top: 80px; padding-left: 10px; padding-right: 10px; }
  align-items: center;
  gap: 8px;
 }
-</style><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css"><main><div class="config-navigation" aria-label="Control Panel sections"><div class="tab-groups">
+</style><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'hub-navigation.css'); ?>"><main><div class="config-navigation" aria-label="Control Panel sections"><div class="tab-groups">
 <section class="tab-group active" data-category="diagnostics"><div class="tab-group-label">Diagnostics</div><div class="tab-buttons" role="tablist" aria-label="Diagnostics pages">
 <button class="tab-button active" data-tab="srvlogs" data-category="diagnostics"><span class="tab-icon" aria-hidden="true">&#x1F332;</span><span class="tab-label">Server Logs</span></button>
 <button class="tab-button" data-tab="requests" data-category="diagnostics"><span class="tab-icon" aria-hidden="true">&#x1F50D;</span><span class="tab-label">Request Logs</span></button>

@@ -24,6 +24,7 @@ if (!file_exists($configFilepath."conf.php")) {
 require_once(__DIR__.DIRECTORY_SEPARATOR."profile_loader.php");
 
 $TITLE = "Roleplay";
+$BODY_CLASS = 'hub-page dialectic-hub-flow';
 
 ob_start();
 
@@ -338,7 +339,7 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
  .embed-frame { width: 100%; height: calc(100vh - 245px); min-height: 520px; border: 0; background: #202020; }
  @media (max-height: 800px) { .embed-frame { min-height: 420px; } }
 </style>
-<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css">
+<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'hub-navigation.css'); ?>">
 <?php
 
 include(__DIR__.DIRECTORY_SEPARATOR."tmpl/navbar.php");
