@@ -91,11 +91,17 @@ final class ActionCatalogTest extends TestCase
         $this->assertSame('narrator', $line['authority']);
     }
 
-    public function testNarratorKillTargetProtectsPlayerAliases(): void
+    public function testNarratorKillTargetAllowsPlayerAliasesButStillRequiresTarget(): void
     {
         $GLOBALS['PLAYER_NAME'] = 'Graussy';
-        $this->assertNull(dialecticPrepareNarratorPluginAction('KillTarget', ['target' => 'Graussy']));
-        $this->assertNull(dialecticPrepareNarratorPluginAction('KillTarget', ['target' => 'player']));
+        $namedPlayer = dialecticPrepareNarratorPluginAction('KillTarget', ['target' => 'Graussy']);
+        $playerAlias = dialecticPrepareNarratorPluginAction('KillTarget', ['target' => 'player']);
+
+        $this->assertSame('Graussy', $namedPlayer['target']);
+        $this->assertSame('0x00000014', $namedPlayer['target_refid']);
+        $this->assertSame('Graussy', $playerAlias['target']);
+        $this->assertSame('0x00000014', $playerAlias['target_refid']);
+        $this->assertNull(dialecticPrepareNarratorPluginAction('KillTarget', ['target' => '']));
     }
 
     public function testBaseSeedFileDefinesActionAvailabilityAndActivation(): void

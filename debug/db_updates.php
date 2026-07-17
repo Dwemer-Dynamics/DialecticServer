@@ -3441,8 +3441,8 @@ if ($checkVersion("core_action") < 20260624003) {
     }
 }
 
-if ($checkVersion("core_action") < 20260716001) {
-    Logger::debug("Applying core_action 20260716001 - add Fallout narrator actions");
+if ($checkVersion("core_action") < 20260716002) {
+    Logger::debug("Applying core_action 20260716002 - add Fallout narrator actions without protected kill targets");
 
     $b_ok = true;
     try {
@@ -3463,8 +3463,8 @@ if ($checkVersion("core_action") < 20260716001) {
     }
 
     if ($b_ok) {
-        $updateVersion("core_action", 20260716001);
-        Logger::info("Applied patch core_action 20260716001");
+        $updateVersion("core_action", 20260716002);
+        Logger::info("Applied patch core_action 20260716002");
     }
 }
 

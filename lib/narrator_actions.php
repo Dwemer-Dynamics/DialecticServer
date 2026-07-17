@@ -45,7 +45,7 @@ function dialecticNarratorTargetIsPlayer($target): bool
 {
     $target = strtolower(trim(strval($target)));
     if ($target === '') {
-        return true;
+        return false;
     }
 
     if (in_array($target, ['player', '#player_name#', 'me', 'courier', 'lone wanderer'], true)) {
@@ -233,11 +233,10 @@ function dialecticPrepareNarratorPluginAction(string $action, array $parameters)
             dialecticNarratorActionFailure($action, 'target is required');
             return null;
         }
-        if ($target['is_player']) {
-            dialecticNarratorActionFailure($action, 'the player is protected');
-            return null;
-        }
         $parameters['target'] = $target['name'];
+        if ($target['refid'] !== '') {
+            $parameters['target_refid'] = $target['refid'];
+        }
         return $parameters;
     }
 
