@@ -1586,6 +1586,154 @@ function dialecticBuildCurrentConditionBlockFromMetadata($stats, array $metadata
     return "<condition>\n#Condition\n" . implode("\n", $lines) . "\n</condition>";
 }
 
+function dialecticPlayerSurvivalStageLabel(string $kind, int $stage): string
+{
+    $labels = [
+        'hunger' => [
+            1 => 'Peckish', 2 => 'Hungry', 3 => 'Starving',
+            4 => 'Critically starving', 5 => 'Dying of starvation',
+        ],
+        'dehydration' => [
+            1 => 'Thirsty', 2 => 'Dehydrated', 3 => 'Severely dehydrated',
+            4 => 'Critically dehydrated', 5 => 'Dying of dehydration',
+        ],
+        'sleep_deprivation' => [
+            1 => 'Tired', 2 => 'Sleep deprived', 3 => 'Severely sleep deprived',
+            4 => 'Critically sleep deprived', 5 => 'Near collapse from sleep deprivation',
+        ],
+        'radiation' => [
+            1 => 'Minor radiation poisoning', 2 => 'Advanced radiation poisoning',
+            3 => 'Critical radiation poisoning', 4 => 'Deadly radiation poisoning',
+            5 => 'Fatal radiation exposure',
+        ],
+    ];
+
+    return $labels[$kind][max(0, min(5, $stage))] ?? '';
+}
+
+function dialecticIsPlayerSurvivalStateFresh(array $survival, int $staleSeconds = 180, ?int $now = null): bool
+{
+    $updatedAt = max(0, (int)($survival['updated_at'] ?? $survival['captured_at'] ?? 0));
+    if ($updatedAt <= 0) {
+        return false;
+    }
+
+    return (($now ?? time()) - $updatedAt) <= max(1, $staleSeconds);
+}
+
+function dialecticGetFreshPlayerSurvivalState(int $staleSeconds = 180): ?array
+{
+    try {
+        require_once(__DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'player.class.php');
+        $player = new Player();
+        $survival = $player->getJson('survival');
+    } catch (Throwable $e) {
+        Logger::debug('Could not read player survival state: ' . $e->getMessage());
+        return null;
+    }
+
+    if (!is_array($survival) || empty($survival)) {
+        return null;
+    }
+
+    if (!dialecticIsPlayerSurvivalStateFresh($survival, $staleSeconds)) {
+        return null;
+    }
+
+    return $survival;
+}
+
+function dialecticPlayerSurvivalEntries(?array $survival = null): array
+{
+    $survival = $survival ?? dialecticGetFreshPlayerSurvivalState();
+    if (!is_array($survival)) {
+        return [];
+    }
+
+    $entries = [];
+    if (!empty($survival['hardcore_enabled'])) {
+        $needs = is_array($survival['needs'] ?? null) ? $survival['needs'] : [];
+        foreach ([
+            'hunger' => 'Hunger',
+            'dehydration' => 'Thirst',
+            'sleep_deprivation' => 'Sleep',
+        ] as $key => $label) {
+            $stage = max(0, min(5, (int)($needs[$key]['stage'] ?? 0)));
+            $description = dialecticPlayerSurvivalStageLabel($key, $stage);
+            if ($description !== '') {
+                $entries[] = [
+                    'key' => $key,
+                    'label' => $label,
+                    'description' => $description,
+                ];
+            }
+        }
+    }
+
+    $radiation = is_array($survival['radiation'] ?? null) ? $survival['radiation'] : [];
+    $radiationStage = max(0, min(5, (int)($radiation['stage'] ?? 0)));
+    $radiationDescription = dialecticPlayerSurvivalStageLabel('radiation', $radiationStage);
+    if ($radiationDescription !== '') {
+        $entries[] = [
+            'key' => 'radiation',
+            'label' => 'Radiation',
+            'description' => $radiationDescription,
+        ];
+    }
+
+    return $entries;
+}
+
+function dialecticDescribePlayerSurvivalState(?array $survival = null): string
+{
+    $descriptions = array_map(static function (array $entry): string {
+        return strtolower((string)($entry['description'] ?? ''));
+    }, dialecticPlayerSurvivalEntries($survival));
+
+    return implode(', ', array_values(array_filter($descriptions)));
+}
+
+function dialecticBuildPlayerSurvivalConditionBlock(?array $survival = null): string
+{
+    if (!dialecticPromptContextSectionEnabled('enabled_appearance_subsections', 'current_condition')) {
+        return '';
+    }
+
+    $lines = array_map(static function (array $entry): string {
+        return '- ' . $entry['label'] . ': ' . $entry['description'];
+    }, dialecticPlayerSurvivalEntries($survival));
+
+    if (empty($lines)) {
+        return '';
+    }
+
+    $playerName = trim((string)($GLOBALS['PLAYER_NAME'] ?? 'The Courier'));
+    if ($playerName === '') {
+        $playerName = 'The Courier';
+    }
+    return "\n\n<condition>\n#{$playerName}'s Condition\n" . implode("\n", $lines) . "\n</condition>\n";
+}
+
+function dialecticPlayerSurvivalProfileEnricher(string $actorName, string $actorType, array $context = []): string
+{
+    if (strcasecmp(trim($actorType), 'player') !== 0
+        || !empty($GLOBALS['DIALECTIC_SUPPRESS_PLAYER_SURVIVAL_NEARBY'])
+        || !dialecticPromptContextSectionEnabled('enabled_appearance_subsections', 'current_condition')) {
+        return '';
+    }
+
+    $description = dialecticDescribePlayerSurvivalState();
+    return $description === '' ? '' : 'Survival: ' . $description;
+}
+
+if (function_exists('dialecticRegisterActorProfileEnricher')) {
+    dialecticRegisterActorProfileEnricher(
+        'dialectic.player_survival',
+        'dialecticPlayerSurvivalProfileEnricher',
+        55
+    );
+}
+
 function dialecticPromptContextSectionEnabled(string $bucket, string $id): bool
 {
     if (function_exists('dialecticPromptContextOptionEnabled')) {
@@ -7217,7 +7365,6 @@ function buildDynamicBiography(array $FOLLOWER_CONF, bool $forLetter = false, bo
     } else {
         $STATS_ADD = "";
     }
-
     // Add dialogue target's equipment (if DIALOGUE_TARGET is set)
     if (isset($GLOBALS["DIALOGUE_TARGET"]) && !empty($GLOBALS["DIALOGUE_TARGET"])) {
         $targetName = $GLOBALS["DIALOGUE_TARGET"];

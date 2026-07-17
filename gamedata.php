@@ -20,6 +20,7 @@ dialecticRuntimeBootstrap(__DIR__, [
 ]);
 $GLOBALS["db"] = $GLOBALS["db"] ?? new sql();
 require_once(__DIR__ . "/lib/core/npc_master.class.php");
+require_once(__DIR__ . "/lib/core/player.class.php");
 require_once(__DIR__ . "/lib/core/activity_status.php");
 require_once(__DIR__ . "/lib/core/game_plugins.php");
 require_once(__DIR__ . "/lib/dialectic_runtime.php");
@@ -157,6 +158,9 @@ try {
             break;
         case 'fallout_stats':
             handleFalloutStatsUpdate($data);
+            break;
+        case 'player_survival':
+            handlePlayerSurvivalUpdate($data);
             break;
         case 'furniture':
             handleFurnitureUpdate($data, $npcMaster);
@@ -1510,6 +1514,66 @@ function dialecticMaybeSyncPlayerNameFromGameData(array $data): void
             return;
         }
     }
+}
+
+function dialecticNormalizeSurvivalValue($value): float
+{
+    if (!is_numeric($value)) {
+        return 0.0;
+    }
+    return max(0.0, min(1000000.0, (float)$value));
+}
+
+function dialecticSurvivalStageFromValue(float $value): int
+{
+    return max(0, min(5, (int)floor(max(0.0, $value) / 200.0)));
+}
+
+function handlePlayerSurvivalUpdate(array $data): void
+{
+    $schema = cleanBridgeString($data['schema'] ?? '');
+    if ($schema !== 'dialectic.player_survival.v1') {
+        throw new InvalidArgumentException('Unsupported player survival schema');
+    }
+
+    $needs = is_array($data['needs'] ?? null) ? $data['needs'] : [];
+    $radiationPayload = is_array($data['radiation'] ?? null) ? $data['radiation'] : [];
+    $normalizedNeeds = [];
+    foreach (['hunger', 'dehydration', 'sleep_deprivation'] as $need) {
+        $payload = is_array($needs[$need] ?? null) ? $needs[$need] : [];
+        $value = dialecticNormalizeSurvivalValue($payload['value'] ?? 0);
+        $normalizedNeeds[$need] = [
+            'value' => $value,
+            'stage' => dialecticSurvivalStageFromValue($value),
+        ];
+    }
+
+    $radiationValue = dialecticNormalizeSurvivalValue($radiationPayload['value'] ?? 0);
+    $survival = [
+        'schema' => 'dialectic.player_survival.v1',
+        'hardcore_enabled' => dialecticGameDataBool($data['hardcore_enabled'] ?? false),
+        'needs' => $normalizedNeeds,
+        'radiation' => [
+            'value' => $radiationValue,
+            'stage' => dialecticSurvivalStageFromValue($radiationValue),
+        ],
+        'gamets' => max(0, (int)($data['gamets'] ?? 0)),
+        'captured_at' => max(0, (int)($data['timestamp'] ?? 0)),
+        'updated_at' => time(),
+    ];
+
+    $player = new Player();
+    if (!$player->setJson('survival', $survival)) {
+        throw new RuntimeException('Unable to store player survival state');
+    }
+
+    Logger::debug('[gamedata.php] Updated player survival state' . Logger::formatContext([
+        'hardcore' => $survival['hardcore_enabled'],
+        'hunger_stage' => $normalizedNeeds['hunger']['stage'],
+        'dehydration_stage' => $normalizedNeeds['dehydration']['stage'],
+        'sleep_stage' => $normalizedNeeds['sleep_deprivation']['stage'],
+        'radiation_stage' => $survival['radiation']['stage'],
+    ]));
 }
 
 function flattenActorProfileFields(array $data): array

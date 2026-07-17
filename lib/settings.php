@@ -557,7 +557,7 @@ if (!function_exists('dialecticGetPromptContextOptionCatalog')) {
                 ],
                 'current_condition' => [
                     'label' => '<condition>',
-                    'description' => 'Health, action points, karma, and visible condition state.',
+                    'description' => 'Health, action points, karma, visible condition, and player survival needs.',
                 ],
             ],
             'enabled_general_subsections' => [
