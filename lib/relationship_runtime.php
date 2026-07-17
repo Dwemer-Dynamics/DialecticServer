@@ -6,7 +6,7 @@ if (!function_exists('dialecticRelationshipSettingEnabled')) {
     function dialecticRelationshipSettingEnabled($value = null): bool
     {
         if (func_num_args() === 0) {
-            $value = $GLOBALS['RELATIONSHIP_SYSTEM_ENABLED'] ?? false;
+            $value = $GLOBALS['RELATIONSHIP_SYSTEM_ENABLED'] ?? true;
         }
 
         if (is_bool($value)) {

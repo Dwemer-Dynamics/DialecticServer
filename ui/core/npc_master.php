@@ -14,6 +14,7 @@ require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "chat_helper_functions.
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "data_functions.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "logger.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "utils_game_timestamp.php");
+require_once($enginePath . "ext" . DIRECTORY_SEPARATOR . "relationship_system" . DIRECTORY_SEPARATOR . "npc_save_handler.php");
 
 $GLOBALS["ENGINE_PATH"]=$enginePath;
 
@@ -445,6 +446,9 @@ if (!function_exists('dialecticMergeRelationshipSeedIntoExtendedData')) {
 if (!function_exists('dialecticNpcRelationshipSaveRequested')) {
  function dialecticNpcRelationshipSaveRequested(): bool
  {
+  if (array_key_exists('relationships_jsonb', $_POST)) {
+   return true;
+  }
   $extendedData = json_decode((string)($_POST['extended_data'] ?? ''), true);
   return is_array($extendedData) && array_key_exists('relationships', $extendedData);
  }
@@ -484,6 +488,7 @@ if (!function_exists('dialecticResolveNpcIdAfterCreate')) {
 
 // Handle Create
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create"])) {
+ dialecticMergePostedRelationshipsIntoExtendedData($_POST);
  if (dialecticUiAutoLockProfileEnabled()) {
   $_POST['lock_profile'] = 1;
  }
@@ -503,6 +508,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create"])) {
 
 // Handle Update
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["update"])) {
+ dialecticMergePostedRelationshipsIntoExtendedData($_POST);
  if (dialecticUiAutoLockProfileEnabled()) {
   $_POST['lock_profile'] = 1;
  }
@@ -580,6 +586,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
  }
 
  $_POST['extended_data'] = $npc->encodeJsonObjectForPersistence($tmp, 'Extended metadata');
+ dialecticMergePostedRelationshipsIntoExtendedData($_POST);
 
  // Handle dynamic_profile: if empty string sent, set to NULL (inherit from profile)
  if (array_key_exists('dynamic_profile', $_POST)) {
@@ -1856,6 +1863,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  <input type="checkbox" id="auto_diary_enabled" name="auto_diary_enabled" value="1" <?= $adChecked ? "checked" : "" ?> data-profile-default="<?= $profileAutoDiaryEnabled ? '1' : '0' ?>"></label><small class="hint">Automatically generate diary entries for this NPC when they are nearby during sleep/wait events.<?= $adFromProfile ? ' <strong style="color:rgb(255, 182, 65);">(Inherited from profile)</strong>' : '' ?></small></div><div class="form-item"><label for="auto_diary_wait_enabled" class="label-with-toggle">Auto Diary Wait
  <input type="checkbox" id="auto_diary_wait_enabled" name="auto_diary_wait_enabled" value="1" <?= $adWaitChecked ? "checked" : "" ?> data-profile-default="<?= $profileAutoDiaryWaitEnabled ? '1' : '0' ?>"></label><small class="hint">When Auto Diary is enabled, this controls whether diary entries are created during wait events. If disabled, auto diary will only trigger on sleep events.<?= $adWaitFromProfile ? ' <strong style="color:rgb(255, 182, 65);">(Inherited from profile)</strong>' : '' ?></small></div><div class="form-item"><label for="salutation_after_a_while" class="label-with-toggle">Auto Greeting
 <input type="checkbox" id="salutation_after_a_while" name="salutation_after_a_while" value="1" <?= $salChecked ? "checked" : "" ?> data-profile-default="<?= $profileSalEnabled ? '1' : '0' ?>"></label><small class="hint">NPC will automatically greet you after you have been away for a while.</small></div><div class="form-item span-2"><label for="prompt_head">Prompt Head Override</label><textarea id="prompt_head" name="prompt_head" placeholder="High-level system instructions injected before the core."><?= htmlspecialchars($editItem["prompt_head"] ?? "") ?></textarea><small class="hint">System preamble inserted before other sections. Do not worry if it is empty, as will pull from global settings prompt head.</small></div><div class="form-item span-2"><label for="core">Core</label><textarea id="core" name="core" placeholder="Unchanging rules, boundaries, and core identity."><?= htmlspecialchars($editItem["core"] ?? "") ?></textarea><small class="hint">Core NPC description. 1-2 sentences describing the character.</small></div><div class="form-item span-2"><label for="npc_static_bio">Backstory</label><textarea id="npc_static_bio" name="npc_static_bio" placeholder="Fixed background, history, and facts."><?= htmlspecialchars($editItem["npc_static_bio"] ?? "") ?></textarea><small class="hint">Historical facts and background information.</small></div><div class="form-item span-2"><label for="appearance">Appearance</label><textarea id="appearance" name="appearance" placeholder="Physical appearance."><?= htmlspecialchars($editItem["appearance"] ?? "") ?></textarea><small class="hint">Physical appearance. Keep it limited to character cosmetics, not equipment.</small></div><div class="dynamic-profile-section span-2"><div class="form-item"><label for="personality">Personality</label><textarea id="personality" name="personality" placeholder="Personality traits and speaking characteristics."><?= htmlspecialchars($editItem["personality"] ?? "") ?></textarea><small class="hint">Traits and quirks that guide tone and behavior.</small></div><div class="form-item"><label for="occupation">Occupation</label><textarea id="occupation" name="occupation" placeholder="Role, job, affiliations."><?= htmlspecialchars($editItem["occupation"] ?? "") ?></textarea><small class="hint">Primary role or job. Include relevant guilds or factions.</small></div><div class="form-item"><label for="skills">Skills</label><textarea id="skills" name="skills" placeholder="Strengths, abilities, and specialties."><?= htmlspecialchars($editItem["skills"] ?? "") ?></textarea><small class="hint">Highlight notable competencies of the NPC.</small></div><div class="form-item"><label for="speechstyle">Speech Style</label><textarea id="speechstyle" name="speechstyle" placeholder="Dialect, cadence, verbal tics."><?= htmlspecialchars($editItem["speechstyle"] ?? "") ?></textarea><small class="hint">How the NPC speaks their dialogue.</small></div><div class="form-item"><label for="goals">Goals</label><textarea id="goals" name="goals" placeholder="Short and long-term objectives."><?= htmlspecialchars($editItem["goals"] ?? "") ?></textarea><small class="hint">Motivations and goals for the NPC.</small></div><div class="form-item span-2"><label for="emote_moods">Emote Moods Override</label><textarea id="emote_moods" name="emote_moods" placeholder="Allowed mood/emote set (comma-separated)."><?= htmlspecialchars($editItem["emote_moods"] ?? "") ?></textarea><small class="hint">Whitelist of mood/emote cues the NPC may use (e.g., calm, angry, playful). <strong>Overrides</strong> the global EMOTEMOODS setting. Leave empty to use global default.</small></div><?php
+ include($enginePath . "ext" . DIRECTORY_SEPARATOR . "relationship_system" . DIRECTORY_SEPARATOR . "relationship_editor.php");
  $mtmLatest = '';
  try {
  if (!empty($editItem['extended_data'])){
@@ -2000,7 +2008,12 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  $itemBaseId = isset($item['baseid']) ? htmlspecialchars((string)$item['baseid'], ENT_QUOTES, 'UTF-8') : '&mdash;';
  ?><tr style="border-bottom:1px solid #3a3a3a;"><td style="padding:6px 8px; color:#cfd9ea;"><?= $itemName ?></td><td style="padding:6px 8px; text-align:center; color:#9fb1c9;"><?= $itemType !== null ? $itemType : '&mdash;' ?></td><td style="padding:6px 8px; text-align:center; color:<?= $itemEquipped ? 'rgb(255, 182, 65)' : '#777' ?>;"><?= $itemEquipped ? 'Yes' : 'No' ?></td><td style="padding:6px 8px; text-align:right; color:#9fb1c9;"><?= $itemCondition !== null ? number_format($itemCondition, 1) : '&mdash;' ?></td><td style="padding:6px 8px; text-align:right; color:#9fb1c9; font-family:monospace; font-size:11px;"><?= $itemBaseId ?></td><td style="padding:6px 8px; text-align:right; color:#9fb1c9; font-weight:600;"><?= $itemCount ?></td></tr><?php endforeach; ?></tbody></table><div style="margin-top:12px; padding:8px; background:#1a1a1a; border-radius:6px; border:1px solid #4a4a4a;"><strong style="color:rgb(255, 182, 65);">Total Items:</strong><span style="color:#cfd9ea;"><?= count($metadataInventory) ?> unique items</span></div></div><?php else: ?><div style="color:#9fb1c9;">No inventory data found in metadata.</div><?php endif; ?></div></details></div><div class="form-item span-2"><details class="npc-metadata-collapse" id="npc_metadata_collapse"><summary>Metadata (JSON)</summary><div class="npc-metadata-collapse-body"><textarea name="metadata" style="display:none"><?= htmlspecialchars($editItem["metadata"] ?? "") ?></textarea><small class="hint">General NPC metadata used by systems.</small><div id="metadata"></div></div></details></div><div class="form-item span-2"><label for="extended_data">Setting Overrides</label><small class="hint">Override global and profile settings for this specific NPC. Changes here take precedence over all other configurations.</small><?php
  // Configure override editor for NPC mode
- $reservedKeys = [ 'middle_term_enabled', 'individual_memory_enabled', 'auto_diary_enabled', 'auto_diary_wait_enabled', 'dialectic_core_migrated', 'salutation_after_a_while'];
+ $reservedKeys = [
+  'middle_term_enabled', 'individual_memory_enabled', 'auto_diary_enabled',
+  'auto_diary_wait_enabled', 'dialectic_core_migrated', 'salutation_after_a_while',
+  'relationships', 'relationships_locked', 'relationships_analyzed',
+  'relationships_model', 'relationships_last_eval', 'relationships_inferred'
+ ];
  $extendedDataRaw = isset($editItem["extended_data"]) ? $editItem["extended_data"] : '{}';
  $extendedDataObj = json_decode($extendedDataRaw, true) ?: [];
  $npcOverrideCatalog = dialecticGetOverrideableGeneralSettingsCatalog();

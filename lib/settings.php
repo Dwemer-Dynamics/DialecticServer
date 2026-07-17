@@ -1213,7 +1213,7 @@ if (!function_exists('dialecticSeedMissingManagedGeneralSettings')) {
         $missingValue = new \stdClass();
         $fallbacks = [
             'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 0,
-            'RELATIONSHIP_SYSTEM_ENABLED' => false,
+            'RELATIONSHIP_SYSTEM_ENABLED' => true,
             'PROMPT_CONTEXT_OPTIONS' => dialecticGetDefaultPromptContextOptions(),
         ];
 

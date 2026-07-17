@@ -23,6 +23,12 @@ $webRoot = rtrim($webRoot, '/');
 
 // DB connection
 $db = $GLOBALS["db"];
+$relationshipEnabled = in_array(
+ strtolower(trim((string)($GLOBALS['RELATIONSHIP_SYSTEM_ENABLED'] ?? 'false'))),
+ ['1', 'true', 'yes', 'on'],
+ true
+);
+$relationshipConnectorId = (int)($GLOBALS['RELLLM_CONNECTOR'] ?? 0);
 
 $TITLE = "DIALECTIC - Relationship LLM Logs";
 $isEmbedded = (isset($_GET['embed']) && $_GET['embed']);
@@ -113,6 +119,12 @@ footer { display: <?php echo $isEmbedded ? 'none' : 'block'; ?>; }
 
 .pagination-buttons { margin: 15px 0; display: flex; gap: 10px; }
 .no-data { text-align: center; padding: 40px; color: #888; }
+.no-data p:nth-child(2) { display:none; }
+.no-data::after { content:'Evaluations appear after NPC dialogue, rechat, or Build with AI.'; font-size:0.9em; }
+.rel-system-status { margin-bottom:15px; padding:8px 12px; border-radius:4px; border:1px solid #555; color:#cfd9ea; }
+.rel-system-status.enabled { border-color:#356b46; color:#7ddc9a; }
+.rel-system-status.disabled { border-color:#8d6434; color:#ffd18a; }
+.rel-settings-link { color:rgb(255, 182, 65); }
 
 .cleanup-section {
  margin: 15px 0;
@@ -191,6 +203,7 @@ $query = "SELECT rowid, created_at, request, result, connector, usage
  ORDER BY created_at DESC
  LIMIT {$limit} OFFSET {$offset}";
 $results = $db->fetchAll($query);
+?><div class="rel-system-status <?= $relationshipEnabled && $relationshipConnectorId > 0 ? 'enabled' : 'disabled' ?>"><?php if (!$relationshipEnabled): ?>Relationship tracking is disabled.<?php elseif ($relationshipConnectorId <= 0): ?>Relationship tracking is enabled, but no relationship connector is configured.<?php else: ?>Relationship tracking is enabled with connector #<?= $relationshipConnectorId ?>.<?php endif; ?> <a class="rel-settings-link" href="<?= htmlspecialchars($webRoot, ENT_QUOTES, 'UTF-8') ?>/ui/global_settings.php" target="_top">Global Settings</a></div><?php
 ?><div class="rel-log-header"><h1> Relationship LLM Logs</h1><div class="rel-stats"><div class="rel-stat"><span class="rel-stat-label">Total Evaluations</span><div class="rel-stat-value"><?php echo number_format($totalLogs); ?></div></div><div class="rel-stat"><span class="rel-stat-label">Last Hour</span><div class="rel-stat-value"><?php echo number_format($recentLogs); ?></div></div></div></div><?php if ($deleteMessage): ?><div style="background: #1e3f1e; border: 1px solid #2d5a2d; padding: 10px 15px; border-radius: 6px; margin-bottom: 15px; color: #4ade80;"><?php echo $deleteMessage; ?></div><?php endif; ?><div class="rel-filters"><label>Type:</label><select onchange="filterByType(this.value)"><option value="">All Types</option><option value="eval_" <?php echo $typeFilter === 'eval_' ? 'selected' : ''; ?>>Evaluations</option><option value="analyze_" <?php echo $typeFilter === 'analyze_' ? 'selected' : ''; ?>>Analyze (Build with AI)</option><option value="npc2npc_" <?php echo $typeFilter === 'npc2npc_' ? 'selected' : ''; ?>>NPC-to-NPC</option></select><button class="btn-base btn-primary" onclick="window.location.reload()"> Refresh</button></div><!-- Cleanup Section --><?php if ($totalLogs > 0): ?><div class="cleanup-section"><form method="POST" style="display: inline-flex; gap: 10px; align-items: center;" onsubmit="return confirmDelete('older')"><input type="hidden" name="delete_action" value="delete_older"><span style="color: #9fb1c9;">Delete logs older than</span><select name="delete_interval" style="padding: 6px 10px; border-radius: 4px; border: 1px solid #666; background: #2a2a2a; color: #f8f9fa;"><option value="1 hour">1 hour</option><option value="6 hours">6 hours</option><option value="1 day">1 day</option><option value="3 days">3 days</option><option value="1 week" selected>1 week</option><option value="2 weeks">2 weeks</option><option value="1 month">1 month</option></select><button type="submit" class="btn-base btn-warning" style="white-space: nowrap;"> Delete Old</button></form><form method="POST" style="display: inline-flex; align-items: center;" onsubmit="return confirmDelete('all')"><input type="hidden" name="delete_action" value="delete_all"><button type="submit" class="btn-base btn-danger" style="white-space: nowrap;"> Delete All</button></form></div><?php endif; ?><?php if (empty($results)): ?><div class="no-data"><p>No relationship evaluations found.</p><p style="font-size: 0.9em;">Make sure RELLLM_CONNECTOR is configured in your profile.</p></div><?php else: ?><div class="pagination-buttons"><?php if ($page > 1): ?><button class="btn-base btn-primary" onclick="goToPage(<?php echo $page - 1; ?>)"> Previous</button><?php endif; ?><span style="padding: 6px;">Page <?php echo $page; ?></span><?php if (count($results) >= $limit): ?><button class="btn-base btn-primary" onclick="goToPage(<?php echo $page + 1; ?>)">Next </button><?php endif; ?></div><table class="rel-log-table"><thead><tr><th style="width: 100px;">Time</th><th style="width: 80px;">Type</th><th style="width: 130px;">NPC</th><th>Changes & Context</th></tr></thead><tbody><?php foreach ($results as $row):
  $reqData = json_decode($row['request'], true);
  $resultData = json_decode($row['result'], true);
