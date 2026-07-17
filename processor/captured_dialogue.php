@@ -72,6 +72,22 @@ function dialecticCapturedDialogueLooksLikeContaminatedLine(string $text, array 
         }
     }
 
+    $animationTokens = [
+        'hit',
+        'attack',
+        'alertidle',
+        'alerttocombat',
+        'observecombat',
+        'assault',
+        'flee',
+        'death',
+        'deathresponse',
+        'followersstealthing',
+    ];
+    if (in_array($lower, $animationTokens, true)) {
+        return true;
+    }
+
     $speaker = trim(strval($payload['speaker'] ?? ''));
     if ($speaker !== '' && preg_match('/^' . preg_quote($speaker, '/') . '\s*:/i', $line) === 1) {
         return true;

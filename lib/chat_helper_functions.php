@@ -4387,6 +4387,36 @@ function extractGenericEventParticipants($eventType, $eventData)
     $eventType = strtolower((string)$eventType);
     $eventData = (string)$eventData;
 
+    $structured = json_decode(trim($eventData), true);
+    if (is_array($structured)) {
+        foreach (["speaker", "npc", "actor", "listener", "target", "player", "player_name"] as $key) {
+            if (!array_key_exists($key, $structured)) {
+                continue;
+            }
+            $people = dialecticNormalizePeopleValue($structured[$key]);
+            foreach (parsePeoplePipeList($people) as $name) {
+                appendUniqueActorName($participants, $name);
+            }
+        }
+
+        $audience = $structured["audience_snapshot"] ?? null;
+        if (is_string($audience)) {
+            $decodedAudience = json_decode($audience, true);
+            $audience = is_array($decodedAudience) ? $decodedAudience : $audience;
+        }
+        if (is_array($audience)) {
+            foreach (["people", "companions", "actors"] as $key) {
+                if (!array_key_exists($key, $audience)) {
+                    continue;
+                }
+                foreach (parsePeoplePipeList(dialecticNormalizePeopleValue($audience[$key])) as $name) {
+                    appendUniqueActorName($participants, $name);
+                }
+            }
+        }
+        return $participants;
+    }
+
     $speakerName = extractSpeakerNameFromInputEvent($eventData);
     if ($speakerName === "") {
         $speakerName = extractSpeakerNameFromChatEvent($eventData);
