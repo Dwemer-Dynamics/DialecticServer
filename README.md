@@ -83,6 +83,19 @@ powershell -ExecutionPolicy Bypass -File .\tools\create-dialectic-db-wsl.ps1 -Re
 
 The script imports `data/database_default.sql` when the baseline schema is missing, then runs `tools/bootstrap-database.php`, which applies `debug/db_updates.php`.
 
+Dialectic requires a UTF-8 PostgreSQL database because NPC `metadata` and
+`extended_data` are stored as `jsonb`. Older test builds could inherit
+`SQL_ASCII` from the PostgreSQL template. Migrate an affected WSL installation
+without discarding its data by running:
+
+```bash
+sudo bash /var/www/html/DialecticServer/tools/migrate-dialectic-db-utf8-wsl.sh
+```
+
+The migration creates a safety dump and a disconnected rollback database,
+restores into a UTF-8 database, and compares every application table row count
+before replacing the active database.
+
 ## Release Audit
 
 Validate the tracked server tree before publishing a release:
