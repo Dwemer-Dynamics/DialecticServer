@@ -160,6 +160,7 @@ class NpcMaster
 {
     private $table = "core_npc_master";
     private $db;
+    private string $lastError = '';
 
     public static function profileExists($npcName)
     {
@@ -232,7 +233,12 @@ class NpcMaster
         }
         $data["md5"] = md5($data["npc_name"]);
         $filtered    = array_intersect_key($data, array_flip($fields));
-        return $this->db->insert($this->table, $filtered);
+        $this->lastError = '';
+        $created = $this->db->insert($this->table, $filtered);
+        if ($created === false) {
+            $this->lastError = trim((string)$this->db->GetLastError());
+        }
+        return $created;
     }
 
     // Read NPC by ID
@@ -341,7 +347,12 @@ class NpcMaster
         $id       = intval($id);
         $where    = "id = {$id}";
         $filtered = array_intersect_key($data, array_flip($fields));
-        return $GLOBALS["db"]->updateRow($this->table, $filtered, $where);
+        $this->lastError = '';
+        $updated = $GLOBALS["db"]->updateRow($this->table, $filtered, $where);
+        if ($updated === false) {
+            $this->lastError = trim((string)$this->db->GetLastError());
+        }
+        return $updated;
 
     }
 
@@ -447,15 +458,15 @@ class NpcMaster
         }
 
         if (is_array($relationshipSeed)) {
-            $extendedData = $this->decodeJsonObject($data['extended_data'] ?? null);
+            $extendedData = $this->decodeJsonObjectForPersistence($data['extended_data'] ?? null, 'extended_data');
             $extendedData['relationships'] = $relationshipSeed;
-            $data['extended_data'] = json_encode($extendedData, JSON_UNESCAPED_UNICODE);
-        } elseif (isset($data['extended_data']) && is_array($data['extended_data'])) {
-            $data['extended_data'] = json_encode($data['extended_data'], JSON_UNESCAPED_UNICODE);
+            $data['extended_data'] = $this->encodeJsonObjectForPersistence($extendedData, 'extended_data');
+        } elseif (array_key_exists('extended_data', $data) && $data['extended_data'] !== null && $data['extended_data'] !== '') {
+            $data['extended_data'] = $this->encodeJsonObjectForPersistence($data['extended_data'], 'extended_data');
         }
 
-        if (isset($data['metadata']) && is_array($data['metadata'])) {
-            $data['metadata'] = json_encode($data['metadata'], JSON_UNESCAPED_UNICODE);
+        if (array_key_exists('metadata', $data) && $data['metadata'] !== null && $data['metadata'] !== '') {
+            $data['metadata'] = $this->encodeJsonObjectForPersistence($data['metadata'], 'metadata');
         }
 
         return $data;
@@ -498,14 +509,21 @@ class NpcMaster
         return is_array($row) && count($row) > 0;
     }
 
-    private function decodeJsonObject($value)
+    public function decodeJsonObjectForPersistence($value, string $fieldName = 'JSON field'): array
     {
         if (is_array($value)) {
+            if ($value !== [] && array_is_list($value)) {
+                throw new InvalidArgumentException("{$fieldName} must be a JSON object, not a list.");
+            }
             return $value;
         }
 
-        if (!is_string($value)) {
+        if ($value === null || $value === '') {
             return [];
+        }
+
+        if (!is_string($value)) {
+            throw new InvalidArgumentException("{$fieldName} must be a JSON object.");
         }
 
         $trimmed = trim($value);
@@ -513,8 +531,36 @@ class NpcMaster
             return [];
         }
 
-        $decoded = json_decode($trimmed, true);
-        return is_array($decoded) ? $decoded : [];
+        if ($trimmed[0] !== '{' && $trimmed !== '[]') {
+            throw new InvalidArgumentException("{$fieldName} must be a JSON object.");
+        }
+
+        try {
+            $decoded = json_decode($trimmed, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $e) {
+            throw new InvalidArgumentException("{$fieldName} is invalid JSON: " . $e->getMessage(), 0, $e);
+        }
+
+        if (!is_array($decoded)) {
+            throw new InvalidArgumentException("{$fieldName} must be a JSON object.");
+        }
+
+        return $decoded;
+    }
+
+    public function encodeJsonObjectForPersistence($value, string $fieldName = 'JSON field'): string
+    {
+        $decoded = $this->decodeJsonObjectForPersistence($value, $fieldName);
+        $jsonValue = $decoded === [] ? new stdClass() : $decoded;
+
+        try {
+            return json_encode(
+                $jsonValue,
+                JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            );
+        } catch (JsonException $e) {
+            throw new InvalidArgumentException("{$fieldName} contains invalid UTF-8: " . $e->getMessage(), 0, $e);
+        }
     }
 
     private function decodeRelationshipSeed($value)
@@ -536,7 +582,12 @@ class NpcMaster
             return null;
         }
 
-        $decoded = json_decode($trimmed, true);
+        try {
+            $decoded = json_decode($trimmed, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $e) {
+            throw new InvalidArgumentException('relationships is invalid JSON: ' . $e->getMessage(), 0, $e);
+        }
+
         return is_array($decoded) ? $decoded : null;
     }
 
@@ -839,30 +890,39 @@ class NpcMaster
 
     public function getExtendedData($currentNpcData): array
     {
-        return json_decode($currentNpcData['extended_data'] ?? '{}', true) ?: [];
+        try {
+            return $this->decodeJsonObjectForPersistence($currentNpcData['extended_data'] ?? '{}', 'extended_data');
+        } catch (InvalidArgumentException $e) {
+            Logger::error('[NPC] Could not decode extended_data: ' . $e->getMessage());
+            return [];
+        }
     }
 
     public function setExtendedData($currentNpcData, array $data)
     {
-
-        $currentNpcData['extended_data'] = json_encode($data);
+        $currentNpcData['extended_data'] = $this->encodeJsonObjectForPersistence($data, 'extended_data');
         return $currentNpcData;
     }
 
     public function getMetadata($currentNpcData): array
     {
-        return json_decode($currentNpcData['metadata'] ?? '{}', true) ?: [];
+        try {
+            return $this->decodeJsonObjectForPersistence($currentNpcData['metadata'] ?? '{}', 'metadata');
+        } catch (InvalidArgumentException $e) {
+            Logger::error('[NPC] Could not decode metadata: ' . $e->getMessage());
+            return [];
+        }
     }
 
     public function setMetadata($currentNpcData, array $data)
     {
-
-        $currentNpcData['metadata'] = json_encode($data);
+        $currentNpcData['metadata'] = $this->encodeJsonObjectForPersistence($data, 'metadata');
         return $currentNpcData;
     }
 
     public function updateMetadataKeysByName(string $npcName, array $setValues = [], array $unsetKeys = []): bool
     {
+        $this->lastError = '';
         $npcName = trim($npcName);
         if ($npcName === '') {
             return false;
@@ -905,9 +965,15 @@ class NpcMaster
 
         foreach ($normalizedSetValues as $metadataKey => $value) {
             $escapedKey = $this->db->escape($metadataKey);
-            $encodedValue = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            if ($encodedValue === false) {
-                continue;
+            try {
+                $encodedValue = json_encode(
+                    $value,
+                    JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                );
+            } catch (JsonException $e) {
+                $this->lastError = "metadata.{$metadataKey} contains invalid UTF-8: " . $e->getMessage();
+                Logger::error('[NPC] ' . $this->lastError);
+                return false;
             }
 
             $escapedValue = $this->db->escape($encodedValue);
@@ -921,7 +987,16 @@ class NpcMaster
             WHERE npc_name = '{$escapedNpcName}'
         ";
 
-        return $this->db->execQuery($query) !== false;
+        $updated = $this->db->execQuery($query) !== false;
+        if (!$updated) {
+            $this->lastError = trim((string)$this->db->GetLastError());
+        }
+        return $updated;
+    }
+
+    public function getLastError(): string
+    {
+        return $this->lastError !== '' ? $this->lastError : 'Database operation failed.';
     }
 
     public function backupNpcById($id)

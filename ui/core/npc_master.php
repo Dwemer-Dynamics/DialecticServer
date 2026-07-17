@@ -487,7 +487,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create"])) {
  if (dialecticUiAutoLockProfileEnabled()) {
   $_POST['lock_profile'] = 1;
  }
- $npc->create($_POST);
+ $created = $npc->create($_POST);
+ if ($created === false) {
+  throw new RuntimeException($npc->getLastError());
+ }
  if (dialecticNpcRelationshipSaveRequested()) {
   $createdNpcId = dialecticResolveNpcIdAfterCreate($_POST["npc_name"] ?? '');
   if ($createdNpcId > 0) {
@@ -504,7 +507,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["update"])) {
   $_POST['lock_profile'] = 1;
  }
  $_POST["md5"]=md5($_POST["npc_name"]);
- $npc->update($_POST["id"], $_POST);
+ $updated = $npc->update($_POST["id"], $_POST);
+ if ($updated === false) {
+  throw new RuntimeException($npc->getLastError());
+ }
  if (dialecticNpcRelationshipSaveRequested()) {
   dialecticRelationshipTimelineStamp((int)($_POST["id"] ?? 0));
  }
@@ -520,18 +526,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
  $id = intval($_POST['id'] ?? 0);
 
 
- // Server-side: extended_data already has feature toggles synced by JS, just ensure it's valid JSON
- // The client-side JS only includes values that differ from profile defaults
- try {
- $postedExt = isset($_POST['extended_data']) ? (string)$_POST['extended_data'] : '';
- if ($postedExt !== '') {
- $tmp = json_decode($postedExt, true);
- if (!is_array($tmp)) {
- $tmp = [];
- }
+ // Preserve existing extended data when the field is omitted and reject malformed
+ // JSON instead of silently replacing the profile data with an empty object.
+ if (array_key_exists('extended_data', $_POST)) {
+  $postedExt = (string)$_POST['extended_data'];
+ } elseif ($id > 0) {
+  $existingNpc = $npc->getById($id);
+  $postedExt = (string)($existingNpc['extended_data'] ?? '{}');
  } else {
- $tmp = [];
+  $postedExt = '{}';
  }
+ $tmp = $npc->decodeJsonObjectForPersistence($postedExt, 'Extended metadata');
 
  if (!empty($_POST["middle_term_enabled"])) { // If enabled on NPC form, but not present in extended_data
  $tmp["middle_term_enabled"] = 1;
@@ -574,10 +579,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
 
  }
 
- $_POST['extended_data'] = json_encode($tmp);
- } catch (Throwable $e) {
- $_POST['extended_data'] = '{}';
- }
+ $_POST['extended_data'] = $npc->encodeJsonObjectForPersistence($tmp, 'Extended metadata');
 
  // Handle dynamic_profile: if empty string sent, set to NULL (inherit from profile)
  if (array_key_exists('dynamic_profile', $_POST)) {
@@ -592,7 +594,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
   $_POST['lock_profile'] = 1;
  }
  if ($id <= 0) {
- $npc->create($_POST);
+ $created = $npc->create($_POST);
+ if ($created === false) { echo json_encode(["ok"=>false, "error"=>$npc->getLastError()]); exit; }
  $newId = dialecticResolveNpcIdAfterCreate($_POST["npc_name"] ?? '');
  if ($newId <= 0) { echo json_encode(["ok"=>false, "error"=>"Insert failed"]); exit; }
  if (dialecticNpcRelationshipSaveRequested()) {
@@ -602,13 +605,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
  } else {
  $_POST["md5"]=md5($_POST["npc_name"]);
  $ok = $npc->update($id, $_POST);
+ if ($ok === false) {
+ echo json_encode(["ok"=>false, "error"=>$npc->getLastError()]);
+ } else {
  if (dialecticNpcRelationshipSaveRequested()) {
   dialecticRelationshipTimelineStamp($id);
  }
- $npc->backupNpcById($id);// We also make a backup of manually edited NPCs, so when loading a save, will load this record
- if ($ok === false) {
- echo json_encode(["ok"=>false, "error"=>($npc->getLastError() ?? 'Update failed')]);
- } else {
+ if ($npc->backupNpcById($id) === false) {
+  Logger::warn("[NPC SAVE] Profile {$id} was updated, but its history backup failed.");
+ }
  echo json_encode(["ok"=>true, "id"=>$id]);
  }
  }
