@@ -3441,6 +3441,45 @@ if ($checkVersion("core_action") < 20260624003) {
     }
 }
 
+if ($checkVersion("core_profiles") < 20260717001) {
+    Logger::debug("Applying core_profiles 20260717001 - restore profile diary generation settings");
+    try {
+        $diaryDefaults = [
+            'DIARY_PROMPT' => "Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#'s recent dialogues and events into #DIALECTIC_NAME#'s diary. WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.",
+            'DIARY_COOLDOWN' => 120,
+            'CONTEXT_HISTORY_DIARY' => 100,
+        ];
+
+        $rows = $db->fetchAll("SELECT id, metadata FROM public.core_profiles ORDER BY id ASC");
+        foreach ($rows as $row) {
+            $profileId = intval($row['id'] ?? 0);
+            if ($profileId <= 0) {
+                continue;
+            }
+
+            $metadataRaw = $row['metadata'] ?? '{}';
+            $metadata = is_array($metadataRaw) ? $metadataRaw : json_decode(strval($metadataRaw), true);
+            if (!is_array($metadata)) {
+                $metadata = [];
+            }
+            foreach ($diaryDefaults as $key => $value) {
+                if (!array_key_exists($key, $metadata)) {
+                    $metadata[$key] = $value;
+                }
+            }
+
+            $metadataJson = json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $metadataLiteral = $db->escapeLiteral(is_string($metadataJson) ? $metadataJson : '{}');
+            $db->execQuery("UPDATE public.core_profiles SET metadata = {$metadataLiteral}::jsonb WHERE id = {$profileId}");
+        }
+
+        $updateVersion("core_profiles", 20260717001);
+        Logger::info("Applied patch core_profiles 20260717001 - restored profile diary generation settings");
+    } catch (Throwable $e) {
+        Logger::error("Error restoring profile diary settings: " . $e->getMessage());
+    }
+}
+
 if ($checkVersion("core_action") < 20260716002) {
     Logger::debug("Applying core_action 20260716002 - add Fallout narrator actions without protected kill targets");
 

@@ -175,7 +175,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'core_stt_connector' => 20260502002,
             'descriptions_defaults' => 20260626004,
             'prompts' => 20260627001,
-            'core_profiles' => 20260629002,
+            'core_profiles' => 20260717001,
             'moods_issued_sequence' => 20260626001,
             'core_tts_connector_metadata' => 20260626001,
             'core_tts_connector_omnivoice' => 20260708001,

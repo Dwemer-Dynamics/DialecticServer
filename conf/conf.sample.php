@@ -121,7 +121,7 @@ $DYNAMIC_PROMPT_GOALS = "Based on story developments and achievements, update th
     . "aspiration format. Do not include any introductory text, meta-commentary, or phrases like 'Here are the updated goals' "
     . "or 'The character's goals are'. Start directly with the first bullet point (maintain a maximum of 20 goals with "
     . "reduction priority when required: 1- compress related goals, 2-eliminate 'study' related goals, 3- eliminate older goals).";
-$DIARY_PROMPT = "Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#s last dialogues and events written above into #DIALECTIC_NAME#s diary . WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.";
+$DIARY_PROMPT = "Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#'s recent dialogues and events into #DIALECTIC_NAME#'s diary. WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.";
 
 $RPG_COMMENTS=["levelup","combat_end","lockpick","sleep","keepmechecked"]; //AI Service(s).
 $RPG_COMMENTS_CHANCE=50; //Chance (0-100) for enabled RPG comments to trigger.
