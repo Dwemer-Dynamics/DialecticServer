@@ -1069,6 +1069,7 @@ class openrouterjson
             if (strlen(($data["choices"][0]["delta"]["content"]))>0) {
                 $buffer.=$data["choices"][0]["delta"]["content"];
                 $this->_buffer.=$data["choices"][0]["delta"]["content"];
+                $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_buffer;
                 // Check to see if we've received something that looks like it starts with a JSON object
                 if (strlen($this->_buffer)>$buffer_preamble && strpos($this->_buffer, '{') === false) { 
                     Logger::error("{$this->name} Error decoding JSON from LLM {$this->_model} output: can't find JSON start mark after reading {$buffer_preamble} characters. LLM didn't output proper JSON object or there is a long non-JSON preamble. url:{$this->_url} buffer:{$this->_buffer} ");

@@ -5343,6 +5343,45 @@ function call_llm() {
     return call_llm_internal();
 }
 
+function dialecticRecoverPlainLlmSpeech(): bool
+{
+    global $gameRequest, $talkedSoFar, $alreadysent;
+
+    if (($gameRequest[0] ?? '') === 'diary' || count($talkedSoFar ?? []) > 0 || count($alreadysent ?? []) > 0) {
+        return false;
+    }
+
+    $raw = trim(strval($GLOBALS['DIALECTIC_LLM_RAW_TEXT'] ?? ''));
+    if ($raw === '' || strlen($raw) < 3 || preg_match('/[[:alpha:]]/u', $raw) !== 1) {
+        return false;
+    }
+    if (preg_match('/^(?:\{|\[|data\s*:|<!doctype|<html|error\b)/i', $raw) === 1) {
+        return false;
+    }
+
+    $raw = preg_replace('/^```(?:json|text|markdown)?\s*|\s*```$/i', '', $raw);
+    $raw = preg_replace('/<(think|thinking|reasoning)>.*?<\/\1>/is', '', $raw);
+    $clean = trim(cleanResponse($raw));
+    if ($clean === '' || preg_match('/[[:alpha:]]/u', $clean) !== 1) {
+        return false;
+    }
+
+    $sentences = array_values(array_filter(split_sentences_stream($clean), static function ($line) {
+        return trim(strval($line)) !== '';
+    }));
+    if (empty($sentences)) {
+        return false;
+    }
+
+    Logger::warn('[LLM] Recovered valid plain-text model output as speech' . Logger::formatContext([
+        'speaker' => $GLOBALS['DIALECTIC_NAME'] ?? '',
+        'chars' => strlen($clean),
+        'preview' => Logger::summarizePayload($clean, 160),
+    ]));
+    returnLines($sentences);
+    return true;
+}
+
 function call_llm_internal() {
     global $contextData, $gameRequest, $receivedData, $startTime, $db;
     global $ERROR_TRIGGERED, $talkedSoFar, $alreadysent, $FUNCTIONS_ARE_ENABLED;
@@ -5350,6 +5389,7 @@ function call_llm_internal() {
     
     $outputWasValid = true;
     $firstLlmChunkLogged = false;
+    unset($GLOBALS['DIALECTIC_LLM_RAW_TEXT']);
     
 
     if (isset($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"])) {
@@ -5684,6 +5724,14 @@ function call_llm_internal() {
         }
         if ($tmpData==-1 || (isset($GLOBALS["VALIDATE_LLM_OUTPUT_FNCT"]) && !$GLOBALS["VALIDATE_LLM_OUTPUT_FNCT"]($tmpData))) {
             if ($tmpData == -1 && count($talkedSoFar) == 0 && count($alreadysent) == 0) {
+                if (dialecticRecoverPlainLlmSpeech()) {
+                    if (method_exists($connectionHandler, "close")) {
+                        $connectionHandler->close("plain-text-recovery");
+                    }
+                    $buffer = "";
+                    $breakFlag = true;
+                    continue;
+                }
                 $streamErrorReason = "stream_error";
                 if (method_exists($connectionHandler, "getLastStreamErrorCode")) {
                     $streamErrorReason .= " code=" . strval($connectionHandler->getLastStreamErrorCode() ?? "");
@@ -5770,6 +5818,10 @@ function call_llm_internal() {
                 }
 
     } // --- end while
+
+    if ($outputWasValid && trim($buffer) === '' && count($talkedSoFar) == 0 && count($alreadysent) == 0) {
+        dialecticRecoverPlainLlmSpeech();
+    }
     
     
     if ($outputWasValid && trim($buffer)) {

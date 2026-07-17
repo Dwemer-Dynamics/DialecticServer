@@ -62,6 +62,13 @@ function dialectic_buffer_response_line(string $speaker, string $action, string 
     if ($speaker === "" && $action === "" && $text === "") {
         return;
     }
+    if (strcasecmp($action, "rolecommand") === 0 && $text === "" &&
+        trim(strval($metadata["command_name"] ?? $metadata["command"] ?? "")) === "") {
+        if (class_exists('Logger')) {
+            Logger::warn('[plugin-response] Dropped empty rolecommand response line');
+        }
+        return;
+    }
 
     $line = [
         "schema" => "dialectic.response.line.v1",
@@ -207,6 +214,12 @@ function dialectic_buffer_command_response_line(string $speaker, string $command
     $commandPayload = $decodedCommand["command_payload"];
     $commandName = $decodedCommand["command_name"];
     $commandArgs = $decodedCommand["command_args"];
+    if (trim($commandName) === "") {
+        if (class_exists('Logger')) {
+            Logger::warn('[plugin-response] Dropped command response without a command name');
+        }
+        return;
+    }
     if ($commandPayload !== "") {
         $metadata["command"] = $commandPayload;
     }
