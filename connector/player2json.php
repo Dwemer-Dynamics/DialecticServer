@@ -567,6 +567,7 @@ class player2json
                 if (strlen($msg) > 0) {
                     $buffer .= $msg;
                     $this->_buffer .= $msg;
+                    $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_buffer;
                     $this->_numOutputTokens += 1;
                 }
                 $totalBuffer .= $msg;
@@ -582,6 +583,7 @@ class player2json
                     if (strlen($clean_content) > 0) {
                         $buffer .= $clean_content;
                         $this->_buffer .= $clean_content;
+                        $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_buffer;
                         $this->_numOutputTokens += 1;
                     }
                 }
@@ -596,6 +598,7 @@ class player2json
                 if (!empty($clean_remain)) {
                     $buffer .= $clean_remain;
                     $this->_buffer .= $clean_remain;
+                    $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_buffer;
                 }
                 $this->_output_buffer = ""; // clear the buffer
             }

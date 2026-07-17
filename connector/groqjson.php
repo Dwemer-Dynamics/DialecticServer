@@ -466,6 +466,7 @@ class groqjson
             if (strlen($msg) > 0) {
                 $buffer .= $msg;
                 $this->_buffer .= $msg;
+                $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_buffer;
                 $this->_numOutputTokens += 1;
             }
             $totalBuffer .= $msg;

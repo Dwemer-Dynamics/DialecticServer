@@ -310,6 +310,7 @@ $STT["WHISPER"]["API_KEY"]=""; //API Key.
 $STT["AZURE"]["LANG"]="en-US"; //Language.
 $STT["AZURE"]["profanity"]="masked"; //Profanity handling filter.
 $STT["AZURE"]["API_KEY"]=""; //API key.
+$STT["AZURE"]["region"]="eastus"; //Azure Speech resource region.
 //Local Whisper STT
 $STT["LOCALWHISPER"]["URL"]="http://127.0.0.1:9876/api/v0/transcribe"; //API endpoint.
 $STT["LOCALWHISPER"]["FORMFIELD"]="audio_file"; //(audio_file,file) Form field name.
