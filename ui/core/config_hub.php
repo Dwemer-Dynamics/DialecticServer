@@ -34,6 +34,16 @@ $validTabs = [
     'player', 'narrator', 'worldknowledge', 'npcbio', 'items', 'actions',
     'prompts', 'xtts'
 ];
+$configSections = [
+    'characters' => ['label' => 'Characters', 'tabs' => ['npc' => 'DIALECTIC NPCs', 'profiles' => 'Profiles', 'player' => 'Player', 'narrator' => 'Narration', 'npcbio' => 'NPC Biographies']],
+    'ai-voice' => ['label' => 'AI & Voice', 'tabs' => ['llm' => 'LLM', 'ttscfg' => 'TTS', 'xtts' => 'TTS Studio', 'sttcfg' => 'STT', 'keys' => 'API Keys']],
+    'world-behavior' => ['label' => 'World & Behavior', 'tabs' => ['globals' => 'Global Settings', 'worldknowledge' => 'World Knowledge', 'items' => 'Descriptions', 'actions' => 'Action Editor', 'prompts' => 'Prompts Manager']],
+];
+$tabIcons = [
+    'npc' => '&#x1F31F;', 'profiles' => '&#x1F5C3;&#xFE0F;', 'player' => '&#x1F464;', 'narrator' => '&#x1F5E3;&#xFE0F;', 'npcbio' => '&#x1FAAA;',
+    'llm' => '&#x1F9E0;', 'ttscfg' => '&#x1F50A;', 'xtts' => '&#x1F4E2;', 'sttcfg' => '&#x1F3A4;', 'keys' => '&#x1F511;',
+    'globals' => '&#x1F310;', 'worldknowledge' => '&#x1F4DC;', 'items' => '&#x1F4D6;', 'actions' => '&#x2694;&#xFE0F;', 'prompts' => '&#x1F4AC;',
+];
 $initialTab = isset($_GET['tab']) ? trim((string)$_GET['tab']) : 'npc';
 if (!in_array($initialTab, $validTabs, true)) {
     $initialTab = 'npc';
@@ -70,6 +80,7 @@ main { padding: 80px 10px 10px; height: 100vh; }
 .embed { width: 100%; height: 100%; border: 0; background: transparent; }
 @media (max-height: 800px) { .embed-wrap { min-height: 420px; } }
 </style>
+<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css">
 
 <main class="d-flex flex-column">
     <div id="toast" class="toast-notification">
@@ -77,22 +88,19 @@ main { padding: 80px 10px 10px; height: 100vh; }
     </div>
 
     <div class="top-area">
-        <div class="tab-buttons">
-            <button class="tab-button<?php echo dialecticConfigHubActiveClass('npc'); ?>" data-tab="npc">&#x1F31F; DIALECTIC NPCs</button>
-            <button class="tab-button" data-tab="globals">&#x1F310; Global Settings</button>
-            <button class="tab-button" data-tab="profiles">&#x1F5C3;&#xFE0F; Profiles</button>
-            <button class="tab-button" data-tab="llm">&#x1F9E0; LLM</button>
-            <button class="tab-button" data-tab="ttscfg">&#x1F50A; TTS</button>
-            <button class="tab-button" data-tab="sttcfg">&#x1F3A4; STT</button>
-            <button class="tab-button" data-tab="keys">&#x1F511; API Keys</button>
-            <button class="tab-button" data-tab="player">&#x1F464; Player</button>
-            <button class="tab-button" data-tab="narrator">&#x1F5E3;&#xFE0F; Narration</button>
-            <button class="tab-button" data-tab="worldknowledge">&#x1F4DC; World Knowledge</button>
-            <button class="tab-button<?php echo dialecticConfigHubActiveClass('npcbio'); ?>" data-tab="npcbio">&#x1FAAA; NPC Biographies</button>
-            <button class="tab-button" data-tab="items">&#x1F4DC; Descriptions</button>
-            <button class="tab-button" data-tab="actions">&#x2694;&#xFE0F; Action Editor</button>
-            <button class="tab-button" data-tab="prompts">&#x1F4AC; Prompts Manager</button>
-            <button class="tab-button" data-tab="xtts">&#x1F4E2; TTS Studio</button>
+        <div class="config-navigation" aria-label="Configuration sections">
+            <div class="tab-groups">
+                <?php foreach ($configSections as $sectionId => $section): ?>
+                    <section class="tab-group <?php echo array_key_exists($initialTab, $section['tabs']) ? 'active' : ''; ?>" data-category="<?php echo htmlspecialchars($sectionId, ENT_QUOTES, 'UTF-8'); ?>">
+                        <div class="tab-group-label"><?php echo htmlspecialchars($section['label'], ENT_QUOTES, 'UTF-8'); ?></div>
+                        <div class="tab-buttons" role="tablist" aria-label="<?php echo htmlspecialchars($section['label'], ENT_QUOTES, 'UTF-8'); ?> configuration pages">
+                            <?php foreach ($section['tabs'] as $tabId => $tabLabel): ?>
+                                <button class="tab-button<?php echo dialecticConfigHubActiveClass($tabId); ?>" type="button" data-tab="<?php echo htmlspecialchars($tabId, ENT_QUOTES, 'UTF-8'); ?>" data-category="<?php echo htmlspecialchars($sectionId, ENT_QUOTES, 'UTF-8'); ?>"><span class="tab-icon" aria-hidden="true"><?php echo $tabIcons[$tabId] ?? ''; ?></span><span><?php echo htmlspecialchars($tabLabel, ENT_QUOTES, 'UTF-8'); ?></span></button>
+                            <?php endforeach; ?>
+                        </div>
+                    </section>
+                <?php endforeach; ?>
+            </div>
         </div>
     </div>
 
@@ -178,6 +186,7 @@ main { padding: 80px 10px 10px; height: 100vh; }
 <script>
 (function(){
     const buttons = document.querySelectorAll('.tab-button');
+    const groups = document.querySelectorAll('.tab-group');
     const tabs = document.querySelectorAll('.tab-content');
 
     function reloadIframe(container) {
@@ -191,6 +200,9 @@ main { padding: 80px 10px 10px; height: 100vh; }
     }
 
     function activate(id) {
+        const selected = Array.from(buttons).find(function(button){ return button.dataset.tab === id; });
+        const category = selected ? selected.dataset.category : '';
+        groups.forEach(function(group){ group.classList.toggle('active', group.dataset.category === category); });
         buttons.forEach(function(button){
             button.classList.toggle('active', button.dataset.tab === id);
         });
