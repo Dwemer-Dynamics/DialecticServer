@@ -20,6 +20,16 @@ if (!$conn) {
     die();
 }
 
+$encodingResult = pg_query($conn, 'SHOW server_encoding');
+$encodingRow = $encodingResult ? pg_fetch_assoc($encodingResult) : [];
+$databaseEncoding = strtoupper(trim(strval($encodingRow['server_encoding'] ?? '')));
+if ($databaseEncoding !== 'UTF8') {
+    echo "Database rebuild stopped: Dialectic requires UTF8, but '{$dbname}' uses {$databaseEncoding}.\n";
+    echo "Run sudo bash /var/www/html/DialecticServer/tools/migrate-dialectic-db-utf8-wsl.sh first.\n";
+    pg_close($conn);
+    exit(1);
+}
+
 // A reinstall is destructive: remove the active, metadata, plugin, and snapshot schemas.
 $snapshotSchemas = pg_query($conn, "
     SELECT schema_name

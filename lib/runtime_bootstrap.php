@@ -4,6 +4,41 @@ require_once(__DIR__ . DIRECTORY_SEPARATOR . "settings.php");
 require_once(__DIR__ . DIRECTORY_SEPARATOR . "dialectic_runtime.php");
 require_once(__DIR__ . DIRECTORY_SEPARATOR . "logger.php");
 
+if (!function_exists('dialecticRuntimeDatabaseEncoding')) {
+    function dialecticRuntimeDatabaseEncoding(): string
+    {
+        $db = $GLOBALS['db'] ?? null;
+        if (!$db) {
+            return '';
+        }
+
+        try {
+            $row = $db->fetchOne('SHOW server_encoding');
+            return strtoupper(trim(strval($row['server_encoding'] ?? '')));
+        } catch (\Throwable $e) {
+            Logger::warn('[DATABASE] Could not read Dialectic database encoding: ' . $e->getMessage());
+            return '';
+        }
+    }
+}
+
+if (!function_exists('dialecticRuntimeDatabaseEncodingIsSupported')) {
+    function dialecticRuntimeDatabaseEncodingIsSupported(): bool
+    {
+        return dialecticRuntimeDatabaseEncoding() === 'UTF8';
+    }
+}
+
+if (!function_exists('dialecticRuntimeDatabaseEncodingError')) {
+    function dialecticRuntimeDatabaseEncodingError(): string
+    {
+        $encoding = dialecticRuntimeDatabaseEncoding();
+        $label = $encoding !== '' ? $encoding : 'unknown encoding';
+        return "Dialectic database uses {$label}; UTF8 is required for NPC metadata. "
+            . 'Run sudo bash /var/www/html/DialecticServer/tools/migrate-dialectic-db-utf8-wsl.sh.';
+    }
+}
+
 if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
     function dialecticRuntimeNeedsDbUpdates(): bool
     {
