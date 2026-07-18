@@ -202,6 +202,88 @@ function generateNearbyDiary($npcName, $gameRequest, $eventType) {
 }
 
 // Function to process AUTO_DIARY for nearby NPCs with auto_diary_enabled
+function dialecticAutoDiaryNormalizeAudienceName($rawName): string
+{
+    $name = trim((string)$rawName, " \t\n\r\0\x0B|");
+    if ($name === '' || strcasecmp($name, '<no name>') === 0) {
+        return '';
+    }
+
+    if (preg_match('/\s*\((dead|disabled|unavailable|invalid_actor|invalid_position|different_interior_cells|interior_exterior_boundary)\)\s*$/i', $name)) {
+        return '';
+    }
+
+    if (function_exists('dialecticDataStripActorStateSuffix')) {
+        $name = dialecticDataStripActorStateSuffix($name);
+    } else {
+        $name = preg_replace('/\s*\((?:busy|hostile|in combat|far away|too far away|too_far|too_quiet|closed_door|navmesh_no_path|path_unavailable|restrained|audible|checking(?: hearing|: [^)]+)?|can hear you(?:, muffled|: [^)]+)?)\)\s*$/i', '', $name);
+    }
+
+    return trim((string)$name);
+}
+
+function dialecticAutoDiaryAudienceNames(array $gameRequest): array
+{
+    $snapshot = [];
+    if (!empty($gameRequest[4])) {
+        $decoded = json_decode((string)$gameRequest[4], true);
+        if (is_array($decoded)) {
+            $snapshot = $decoded;
+        }
+    }
+
+    $rawNames = [];
+    $appendNames = static function ($value) use (&$rawNames): void {
+        if (is_string($value)) {
+            foreach (preg_split('/[|,]/', $value) ?: [] as $name) {
+                $rawNames[] = $name;
+            }
+            return;
+        }
+        if (is_array($value)) {
+            foreach ($value as $entry) {
+                if (is_array($entry)) {
+                    if (array_key_exists('eligible', $entry) && !filter_var($entry['eligible'], FILTER_VALIDATE_BOOLEAN)) {
+                        continue;
+                    }
+                    $rawNames[] = $entry['name'] ?? '';
+                } else {
+                    $rawNames[] = $entry;
+                }
+            }
+        }
+    };
+
+    $appendNames($snapshot['people'] ?? null);
+    $appendNames($snapshot['companions'] ?? null);
+    $appendNames($snapshot['actors'] ?? null);
+
+    $source = 'event_snapshot';
+    if (empty($rawNames)) {
+        $source = 'latest_nearby_actors_fallback';
+        $fallback = DataBeingsInCloseRange(true);
+        $appendNames($fallback);
+    }
+
+    $playerName = trim((string)($GLOBALS['PLAYER_NAME'] ?? ''));
+    $names = [];
+    $seen = [];
+    foreach ($rawNames as $rawName) {
+        $name = dialecticAutoDiaryNormalizeAudienceName($rawName);
+        if ($name === '' || ($playerName !== '' && strcasecmp($name, $playerName) === 0)) {
+            continue;
+        }
+        $key = strtolower($name);
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $names[] = $name;
+    }
+
+    return ['names' => $names, 'source' => $source];
+}
+
 function buildPlayerDiaryPrompt(string $playerName): string
 {
     $template = trim((string)($GLOBALS["PLAYER_DIARY_PROMPT"] ?? ''));
@@ -500,22 +582,9 @@ function processAutoDiary($gameRequest, $eventType) {
     $shouldProcessPlayerDiary = ($eventType === "goodnight" && $playerDiaryEnabled && $playerAutoDiaryEnabled)
         || ($eventType === "waitstart" && $playerDiaryEnabled && $playerAutoDiaryEnabled && $playerAutoDiaryWaitEnabled);
     
-    // Get nearby NPCs
-    $nearbyNpcsStr = DataBeingsInCloseRange();
-    Logger::info("AUTO_DIARY: DataBeingsInCloseRange returned: " . var_export($nearbyNpcsStr, true));
-    
-    $nearbyNpcs = [];
-    
-    if (!empty($nearbyNpcsStr)) {
-        Logger::debug("AUTO_DIARY: Raw nearby data: " . $nearbyNpcsStr);
-        
-        // Parse the current pipe-delimited nearby-people snapshot.
-        $nearbyNpcsStr = trim($nearbyNpcsStr, '|');
-        if (!empty($nearbyNpcsStr)) {
-            $nearbyNpcs = explode('|', $nearbyNpcsStr);
-            $nearbyNpcs = array_filter(array_map('trim', $nearbyNpcs));
-        }
-    }
+    $audience = dialecticAutoDiaryAudienceNames((array)$gameRequest);
+    $nearbyNpcs = $audience['names'];
+    Logger::info("AUTO_DIARY: Resolved " . count($nearbyNpcs) . " eligible nearby NPC name(s) from " . $audience['source']);
     
     // Add The Narrator if auto diary is enabled for narrator
     // The Narrator is always "nearby" (conceptually omnipresent)
@@ -654,11 +723,13 @@ function processAutoDiary($gameRequest, $eventType) {
         
         // Check auto_diary_enabled with proper profile inheritance
         $autoDiaryEnabled = false;
+        $profileMeta = [];
         
         // First, get the profile default from metadata
         try {
             if (!empty($currentProfileData['metadata'])) {
-                $profileMeta = json_decode($currentProfileData['metadata'], true);
+                $decodedProfileMeta = json_decode($currentProfileData['metadata'], true);
+                $profileMeta = is_array($decodedProfileMeta) ? $decodedProfileMeta : [];
                 if (is_array($profileMeta) && isset($profileMeta['AUTO_DIARY_ENABLED'])) {
                     $autoDiaryEnabled = ($profileMeta['AUTO_DIARY_ENABLED'] === '1' || 
                                         $profileMeta['AUTO_DIARY_ENABLED'] === 1 || 
@@ -692,6 +763,9 @@ function processAutoDiary($gameRequest, $eventType) {
         // Check diary cooldown for this specific NPC
         $npcNameSafe = preg_replace('/[^a-zA-Z0-9_]/', '_', $npcName);
         $cooldownKey = "DIARY_LAST_TIMESTAMP_" . $npcNameSafe;
+        $npcDiaryCooldownPeriod = array_key_exists('DIARY_COOLDOWN', $profileMeta)
+            ? max(0, intval($profileMeta['DIARY_COOLDOWN']))
+            : $diaryCooldownPeriod;
         
         $diaryRecord = $db->fetchAll("SELECT value FROM conf_opts WHERE id='" . $db->escape($cooldownKey) . "'");
         
@@ -699,8 +773,8 @@ function processAutoDiary($gameRequest, $eventType) {
             $lastTrigger = (int) $diaryRecord[0]['value'];
             $timeElapsed = time() - $lastTrigger;
 
-            if ($timeElapsed < $diaryCooldownPeriod) {
-                Logger::info("AUTO_DIARY: Skipping $npcName (cooldown active: " . ($diaryCooldownPeriod - $timeElapsed) . " seconds remaining)");
+            if ($timeElapsed < $npcDiaryCooldownPeriod) {
+                Logger::info("AUTO_DIARY: Skipping $npcName (cooldown active: " . ($npcDiaryCooldownPeriod - $timeElapsed) . " seconds remaining)");
                 continue;
             }
         }
@@ -739,22 +813,20 @@ function processAutoDiary($gameRequest, $eventType) {
                     ", shouldGenerate=" . ($shouldGenerate ? 'true' : 'false'));
 
         if ($shouldGenerate) {
-            // Update cooldown timestamp for this NPC
-            $db->upsertRowOnConflict(
-                'conf_opts',
-                array(
-                    'id' => $cooldownKey,
-                    'value' => time()
-                ),
-                "id"
-            );
-            
             // Generate diary entry for this NPC
             if (generateFollowerDiary($npcName, $gameRequest, $eventType)) {
                 $generatedCount++;
+                $db->upsertRowOnConflict(
+                    'conf_opts',
+                    array(
+                        'id' => $cooldownKey,
+                        'value' => time()
+                    ),
+                    "id"
+                );
                 Logger::info("AUTO_DIARY: Generated diary entry for $npcName");
             } else {
-                Logger::info("AUTO_DIARY: Failed to generate diary entry for $npcName");
+                Logger::warn("AUTO_DIARY: Failed to generate diary entry for $npcName; cooldown was not started");
             }
         } else {
             Logger::info("AUTO_DIARY: Skipped $npcName - AUTO_DIARY_WAIT disabled for this profile");
@@ -1070,7 +1142,15 @@ function generateFollowerDiary($followerName, $gameRequest, $eventType) {
         $diaryConnectorId = class_exists('LLMRandomizer')
             ? LLMRandomizer::getConnectorIdForField($currentProfileData, "diary_connector_id")
             : ($currentProfileData["diary_connector_id"] ?? null);
+        if (empty($diaryConnectorId)) {
+            Logger::warn("generateFollowerDiary: No diary connector configured for '$followerName'");
+            return false;
+        }
         $currentConnectorData = $connector->getById($diaryConnectorId);
+        if (empty($currentConnectorData)) {
+            Logger::warn("generateFollowerDiary: Diary connector '$diaryConnectorId' could not be loaded for '$followerName'");
+            return false;
+        }
        
         $connector->setOldGlobals($currentConnectorData);
         $profile->setOldGlobals($currentProfileData);

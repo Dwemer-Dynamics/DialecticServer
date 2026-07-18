@@ -79,7 +79,10 @@ abstract class DatabaseTestCase extends TestCase
         }
 
         // Create the test database
-        $createResult = pg_query($mainConnection, "CREATE DATABASE ".self::$testDatabaseName);
+        $createResult = pg_query(
+            $mainConnection,
+            "CREATE DATABASE ".self::$testDatabaseName." WITH TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'"
+        );
         if (!$createResult) {
             self::fail("Failed to create test database: " . pg_last_error($mainConnection));
         }

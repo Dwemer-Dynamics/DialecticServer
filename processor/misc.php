@@ -36,7 +36,7 @@ function maybeQueueNpcVoiceRefresh($currentNpcData, $npcMaster)
 
     $extended["voice_refresh_requested_at"] = $now;
     $extended["voice_refresh_attempts"] = intval($extended["voice_refresh_attempts"] ?? 0) + 1;
-    $extended["voice_refresh_last_result"] = "requested";
+    $extended["voice_refresh_last_result"] = "awaiting_plugin_profile";
 
     $currentNpcData = $npcMaster->setExtendedData($currentNpcData, $extended);
     $npcMaster->updateByArray($currentNpcData);
@@ -46,11 +46,7 @@ function maybeQueueNpcVoiceRefresh($currentNpcData, $npcMaster)
         $refId = "0x{$refId}";
     }
 
-    dialectic_buffer_command_response_line($npcName, "RefreshNPCVoice", [
-        "refid" => $refId,
-        "npc" => $npcName,
-    ]);
-    error_log("[NPC_VOICE] Requested refresh for {$npcName} ({$refId})");
+    Logger::info("[NPC_VOICE] Missing voice mapping for {$npcName} ({$refId}); awaiting the plugin profile refresh");
 
     return $currentNpcData;
 }

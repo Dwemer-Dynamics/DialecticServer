@@ -4,6 +4,8 @@ use PHPUnit\Framework\TestCase;
 
 require_once __DIR__.DIRECTORY_SEPARATOR.'..'.DIRECTORY_SEPARATOR.'..'.DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'core'.DIRECTORY_SEPARATOR.'action_catalog.php';
 require_once __DIR__.DIRECTORY_SEPARATOR.'..'.DIRECTORY_SEPARATOR.'..'.DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'dialectic_command_payload.php';
+require_once __DIR__.DIRECTORY_SEPARATOR.'..'.DIRECTORY_SEPARATOR.'..'.DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'narrator_actions.php';
+require_once __DIR__.DIRECTORY_SEPARATOR.'..'.DIRECTORY_SEPARATOR.'..'.DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'response.php';
 
 final class ActionCatalogTest extends TestCase
 {
@@ -40,6 +42,68 @@ final class ActionCatalogTest extends TestCase
         $this->assertSame(['Graussy', 'Trail Carbine', '1'], $decodedCommand['command_args']);
     }
 
+    public function testNarratorMutationPayloadsKeepStructuredAuthorityAndOrdering(): void
+    {
+        $GLOBALS['PLAYER_NAME'] = 'Graussy';
+        $prepared = dialecticPrepareNarratorPluginAction('SpawnCaps', [
+            'target' => 'me',
+            'amount' => 125,
+        ]);
+
+        $this->assertIsArray($prepared);
+        $this->assertSame('narrator', $prepared['action_source']);
+        $this->assertSame('narrator', $prepared['authority']);
+        $this->assertSame('Graussy', $prepared['target']);
+        $this->assertSame('0x00000014', $prepared['target_refid']);
+        $this->assertSame(125, $prepared['amount']);
+
+        $action = dialecticEncodeActionLine('The Narrator', 'SpawnCaps', $prepared);
+        $decoded = dialecticDecodeActionLine($action);
+        $this->assertSame(['Graussy', '125'], $decoded['parameter_args']);
+    }
+
+    public function testNarratorAuthorityAndResolvedFormsReachPluginResponseEnvelope(): void
+    {
+        $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'] = [];
+        $GLOBALS['DIALECTIC_RESPONSE_STREAMING'] = false;
+        $command = dialecticEncodeCommandAction('SpawnItem', ['Graussy', '9mm Pistol', '1']);
+        dialectic_buffer_command_response_line('The Narrator', $command, [
+            'target' => 'Graussy',
+            'target_refid' => '0x00000014',
+            'item' => '9mm Pistol',
+            'item_baseid' => '0x000E3778',
+            'item_plugin' => 'FalloutNV.esm',
+            'item_stable_key' => 'FalloutNV.esm:000E3778',
+            'action_source' => 'narrator',
+            'authority' => 'narrator',
+        ]);
+
+        $this->assertCount(1, $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES']);
+        $line = $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'][0];
+        $this->assertSame('dialectic.response.line.v1', $line['schema']);
+        $this->assertSame('The Narrator', $line['speaker']);
+        $this->assertSame('SpawnItem', $line['command_name']);
+        $this->assertSame(['Graussy', '9mm Pistol', '1'], $line['command_args']);
+        $this->assertSame('0x00000014', $line['target_refid']);
+        $this->assertSame('0x000E3778', $line['item_baseid']);
+        $this->assertSame('FalloutNV.esm:000E3778', $line['item_stable_key']);
+        $this->assertSame('narrator', $line['action_source']);
+        $this->assertSame('narrator', $line['authority']);
+    }
+
+    public function testNarratorKillTargetAllowsPlayerAliasesButStillRequiresTarget(): void
+    {
+        $GLOBALS['PLAYER_NAME'] = 'Graussy';
+        $namedPlayer = dialecticPrepareNarratorPluginAction('KillTarget', ['target' => 'Graussy']);
+        $playerAlias = dialecticPrepareNarratorPluginAction('KillTarget', ['target' => 'player']);
+
+        $this->assertSame('Graussy', $namedPlayer['target']);
+        $this->assertSame('0x00000014', $namedPlayer['target_refid']);
+        $this->assertSame('Graussy', $playerAlias['target']);
+        $this->assertSame('0x00000014', $playerAlias['target_refid']);
+        $this->assertNull(dialecticPrepareNarratorPluginAction('KillTarget', ['target' => '']));
+    }
+
     public function testBaseSeedFileDefinesActionAvailabilityAndActivation(): void
     {
         $expectedCodes = [
@@ -62,6 +126,11 @@ final class ActionCatalogTest extends TestCase
             'OpenInventory',
             'PickupItem',
             'ReadQuests',
+            'DirectorCommand',
+            'SpawnCaps',
+            'SpawnItem',
+            'TeleportActor',
+            'KillTarget',
             'SheatheWeapon',
             'StopFollowing',
             'StopWalk',
@@ -76,8 +145,9 @@ final class ActionCatalogTest extends TestCase
         sort($actualCodes);
 
         $this->assertSame($expectedCodes, $actualCodes);
+        $disabledNarratorActions = ['DirectorCommand', 'SpawnCaps', 'SpawnItem', 'TeleportActor', 'KillTarget'];
         foreach ($expectedCodes as $codeName) {
-            $this->assertTrue($rows[$codeName]['is_activated']);
+            $this->assertSame(!in_array($codeName, $disabledNarratorActions, true), $rows[$codeName]['is_activated']);
         }
 
         $this->assertTrue($rows['Inspect']['available_to_npc']);
@@ -89,6 +159,11 @@ final class ActionCatalogTest extends TestCase
         $this->assertFalse($rows['InspectSurroundings']['available_to_narrator']);
 
         $this->assertTrue($rows['ReadQuests']['available_to_narrator']);
+        foreach ($disabledNarratorActions as $codeName) {
+            $this->assertTrue($rows[$codeName]['available_to_narrator']);
+            $this->assertFalse($rows[$codeName]['available_to_npc']);
+            $this->assertFalse($rows[$codeName]['available_to_followers']);
+        }
         $this->assertFalse($rows['SheatheWeapon']['available_to_npc']);
         $this->assertTrue($rows['SheatheWeapon']['available_to_followers']);
         $this->assertFalse($rows['StopWalk']['available_to_npc']);

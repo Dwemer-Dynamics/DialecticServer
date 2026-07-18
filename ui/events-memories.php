@@ -23,7 +23,8 @@ if (!file_exists($configFilepath."conf.php")) {
 // Load profiles through the centralized profile loader
 require_once(__DIR__.DIRECTORY_SEPARATOR."profile_loader.php");
 
-$TITLE = "Events & Memories";
+$TITLE = "Roleplay";
+$BODY_CLASS = 'hub-page dialectic-hub-flow';
 
 ob_start();
 
@@ -332,7 +333,14 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
  width: 40px !important;
  padding: 8px !important;
  }
-</style><?php
+</style>
+<style>
+ .tab-content.embed-tab { padding: 0; overflow: hidden; }
+ .embed-frame { width: 100%; height: calc(100vh - 245px); min-height: 520px; border: 0; background: #202020; }
+ @media (max-height: 800px) { .embed-frame { min-height: 420px; } }
+</style>
+<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'hub-navigation.css'); ?>">
+<?php
 
 include(__DIR__.DIRECTORY_SEPARATOR."tmpl/navbar.php");
 
@@ -554,6 +562,10 @@ if ($activeTab === 'responselog') {
  header('Location: ' . $redirectUrl);
  exit;
 }
+$validTabs = ['eventlog', 'responselog', 'adventure', 'memory', 'diaries', 'gallery', 'quests'];
+if (!in_array($activeTab, $validTabs, true)) {
+ $activeTab = 'eventlog';
+}
 
 // Function to determine color based on time value
 function getTimeColor($time) {
@@ -562,15 +574,10 @@ function getTimeColor($time) {
  if ($time <= 8) return "#ffa500"; // orange
  return "#ff6666"; // red
 }
-?><!-- Modal HTML --><div id="contentModal" class="modal"><div class="modal-content"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;"><h2 style="margin: 0; color: rgb(255, 182, 65); font-family: 'Gothic821', sans-serif;"> Prompt Viewer</h2><div><button id="copyPromptBtn" class="btn-base btn-primary" style="margin-right: 10px; padding: 8px 16px;"> Copy</button><span class="close">&times;</span></div></div><div id="modalText"></div></div></div><div class="container-fluid"><div class="tab-container"><div class="tab-buttons"><button class="tab-button <?php echo $activeTab === 'eventlog' ? 'active' : ''; ?>" onclick="switchTab('eventlog')">
- &#x1F4DD; Events
- </button><button class="tab-button <?php echo $activeTab === 'responselog' ? 'active' : ''; ?>" onclick="switchTab('responselog')">
- &#x1F4AC; AI Responses
- </button><button class="tab-button <?php echo $activeTab === 'memory' ? 'active' : ''; ?>" onclick="switchTab('memory')">
- &#x1F9E0; Memories
- </button><button class="tab-button <?php echo $activeTab === 'quests' ? 'active' : ''; ?>" onclick="switchTab('quests')">
- &#x1F3AF; Active Quests
- </button></div><!-- Event Log Tab --><div id="eventlog-tab" class="tab-content <?php echo $activeTab === 'eventlog' ? 'active' : ''; ?>"><?php
+?><!-- Modal HTML --><div id="contentModal" class="modal"><div class="modal-content"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;"><h2 style="margin: 0; color: rgb(255, 182, 65); font-family: 'Gothic821', sans-serif;"> Prompt Viewer</h2><div><button id="copyPromptBtn" class="btn-base btn-primary" style="margin-right: 10px; padding: 8px 16px;"> Copy</button><span class="close">&times;</span></div></div><div id="modalText"></div></div></div><div class="container-fluid"><div class="tab-container"><?php
+ $eventsMemoriesActiveTab = $activeTab;
+ include(__DIR__ . DIRECTORY_SEPARATOR . 'tmpl' . DIRECTORY_SEPARATOR . 'events_memories_navigation.php');
+?><!-- Event Log Tab --><div id="eventlog-tab" class="tab-content <?php echo $activeTab === 'eventlog' ? 'active' : ''; ?>"><?php
  // Add subtitle description
  echo "<div style='background: #2a2a2a; border-left: 4px solid rgb(255, 182, 65); padding: 12px 15px; border-radius: 5px; margin: 15px 0; font-size: 0.9em;'>";
  echo "<span style='color: rgb(255, 182, 65); font-weight: bold;'> Events:</span> ";
@@ -1205,7 +1212,11 @@ function getTimeColor($time) {
  echo "<p style='text-align: center; color: #6c757d; padding: 20px;'>No active quests found. Start some quests in-game to see them here!</p>";
  echo "</div>";
  }
- ?></div></div></div><script>
+ ?></div>
+<div id="adventure-tab" class="tab-content embed-tab <?php echo $activeTab === 'adventure' ? 'active' : ''; ?>"><iframe class="embed-frame" title="Adventure Log" <?php echo $activeTab === 'adventure' ? 'src' : 'data-src'; ?>="<?php echo $webRoot; ?>/ui/adventurelog.php?embed=1"></iframe></div>
+<div id="diaries-tab" class="tab-content embed-tab <?php echo $activeTab === 'diaries' ? 'active' : ''; ?>"><iframe class="embed-frame" title="DIALECTIC Diaries" <?php echo $activeTab === 'diaries' ? 'src' : 'data-src'; ?>="<?php echo $webRoot; ?>/ui/diarylog.php?embed=1"></iframe></div>
+<div id="gallery-tab" class="tab-content embed-tab <?php echo $activeTab === 'gallery' ? 'active' : ''; ?>"><iframe class="embed-frame" title="Image Gallery" <?php echo $activeTab === 'gallery' ? 'src' : 'data-src'; ?>="<?php echo $webRoot; ?>/ui/image_gallery.php?embed=1"></iframe></div>
+</div></div><script>
 // Modal functionality
 document.addEventListener("DOMContentLoaded", function() {
  var modal = document.getElementById("contentModal");

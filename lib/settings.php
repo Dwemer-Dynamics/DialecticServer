@@ -557,7 +557,7 @@ if (!function_exists('dialecticGetPromptContextOptionCatalog')) {
                 ],
                 'current_condition' => [
                     'label' => '<condition>',
-                    'description' => 'Health, action points, karma, and visible condition state.',
+                    'description' => 'Health, action points, karma, visible condition, and player survival needs.',
                 ],
             ],
             'enabled_general_subsections' => [
@@ -1213,7 +1213,7 @@ if (!function_exists('dialecticSeedMissingManagedGeneralSettings')) {
         $missingValue = new \stdClass();
         $fallbacks = [
             'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 0,
-            'RELATIONSHIP_SYSTEM_ENABLED' => false,
+            'RELATIONSHIP_SYSTEM_ENABLED' => true,
             'PROMPT_CONTEXT_OPTIONS' => dialecticGetDefaultPromptContextOptions(),
         ];
 

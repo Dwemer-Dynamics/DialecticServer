@@ -32,6 +32,11 @@ function dialecticCanonicalActionCodes()
         'MoveTo',
         'PickupItem',
         'ReadQuests',
+        'DirectorCommand',
+        'SpawnCaps',
+        'SpawnItem',
+        'TeleportActor',
+        'KillTarget',
         'SheatheWeapon',
         'StopFollowing',
         'StopWalk',
@@ -421,6 +426,11 @@ $F_DESCRIPTIONS_LOCAL["SheatheWeapon"] = "Sheathes/put away current weapon";
 $F_DESCRIPTIONS_LOCAL["TravelTo"] = "Travel long distance to a building, city, door or other location. Also known as lead the way.";
 $F_DESCRIPTIONS_LOCAL["TakeASeat"] = "#DIALECTIC_NAME# takes a seat at a nearby seating location.";
 $F_DESCRIPTIONS_LOCAL["ReadQuests"] = "Only use if #PLAYER_NAME# explicitly asks about a quest. Read the quest log and get information about current quests.";
+$F_DESCRIPTIONS_LOCAL["DirectorCommand"] = "Send a short freeform instruction to the game director so it can stage a scene or event.";
+$F_DESCRIPTIONS_LOCAL["SpawnCaps"] = "Create caps and give them to #PLAYER_NAME# or another nearby actor.";
+$F_DESCRIPTIONS_LOCAL["SpawnItem"] = "Create a named item from the descriptions database and give it to #PLAYER_NAME# or another nearby actor.";
+$F_DESCRIPTIONS_LOCAL["TeleportActor"] = "Teleport #PLAYER_NAME# or another nearby actor to a named synchronized location.";
+$F_DESCRIPTIONS_LOCAL["KillTarget"] = "Kill a chosen nearby actor immediately.";
 $F_DESCRIPTIONS_LOCAL["IncreaseWalkSpeed"] = "Increase #DIALECTIC_NAME#'s speed when moving or travelling.";
 $F_DESCRIPTIONS_LOCAL["DecreaseWalkSpeed"] = "Decrease #DIALECTIC_NAME#'s speed when moving or travelling.";
 $F_DESCRIPTIONS_LOCAL["StopWalk"] = "Stop all of #DIALECTIC_NAME#'s actions immediately.";
@@ -449,6 +459,11 @@ $F_RETURNMESSAGES_LOCAL["CheckInventory"] = "#DIALECTIC_NAME#'s INVENTORY:#RESUL
 $F_RETURNMESSAGES_LOCAL["SheatheWeapon"] = "Sheathes/put away current weapon";
 $F_RETURNMESSAGES_LOCAL["TakeASeat"] = "#DIALECTIC_NAME# sits in a nearby chair or piece of furniture.";
 $F_RETURNMESSAGES_LOCAL["ReadQuests"] = "";
+$F_RETURNMESSAGES_LOCAL["DirectorCommand"] = "The director is preparing a scene instruction.";
+$F_RETURNMESSAGES_LOCAL["SpawnCaps"] = "#TARGET# receives #AMOUNT# caps.";
+$F_RETURNMESSAGES_LOCAL["SpawnItem"] = "#TARGET# receives #ITEM#.";
+$F_RETURNMESSAGES_LOCAL["TeleportActor"] = "#TARGET# teleports to #LOCATION#.";
+$F_RETURNMESSAGES_LOCAL["KillTarget"] = "#TARGET# is killed.";
 $F_RETURNMESSAGES_LOCAL["IncreaseWalkSpeed"] = "Increases #DIALECTIC_NAME#'s speed or pace when moving or travelling.";
 $F_RETURNMESSAGES_LOCAL["DecreaseWalkSpeed"] = "Decreases #DIALECTIC_NAME#'s speed or pace when moving or travelling.";
 $F_RETURNMESSAGES_LOCAL["StopWalk"] = "Stop all of #DIALECTIC_NAME#'s actions immediately.";
@@ -477,6 +492,11 @@ $F_NAMES_LOCAL["CheckInventory"] = "CheckInventory";
 $F_NAMES_LOCAL["SheatheWeapon"] = "SheatheWeapon";
 $F_NAMES_LOCAL["TakeASeat"] = "TakeASeat";
 $F_NAMES_LOCAL["ReadQuests"] = "ReadQuests";
+$F_NAMES_LOCAL["DirectorCommand"] = "DirectorCommand";
+$F_NAMES_LOCAL["SpawnCaps"] = "SpawnCaps";
+$F_NAMES_LOCAL["SpawnItem"] = "SpawnItem";
+$F_NAMES_LOCAL["TeleportActor"] = "TeleportActor";
+$F_NAMES_LOCAL["KillTarget"] = "KillTarget";
 $F_NAMES_LOCAL["IncreaseWalkSpeed"] = "IncreaseWalkSpeed";
 $F_NAMES_LOCAL["DecreaseWalkSpeed"] = "DecreaseWalkSpeed";
 $F_NAMES_LOCAL["StopWalk"] = "StopWalk";
@@ -1772,6 +1792,7 @@ dialecticTraceFunctionsIncludePhase(__LINE__, 'functions_reindexed', $startTime)
 
 require_once __DIR__ . "/../lib/scriptproxy_fallout.php";
 require_once __DIR__ . "/../lib/core/activity_status.php";
+require_once __DIR__ . "/../lib/narrator_actions.php";
 
 dialecticTraceFunctionsIncludePhase(__LINE__, 'post_filter_dependencies_loaded', $startTime);
 
@@ -1801,6 +1822,10 @@ $GLOBALS["action_post_process_fnct_ex"][]=function($actions) {
     }
 
     return $actionsCopy;
+};
+
+$GLOBALS["action_post_process_fnct_ex"][]=function($actions) {
+    return dialecticPostProcessNarratorActions(is_array($actions) ? $actions : []);
 };
 
 error_log("TRACE:\t".__LINE__. "\t".__FILE__.":\t".(microtime(true) - $startTime));

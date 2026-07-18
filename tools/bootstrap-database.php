@@ -20,6 +20,11 @@ if (!$db) {
     exit(1);
 }
 
+if (!dialecticRuntimeDatabaseEncodingIsSupported()) {
+    fwrite(STDERR, dialecticRuntimeDatabaseEncodingError() . "\n");
+    exit(1);
+}
+
 if (dialecticRuntimeNeedsDbUpdates()) {
     fwrite(STDERR, "Dialectic database bootstrap failed: required schema objects or migration versions are still missing.\n");
     exit(1);

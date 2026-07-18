@@ -230,7 +230,7 @@ $SHOW_STATUS_NAV = false;
 // Server version and dev-build detection
 // Read version from .version_number.txt
 $versionFile = dirname(__DIR__, 2) . '/.version_number.txt';
-$serverVersionRaw = '0.5.2'; // fallback
+$serverVersionRaw = '0.5.5'; // fallback
 if (file_exists($versionFile)) {
  $versionContent = trim(file_get_contents($versionFile));
  if ($versionContent !== '') {
@@ -253,9 +253,8 @@ $serverLogoFile = $isDevBuild ? 'serverlogodev.png' : 'serverlogo.png';
      </button>
      <ul class="dropdown-menu brand-menu">
       <li><a class="dropdown-item" href="<?php echo $webRoot; ?>/ui/home.php">Home</a></li>
-      <li><a class="dropdown-item" href="<?php echo $webRoot; ?>/ui/events-memories.php">Events & Memories</a></li>
+      <li><a class="dropdown-item" href="<?php echo $webRoot; ?>/ui/events-memories.php">Roleplay</a></li>
       <li><a class="dropdown-item" href="<?php echo $webRoot; ?>/ui/core/config_hub.php">Configuration</a></li>
-      <li><a class="dropdown-item" href="<?php echo $webRoot; ?>/ui/immersion.php">Immersion</a></li>
       <li><a class="dropdown-item" href="<?php echo $webRoot; ?>/ui/control_panel.php">Control Panel</a></li>
       <li><a class="dropdown-item" href="/Dwemer-Dashboard/index.php">DwemerDistro Home</a></li>
      </ul>

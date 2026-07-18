@@ -249,6 +249,9 @@ class RelationshipLLM {
         if ($extended === null) {
             return ['ok' => false, 'error' => 'Corrupted extended_data - refusing to overwrite'];
         }
+        if (!empty($extended['relationships_locked'])) {
+            return ['ok' => true, 'skipped' => true, 'reason' => 'Relationships are manually locked'];
+        }
         if (!empty($extended['relationships']) && !$forceReanalyze) {
             return ['ok' => true, 'skipped' => true, 'reason' => 'Already has relationships'];
         }
@@ -475,8 +478,13 @@ PROMPT;
                 $this->releaseNpcLock($npcId);
                 return false;
             }
+            if (!empty($extended['relationships_locked'])) {
+                Logger::info("[REL-LLM] SKIP saveRelationships for {$npc['npc_name']} - manually locked");
+                $this->releaseNpcLock($npcId);
+                return false;
+            }
 
-            $extended['relationships'] = $relationships;
+            $extended['relationships'] = RelationshipManager::normalizeRelationshipMap($relationships);
             $extended['relationships_analyzed'] = date('Y-m-d H:i:s');
             $extended['relationships_model'] = $this->modelName;
 
@@ -639,7 +647,12 @@ PROMPT;
                     $this->releaseNpcLock($npcId);
                     return ['ok' => false, 'error' => 'Corrupted extended_data during save'];
                 }
-                $myRels = $extended['relationships'] ?? [];
+                if (!empty($extended['relationships_locked'])) {
+                    Logger::info("[REL-LLM] SKIP inferTransitive for {$npc['npc_name']} - manually locked");
+                    $this->releaseNpcLock($npcId);
+                    return ['ok' => true, 'skipped' => true, 'reason' => 'Relationships are manually locked'];
+                }
+                $myRels = RelationshipManager::normalizeRelationshipMap($extended['relationships'] ?? []);
 
                 // Merge with existing (don't overwrite explicit relationships)
                 foreach ($inferred as $target => $data) {
@@ -705,6 +718,9 @@ PROMPT;
         $extended = $this->safeJsonDecode($npc['extended_data'] ?? null, "evaluateContext:{$npcName}");
         if ($extended === null) {
             return ['ok' => false, 'error' => 'Corrupted extended_data'];
+        }
+        if (!empty($extended['relationships_locked'])) {
+            return ['ok' => true, 'skipped' => true, 'reason' => 'Relationships are manually locked'];
         }
         $currentRels = $extended['relationships'] ?? [];
 
@@ -1330,9 +1346,14 @@ PROMPT;
                     $this->releaseNpcLock($npcId);
                     return []; // Return empty - changes not saved
                 }
+                if (!empty($extended['relationships_locked'])) {
+                    Logger::info("[REL-LLM] SKIP applyChanges for {$npc['npc_name']} - manually locked");
+                    $this->releaseNpcLock($npcId);
+                    return [];
+                }
 
                 // Merge our changes with latest state
-                $existingRels = $extended['relationships'] ?? [];
+                $existingRels = RelationshipManager::normalizeRelationshipMap($extended['relationships'] ?? []);
                 foreach ($currentRels as $target => $data) {
                     $existingRels[$target] = $data;
                 }
