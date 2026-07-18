@@ -461,6 +461,7 @@ class openaijson
         if (strlen($cleanContent) > 0) {
             $buffer .= $cleanContent;
             $this->_buffer .= $cleanContent;
+            $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_buffer;
             $this->_numOutputTokens += 1;
         }
 

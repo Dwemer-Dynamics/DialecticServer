@@ -3441,6 +3441,72 @@ if ($checkVersion("core_action") < 20260624003) {
     }
 }
 
+if ($checkVersion("core_profiles") < 20260717001) {
+    Logger::debug("Applying core_profiles 20260717001 - restore profile diary generation settings");
+    try {
+        $diaryDefaults = [
+            'DIARY_PROMPT' => "Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#'s recent dialogues and events into #DIALECTIC_NAME#'s diary. WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.",
+            'DIARY_COOLDOWN' => 120,
+            'CONTEXT_HISTORY_DIARY' => 100,
+        ];
+
+        $rows = $db->fetchAll("SELECT id, metadata FROM public.core_profiles ORDER BY id ASC");
+        foreach ($rows as $row) {
+            $profileId = intval($row['id'] ?? 0);
+            if ($profileId <= 0) {
+                continue;
+            }
+
+            $metadataRaw = $row['metadata'] ?? '{}';
+            $metadata = is_array($metadataRaw) ? $metadataRaw : json_decode(strval($metadataRaw), true);
+            if (!is_array($metadata)) {
+                $metadata = [];
+            }
+            foreach ($diaryDefaults as $key => $value) {
+                if (!array_key_exists($key, $metadata)) {
+                    $metadata[$key] = $value;
+                }
+            }
+
+            $metadataJson = json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $metadataLiteral = $db->escapeLiteral(is_string($metadataJson) ? $metadataJson : '{}');
+            $db->execQuery("UPDATE public.core_profiles SET metadata = {$metadataLiteral}::jsonb WHERE id = {$profileId}");
+        }
+
+        $updateVersion("core_profiles", 20260717001);
+        Logger::info("Applied patch core_profiles 20260717001 - restored profile diary generation settings");
+    } catch (Throwable $e) {
+        Logger::error("Error restoring profile diary settings: " . $e->getMessage());
+    }
+}
+
+if ($checkVersion("core_action") < 20260716002) {
+    Logger::debug("Applying core_action 20260716002 - add Fallout narrator actions without protected kill targets");
+
+    $b_ok = true;
+    try {
+        $seedPath = realpath(__DIR__ . '/../data/core_action_seed.sql');
+        if ($seedPath === false || !is_file($seedPath)) {
+            throw new RuntimeException("Missing core_action seed file");
+        }
+
+        $seedSql = trim(strval(file_get_contents($seedPath)));
+        if ($seedSql === '') {
+            throw new RuntimeException("Empty core_action seed file");
+        }
+
+        $db->execQuery($seedSql);
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error applying Fallout narrator action seed: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("core_action", 20260716002);
+        Logger::info("Applied patch core_action 20260716002");
+    }
+}
+
 if ($checkVersion("core_tts_connector_metadata") < 20260626001) {
     Logger::debug("Applying core_tts_connector_metadata 20260626001 - remove copied connector metadata references");
 
@@ -3976,6 +4042,64 @@ if ($checkVersion("tts_gender_fallback_defaults") < 20260715001) {
     if ($b_ok) {
         $updateVersion("tts_gender_fallback_defaults", 20260715001);
         Logger::info("Applied patch tts_gender_fallback_defaults 20260715001");
+    }
+}
+
+$npcJsonObjectState = $db->fetchOne("
+    SELECT
+        (SELECT COUNT(*) FROM public.core_npc_master
+          WHERE (extended_data IS NOT NULL AND jsonb_typeof(extended_data) <> 'object')
+             OR (metadata IS NOT NULL AND jsonb_typeof(metadata) <> 'object'))
+      + (SELECT COUNT(*) FROM public.core_npc_master_history
+          WHERE (extended_data IS NOT NULL AND jsonb_typeof(extended_data) <> 'object')
+             OR (metadata IS NOT NULL AND jsonb_typeof(metadata) <> 'object')) AS invalid_rows
+");
+$npcJsonObjectsInvalid = intval($npcJsonObjectState['invalid_rows'] ?? 0) > 0;
+
+if ($checkVersion("npc_json_object_normalization") < 20260717002 || $npcJsonObjectsInvalid) {
+    Logger::debug("Applying npc_json_object_normalization 20260717002 - normalize NPC JSON object fields");
+
+    $b_ok = true;
+    try {
+        foreach (['core_npc_master', 'core_npc_master_history'] as $table) {
+            if (!$db->execQuery("
+                UPDATE public.{$table}
+                   SET extended_data = '{}'::jsonb
+                 WHERE extended_data IS NOT NULL
+                   AND jsonb_typeof(extended_data) <> 'object'
+            ")) {
+                throw new RuntimeException("Failed normalizing {$table}.extended_data");
+            }
+            if (!$db->execQuery("
+                UPDATE public.{$table}
+                   SET metadata = '{}'::jsonb
+                 WHERE metadata IS NOT NULL
+                   AND jsonb_typeof(metadata) <> 'object'
+            ")) {
+                throw new RuntimeException("Failed normalizing {$table}.metadata");
+            }
+        }
+
+        $remaining = $db->fetchOne("
+            SELECT
+                (SELECT COUNT(*) FROM public.core_npc_master
+                  WHERE (extended_data IS NOT NULL AND jsonb_typeof(extended_data) <> 'object')
+                     OR (metadata IS NOT NULL AND jsonb_typeof(metadata) <> 'object'))
+              + (SELECT COUNT(*) FROM public.core_npc_master_history
+                  WHERE (extended_data IS NOT NULL AND jsonb_typeof(extended_data) <> 'object')
+                     OR (metadata IS NOT NULL AND jsonb_typeof(metadata) <> 'object')) AS invalid_rows
+        ");
+        if (intval($remaining['invalid_rows'] ?? 0) !== 0) {
+            throw new RuntimeException('NPC JSON object verification failed');
+        }
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error normalizing NPC JSON object fields: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("npc_json_object_normalization", 20260717002);
+        Logger::info("Applied patch npc_json_object_normalization 20260717002");
     }
 }
 

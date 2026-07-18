@@ -26,17 +26,36 @@ $localSchemaOverrides = [
         'type' => 'boolean',
         'description' => 'Allow AI NPCs to trigger actions between eachother during Rechat. This can cause some chaos...',
     ],
+    'DIARY_PROMPT' => [
+        'type' => 'longstring',
+        'description' => 'Instructions used when this profile generates an NPC diary entry.',
+    ],
+    'DIARY_COOLDOWN' => [
+        'type' => 'integer',
+        'description' => 'Cooldown in real-world seconds between diary entries for each NPC.',
+    ],
+    'CONTEXT_HISTORY_DIARY' => [
+        'type' => 'integer',
+        'description' => 'Number of recent context events supplied to diary generation. Set to 0 to use the regular context history value.',
+    ],
 ];
 
 // Visual keys to expose (can be expanded easily)
 $visualKeys = [
-  "RECHAT_H","RECHAT_P","RECHAT_ALLOW_ACTIONS","COMBAT_BARK_COOLDOWN"
+  "RECHAT_H","RECHAT_P","RECHAT_ALLOW_ACTIONS","DIARY_PROMPT","DIARY_COOLDOWN","CONTEXT_HISTORY_DIARY","COMBAT_BARK_COOLDOWN"
 ];
 
 // Organize visual keys into categories for display
 $visualGroups = [
   'Rechat' => ["RECHAT_H","RECHAT_P","RECHAT_ALLOW_ACTIONS"],
+  'Diary' => ["DIARY_PROMPT","DIARY_COOLDOWN","CONTEXT_HISTORY_DIARY"],
   'Combat' => ["COMBAT_BARK_COOLDOWN"],
+];
+
+// Pair related sections into aligned rows; the final odd section spans the row.
+$visualRows = [
+  ['Rechat', 'Diary'],
+  ['Combat'],
 ];
 
 // Pretty label similar to global_settings General tab
@@ -45,6 +64,7 @@ function meta_pretty_label(string $name): string {
     $customLabels = [
         'RECHAT_H' => 'Rechat Response Rounds',
         'RECHAT_P' => 'Rechat Probaility',
+        'CONTEXT_HISTORY_DIARY' => 'Context History Diary Event Count',
     ];
     
     if (isset($customLabels[$name])) {
@@ -106,6 +126,8 @@ function renderMetaInput($key, $schema, $value, $controlOnly = false) {
             'RECHAT_P' => ['min'=>0,'max'=>100,'step'=>1],
             'RECHAT_H' => ['min'=>1,'max'=>10,'step'=>1],
             'COMBAT_BARK_COOLDOWN' => ['min'=>10,'max'=>600,'step'=>1],
+            'DIARY_COOLDOWN' => ['min'=>10,'max'=>1200,'step'=>1],
+            'CONTEXT_HISTORY_DIARY' => ['min'=>0,'max'=>400,'step'=>1],
         ];
 
         if (($type==='integer' || $type==='number') && isset($ranges[$key])) {
@@ -164,25 +186,23 @@ function renderMetaSettingRow(string $key, array $schemaEntry, $value): string {
     <div class="content-section" style="margin-bottom:10px;">
         <?php
         $rendered = [];
-        foreach ($visualGroups as $title => $keys) {
+        $renderVisualGroup = function(string $title, array $keys) use (&$rendered, $visualKeys, $metadataCurrent, $localSchemaOverrides, $confSchema): void {
             $keysInVisual = array_values(array_intersect($keys, $visualKeys));
-            if (count($keysInVisual) === 0) continue;
-            echo '<h2 style="font-family: \''."Gothic821".'\', serif; color: rgb(255, 182, 65); text-shadow: 1px 1px 2px rgba(0,0,0,0.5); word-spacing: 6px; margin: 10px 0 12px; font-size: 1.2em; padding-top: 20px;">'.htmlspecialchars($title).'</h2>';
+            if (count($keysInVisual) === 0) return;
+
+            echo '<section class="profile-settings-group">';
+            echo '<h2 class="profile-settings-heading">'.htmlspecialchars($title).'</h2>';
             
             // Add Rechat Calculator before Rechat section
             if ($title === 'Rechat') {
                 $rechatH = $metadataCurrent['RECHAT_H'] ?? 2;
                 $rechatP = $metadataCurrent['RECHAT_P'] ?? 50;
-                echo '<div class="provider-card" style="margin-bottom: 12px; background: #1a1a1a; padding: 10px 12px;">';
-                echo   '<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">';
-                echo     '<div style="font-size: 18px;">&#x1F501;</div>';
-                echo     '<div style="font-weight: 700; color: rgb(255, 182, 65); font-size: 13px;">Rechat Response Calculator</div>';
-                echo   '</div>';
+                echo '<div class="rechat-calculator">';
+                echo   '<div class="rechat-calculator-title"><span>&#x1F501;</span><span>Rechat Response Calculator</span></div>';
                 echo   '<div id="rechat-calc-output" style="font-size: 13px; line-height: 1.6;"></div>';
                 echo '</div>';
             }
-            
-            echo '<div class="provider-grid">';
+
             echo '<div class="provider-card profile-settings-group-card">';
             foreach ($keysInVisual as $k) {
                 $schemaEntry = $localSchemaOverrides[$k] ?? ($confSchema[$k] ?? []);
@@ -191,12 +211,30 @@ function renderMetaSettingRow(string $key, array $schemaEntry, $value): string {
                 $rendered[$k] = true;
             }
             echo '</div>';
-            echo '</div>';
+            echo '</section>';
+        };
+
+        echo '<div class="profile-settings-columns">';
+        foreach ($visualRows as $rowTitles) {
+            foreach ($rowTitles as $title) {
+                if (!isset($visualGroups[$title])) continue;
+                $renderVisualGroup($title, $visualGroups[$title]);
+            }
         }
+        echo '</div>';
+
+        $placedGroups = [];
+        foreach ($visualRows as $rowTitles) {
+            foreach ($rowTitles as $title) $placedGroups[$title] = true;
+        }
+        foreach ($visualGroups as $title => $keys) {
+            if (!isset($placedGroups[$title])) $renderVisualGroup($title, $keys);
+        }
+
         $remaining = array_values(array_diff($visualKeys, array_keys($rendered)));
         if (count($remaining) > 0) {
-            echo '<h2 style="font-family: \''."Gothic821".'\', serif; color: rgb(255, 182, 65); text-shadow: 1px 1px 2px rgba(0,0,0,0.5); word-spacing: 6px; margin: 10px 0 12px; font-size: 1.2em; padding-top: 20px;">Other</h2>';
-            echo '<div class="provider-grid">';
+            echo '<section class="profile-settings-other">';
+            echo '<h2 class="profile-settings-heading">Other</h2>';
             echo '<div class="provider-card profile-settings-group-card">';
             foreach ($remaining as $k) {
                 $schemaEntry = $localSchemaOverrides[$k] ?? ($confSchema[$k] ?? []);
@@ -204,7 +242,7 @@ function renderMetaSettingRow(string $key, array $schemaEntry, $value): string {
                 echo renderMetaSettingRow($k, $schemaEntry, $val);
             }
             echo '</div>';
-            echo '</div>';
+            echo '</section>';
         }
         ?>
     </div>

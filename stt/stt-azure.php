@@ -13,9 +13,9 @@ dialecticRuntimeBootstrapIfNeeded($localPath, [
 
 function stt($file)
 {
-    global $AZURETTS_CONF;
+    global $localPath;
 
-    $region = $GLOBALS["TTS"]["AZURE"]["region"];
+    $region = trim(strval($GLOBALS["STT"]["AZURE"]["region"] ?? 'eastus'));
     // Resolve API key: prefer STT conf, fallback to API Badge 'Azure'
     $apiKey = trim($GLOBALS["STT"]["AZURE"]["API_KEY"] ?? '');
     if ($apiKey === '') {
@@ -26,8 +26,8 @@ function stt($file)
             if (is_array($row) && !empty($row['api_key'])) $apiKey = $row['api_key'];
         } catch (Throwable $_e) {}
     }
-    $lang=($GLOBALS["STT"]["AZURE"]["LANG"]) ? $GLOBALS["STT"]["AZURE"]["LANG"] : "en-US";
-    $profanity=($GLOBALS["STT"]["AZURE"]["profanity"]) ? $GLOBALS["STT"]["AZURE"]["profanity"] : "masked";
+    $lang = trim(strval($GLOBALS["STT"]["AZURE"]["LANG"] ?? 'en-US')) ?: 'en-US';
+    $profanity = trim(strval($GLOBALS["STT"]["AZURE"]["profanity"] ?? 'masked')) ?: 'masked';
 
 
 

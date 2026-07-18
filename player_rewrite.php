@@ -104,7 +104,14 @@ if (! isset($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"])) {
     $contextDataHistoric = DataLastDataExpandedFor("", -15);
     $contextDataHistoric = array_merge([["role" => "user", "content" => "# HISTORIC DIALOGUE AND EVENTS IN CHRONOLOGICAL ORDER"]], $contextDataHistoric);
 
-    $contextDataWorld = DataLastInfoFor("", -2, $includeActorDescriptions = true, $excludeBusy = true);
+    // The player rewrite receives a dedicated survival block below. Suppress the
+    // nearby-player copy here so AUTOCHAT does not see the same state twice.
+    $GLOBALS['DIALECTIC_SUPPRESS_PLAYER_SURVIVAL_NEARBY'] = true;
+    try {
+        $contextDataWorld = DataLastInfoFor("", -2, $includeActorDescriptions = true, $excludeBusy = true);
+    } finally {
+        unset($GLOBALS['DIALECTIC_SUPPRESS_PLAYER_SURVIVAL_NEARBY']);
+    }
     $contextDataFull  = array_merge($contextDataWorld??[], $contextDataHistoric??[]);
     $historyData      = "";
     foreach ($contextDataFull as $element) {
@@ -144,6 +151,10 @@ if (! isset($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"])) {
     }
     if (!empty($playerSpeechStyle)) {
         $playerContext .= "Player Speech Style: " . $playerSpeechStyle . "\n";
+    }
+    $playerSurvivalBlock = trim(dialecticBuildPlayerSurvivalConditionBlock());
+    if ($playerSurvivalBlock !== '') {
+        $playerContext .= $playerSurvivalBlock . "\n";
     }
 
     // Build system message: simple identity + PROMPT_HEAD as roleplay ruleset

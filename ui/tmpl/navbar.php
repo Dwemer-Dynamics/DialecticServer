@@ -113,6 +113,9 @@ if (isset($GLOBALS['db']) && is_object($GLOBALS['db'])) {
 
 // Add link to navbar CSS
 echo '<link rel="stylesheet" href="' . $webRoot . '/ui/css/navbar.css">';
+$themeCssPath = __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'dialectic-theme.css';
+$themeCssVersion = file_exists($themeCssPath) ? strval(filemtime($themeCssPath)) : strval(time());
+echo '<link rel="stylesheet" href="' . $webRoot . '/ui/css/dialectic-theme.css?v=' . rawurlencode($themeCssVersion) . '">';
 
 // Add custom CSS for centered navbar layout
 echo '<style>
@@ -227,10 +230,36 @@ echo '<style>
 $currentPageName = basename($_SERVER['PHP_SELF'] ?? '');
 $SHOW_STATUS_NAV = false;
 
+$topNavSection = $currentPageName === 'home.php' ? 'home' : '';
+$roleplayPages = [
+ 'events-memories.php', 'ai-response.php', 'adventurelog.php', 'diarylog.php',
+ 'image_gallery.php', 'diary_book.php', 'eventlog.php',
+];
+$configurationPages = [
+ 'config_hub.php', 'npc_master.php', 'player_management.php', 'narrator_management.php',
+ 'core_profiles.php', 'llm_connectors.php', 'tts_connectors.php', 'stt_connectors.php',
+ 'api_badge.php', 'global_settings.php', 'description_upload.php', 'npc_upload.php',
+ 'worldknowledge_upload.php', 'function_editor.php', 'xtts_clone.php', 'prompts_manager.php',
+ 'dialectic_setup.php', 'quickstart.php',
+];
+$controlPanelPages = [
+ 'control_panel.php', 'request_logs.php', 'worldknowledge_audit.php', 'audit.php',
+ 'relationship_logs.php', 'playthrough_manager.php', 'cache_browser.php',
+ 'response_queue.php', 'index.php', 'tts-test.php', 'stt-test.php',
+];
+
+if (in_array($currentPageName, $roleplayPages, true)) {
+ $topNavSection = 'roleplay';
+} elseif (in_array($currentPageName, $configurationPages, true)) {
+ $topNavSection = 'configuration';
+} elseif (in_array($currentPageName, $controlPanelPages, true)) {
+ $topNavSection = 'control';
+}
+
 // Server version and dev-build detection
 // Read version from .version_number.txt
 $versionFile = dirname(__DIR__, 2) . '/.version_number.txt';
-$serverVersionRaw = '0.5.2'; // fallback
+$serverVersionRaw = '0.5.5'; // fallback
 if (file_exists($versionFile)) {
  $versionContent = trim(file_get_contents($versionFile));
  if ($versionContent !== '') {
@@ -252,11 +281,10 @@ $serverLogoFile = $isDevBuild ? 'serverlogodev.png' : 'serverlogo.png';
       <img src="<?php echo $webRoot; ?>/ui/images/<?php echo htmlspecialchars($serverLogoFile, ENT_QUOTES, 'UTF-8'); ?>" alt="DIALECTIC Server" style="vertical-align:bottom;"/>
      </button>
      <ul class="dropdown-menu brand-menu">
-      <li><a class="dropdown-item" href="<?php echo $webRoot; ?>/ui/home.php">Home</a></li>
-      <li><a class="dropdown-item" href="<?php echo $webRoot; ?>/ui/events-memories.php">Events & Memories</a></li>
-      <li><a class="dropdown-item" href="<?php echo $webRoot; ?>/ui/core/config_hub.php">Configuration</a></li>
-      <li><a class="dropdown-item" href="<?php echo $webRoot; ?>/ui/immersion.php">Immersion</a></li>
-      <li><a class="dropdown-item" href="<?php echo $webRoot; ?>/ui/control_panel.php">Control Panel</a></li>
+      <li><a class="dropdown-item<?php echo $topNavSection === 'home' ? ' active' : ''; ?>" href="<?php echo $webRoot; ?>/ui/home.php"<?php echo $topNavSection === 'home' ? ' aria-current="page"' : ''; ?>>Home</a></li>
+      <li><a class="dropdown-item<?php echo $topNavSection === 'roleplay' ? ' active' : ''; ?>" href="<?php echo $webRoot; ?>/ui/events-memories.php"<?php echo $topNavSection === 'roleplay' ? ' aria-current="page"' : ''; ?>>Roleplay</a></li>
+      <li><a class="dropdown-item<?php echo $topNavSection === 'configuration' ? ' active' : ''; ?>" href="<?php echo $webRoot; ?>/ui/core/config_hub.php"<?php echo $topNavSection === 'configuration' ? ' aria-current="page"' : ''; ?>>Configuration</a></li>
+      <li><a class="dropdown-item<?php echo $topNavSection === 'control' ? ' active' : ''; ?>" href="<?php echo $webRoot; ?>/ui/control_panel.php"<?php echo $topNavSection === 'control' ? ' aria-current="page"' : ''; ?>>Control Panel</a></li>
       <li><a class="dropdown-item" href="/Dwemer-Dashboard/index.php">DwemerDistro Home</a></li>
      </ul>
     </div>

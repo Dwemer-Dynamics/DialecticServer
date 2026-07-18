@@ -328,10 +328,6 @@ if ($directNarratorDialogue) {
         " Do not include third-person narration, scene description, stage directions, or text in asterisks.";
 }
 
-if (@is_array($GLOBALS["TTS"]["AZURE"]["validMoods"]) &&  sizeof($GLOBALS["TTS"]["AZURE"]["validMoods"])>0) 
-    if ($GLOBALS["TTSFUNCTION"]=="azure")
-        $TEMPLATE_DIALOG.="(optional way of speaking from this list [" . implode(",", $GLOBALS["TTS"]["AZURE"]["validMoods"]) . "])";
-
 //$TEMPLATE_DIALOG.=" \"";
 
 

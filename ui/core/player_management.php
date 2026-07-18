@@ -115,35 +115,37 @@ $equipment = $player->getJson('equipment') ?? [];
 $inventory = $player->getJson('inventory') ?? [];
 $skills = $player->getJson('skills') ?? [];
 $stats = $player->getJson('stats') ?? [];
-
-// Organize Fallout stats into categories
-$statCategories = [
- 'Core Stats' => [
- 'Days Passed', 'Hours Slept', 'Hours Waited'
- ],
- 'Exploration' => [
- 'Locations Discovered', 'Factions Discovered'
- ],
- 'Economy' => [
- 'Caps Found', 'Most Caps Carried', 'Containers Looted', 'Barters'
- ],
- 'Character Development' => [
- 'Skill Increases', 'Skill Books Read', 'Books Read'
- ],
- 'Survival' => [
- 'Food Eaten', 'Chems Taken', 'Stimpaks Taken', 'RadAway Taken', 'Doctors Bags Used'
- ],
- 'Social' => [
- 'Speech Successes', 'Bribes', 'Intimidations'
- ],
- 'Utility' => [
- 'Locks Picked', 'Lockpicks Broken', 'Terminals Hacked'
- ],
- 'Quests' => [
- 'Quests Completed', 'Main Quests Completed', 'Side Quests Completed',
- 'Misc Objectives Completed', 'Questlines Completed', 'Companions Recruited'
- ]
+$survival = $player->getJson('survival') ?? [];
+$survivalNeeds = is_array($survival['needs'] ?? null) ? $survival['needs'] : [];
+$survivalRadiation = is_array($survival['radiation'] ?? null) ? $survival['radiation'] : [];
+$survivalLabels = [
+ 'hunger' => ['Well fed', 'Peckish', 'Hungry', 'Starving', 'Critically starving', 'Dying of starvation'],
+ 'dehydration' => ['Hydrated', 'Thirsty', 'Dehydrated', 'Severely dehydrated', 'Critically dehydrated', 'Dying of dehydration'],
+ 'sleep_deprivation' => ['Well rested', 'Tired', 'Sleep deprived', 'Severely sleep deprived', 'Critically sleep deprived', 'Near collapse'],
+ 'radiation' => ['No radiation sickness', 'Minor radiation poisoning', 'Advanced radiation poisoning', 'Critical radiation poisoning', 'Deadly radiation poisoning', 'Fatal radiation exposure'],
 ];
+$survivalUi = [];
+if (!empty($survival)) {
+ $survivalUi['hardcore'] = !empty($survival['hardcore_enabled']) ? 'Enabled' : 'Disabled';
+ foreach (['hunger' => 'Hunger', 'dehydration' => 'Thirst', 'sleep_deprivation' => 'Sleep'] as $key => $label) {
+  $need = is_array($survivalNeeds[$key] ?? null) ? $survivalNeeds[$key] : [];
+  $stage = max(0, min(5, intval($need['stage'] ?? 0)));
+  $survivalUi[$key] = [
+   'label' => $label,
+   'description' => $survivalLabels[$key][$stage],
+   'value' => round(floatval($need['value'] ?? 0), 1),
+  ];
+ }
+ $radiationStage = max(0, min(5, intval($survivalRadiation['stage'] ?? 0)));
+ $survivalUi['radiation'] = [
+  'label' => 'Radiation',
+  'description' => $survivalLabels['radiation'][$radiationStage],
+  'value' => round(floatval($survivalRadiation['value'] ?? 0), 1),
+ ];
+ $survivalUi['updated_at'] = !empty($survival['updated_at'])
+  ? date('Y-m-d H:i:s', intval($survival['updated_at']))
+  : '';
+}
 
 $isEmbed = isset($_GET['embed']) && $_GET['embed'] == '1';
 
@@ -924,7 +926,7 @@ if (!$isEmbed) {
  margin-left: 0;
  }
  }
-</style><?php if ($isEmbed): ?><style>
+</style><?php if ($isEmbed): ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/dialectic-theme.css?v=<?php echo filemtime(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'dialectic-theme.css'); ?>"><style>
  /* Embedded in hub: remove extra top padding since navbar is hidden */
  main { padding-top: 20px; }
 </style><?php endif; ?><main><div class="page-container"><div id="toast" class="toast-notification <?php echo (!$saveSuccess && $saveMessage) ? 'error' : ''; ?>"><span class="message"><?php echo htmlspecialchars($saveMessage); ?></span></div><script>
@@ -1120,6 +1122,34 @@ if (!$isEmbed) {
  $displayName = ucwords(str_replace('_', ' ', $skillName));
  ?><div class="skill-item"><div class="skill-name"><?php echo htmlspecialchars($displayName); ?></div><div class="skill-value"><?php echo round($skillValue); ?></div></div><?php endforeach; ?></div></div><?php endif; ?></div></main><script>
 document.addEventListener('DOMContentLoaded', function () {
+ const playerStatsGrid = document.querySelector('.full-width-section + .content-grid.two-col');
+ const survival = <?php echo json_encode($survivalUi, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+ if (playerStatsGrid) {
+  const card = document.createElement('div');
+  card.className = 'content-section';
+  const escapeHtml = function(value) {
+   const node = document.createElement('span');
+   node.textContent = String(value == null ? '' : value);
+   return node.innerHTML;
+  };
+  let body = '<h2>Survival Status</h2>';
+  if (survival && survival.hardcore) {
+   body += '<div class="stats-grid">';
+   body += '<div class="stat-card"><div class="stat-card-title">Hardcore Mode</div><div class="stat-card-value">' + escapeHtml(survival.hardcore) + '</div></div>';
+   ['hunger', 'dehydration', 'sleep_deprivation', 'radiation'].forEach(function(key) {
+    const item = survival[key];
+    if (!item) return;
+    const valueLabel = key === 'radiation' ? 'Rads' : 'Value';
+    body += '<div class="stat-card"><div class="stat-card-title">' + escapeHtml(item.label) + '</div><div class="stat-card-value">' + escapeHtml(item.description) + '</div><span class="hint">' + valueLabel + ': ' + escapeHtml(item.value) + '</span></div>';
+   });
+   body += '</div>';
+   if (survival.updated_at) body += '<span class="hint">Last synced: ' + escapeHtml(survival.updated_at) + '</span>';
+  } else {
+   body += '<div class="no-data">No survival data available. Load a save and wait up to 15 seconds.</div>';
+  }
+  card.innerHTML = body;
+  playerStatsGrid.prepend(card);
+ }
  syncPlayerProviderPanels();
  const connectorSelect = document.getElementById('tts_connector_id');
  if (connectorSelect) {

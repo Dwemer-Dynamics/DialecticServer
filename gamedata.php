@@ -20,6 +20,7 @@ dialecticRuntimeBootstrap(__DIR__, [
 ]);
 $GLOBALS["db"] = $GLOBALS["db"] ?? new sql();
 require_once(__DIR__ . "/lib/core/npc_master.class.php");
+require_once(__DIR__ . "/lib/core/player.class.php");
 require_once(__DIR__ . "/lib/core/activity_status.php");
 require_once(__DIR__ . "/lib/core/game_plugins.php");
 require_once(__DIR__ . "/lib/dialectic_runtime.php");
@@ -27,6 +28,7 @@ require_once(__DIR__ . "/lib/logger.php");
 require_once(__DIR__ . "/lib/settings.php");
 require_once(__DIR__ . "/lib/save_rollback.php");
 require_once(__DIR__ . "/lib/auto_greeting.php");
+require_once(__DIR__ . "/lib/fallout_stats.php");
 
 $requestStart = microtime(true);
 
@@ -48,7 +50,20 @@ function dialecticGameDataRespond(int $statusCode, bool $ok, string $error = '',
         $payload['error'] = $error;
     }
 
-    echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
+    echo json_encode(
+        $payload,
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+    ) . PHP_EOL;
+}
+
+function dialecticGameDataGamets(array $data, string $type): int
+{
+    $gamets = intval($data['gamets'] ?? 0);
+    if ($gamets <= 0) {
+        Logger::debug("[gamedata.php] Deferred {$type} update until a fresh game timestamp is available");
+        return 0;
+    }
+    return $gamets;
 }
 
 // Only accept POST requests
@@ -77,9 +92,27 @@ if (strpos($contentType, 'application/json') === false) {
 
 // Parse JSON body
 $json = file_get_contents('php://input');
-$data = json_decode($json, true);
+try {
+    $data = json_decode(
+        $json,
+        true,
+        512,
+        JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+} catch (JsonException $e) {
+    Logger::error("[gamedata.php] Invalid JSON request" . Logger::formatContext([
+        "bytes" => strlen($json),
+        "json_error" => $e->getMessage(),
+        "payload" => Logger::summarizePayload($json),
+    ]));
+    dialecticGameDataRespond(400, false, "Invalid JSON", [
+        "bytes" => strlen($json),
+        "json_error" => $e->getMessage(),
+    ]);
+    exit;
+}
 
-if (!$data || !isset($data['type'])) {
+if (!is_array($data) || !isset($data['type'])) {
     Logger::error("[gamedata.php] Bad request - missing type field" . Logger::formatContext([
         "bytes" => strlen($json),
         "payload" => Logger::summarizePayload($json),
@@ -157,6 +190,9 @@ try {
             break;
         case 'fallout_stats':
             handleFalloutStatsUpdate($data);
+            break;
+        case 'player_survival':
+            handlePlayerSurvivalUpdate($data);
             break;
         case 'furniture':
             handleFurnitureUpdate($data, $npcMaster);
@@ -620,6 +656,11 @@ function handleWorldContextUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
 
+    $gamets = dialecticGameDataGamets($data, 'world_context');
+    if ($gamets <= 0) {
+        return;
+    }
+
     $location = cleanBridgeString($data['location'] ?? '');
     $worldspace = cleanBridgeString($data['worldspace'] ?? '');
     if ($location === '') {
@@ -637,10 +678,11 @@ function handleWorldContextUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
+    $recentCutoff = time() - 120;
+    $db->execQuery(
+        "UPDATE eventlog SET gamets={$gamets} " .
+        "WHERE sess='dialectic' AND gamets<=5 AND localts>={$recentCutoff}"
+    );
 
     $context = "(Context location: {$location}, State: {$state}";
     if ($worldspace !== '' && strcasecmp($worldspace, $location) !== 0) {
@@ -722,6 +764,10 @@ function dialecticNearbyActorIsSceneParticipant(array $actor): bool
 function handleNearbyActorsUpdate(array $data, NpcMaster $npcMaster): array
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'nearby_actors');
+    if ($gamets <= 0) {
+        return ['deferred' => true, 'reason' => 'missing_gamets'];
+    }
     $previousRow = $db->fetchOne("SELECT party FROM eventlog WHERE type='nearby_actors' ORDER BY rowid DESC LIMIT 1");
     $previousSnapshot = is_array($previousRow)
         ? (json_decode((string)($previousRow['party'] ?? ''), true) ?: [])
@@ -735,11 +781,6 @@ function handleNearbyActorsUpdate(array $data, NpcMaster $npcMaster): array
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
-
     $player = cleanBridgeString($data['player'] ?? '');
     $peopleNames = [];
     foreach ($actors as $actor) {
@@ -992,6 +1033,10 @@ function dialecticNormalizeNearbyItemsContainer($items): array
 function handleNearbyItemsUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'nearby_items');
+    if ($gamets <= 0) {
+        return;
+    }
     $rawItems = $data['items'] ?? [];
     $items = dialecticNormalizeNearbyItemsContainer($rawItems);
 
@@ -999,11 +1044,6 @@ function handleNearbyItemsUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
-
     $normalizedItems = [];
     $skippedSamples = [];
     foreach ($items as $item) {
@@ -1076,6 +1116,10 @@ function handleNearbyItemsUpdate(array $data): void
 function handlePointsOfInterestUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'points_of_interest');
+    if ($gamets <= 0) {
+        return;
+    }
     $pois = $data['pois'] ?? [];
     if (!is_array($pois)) {
         $pois = [];
@@ -1085,11 +1129,6 @@ function handlePointsOfInterestUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
-
     $player = cleanBridgeString($data['player'] ?? '');
     $poiNames = [];
     $skippedPoiSamples = [];
@@ -1163,6 +1202,10 @@ function handlePointsOfInterestUpdate(array $data): void
 function handleActiveQuestsUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'active_quests');
+    if ($gamets <= 0) {
+        return;
+    }
     $quests = $data['quests'] ?? [];
     if (!is_array($quests)) {
         $quests = [];
@@ -1172,11 +1215,6 @@ function handleActiveQuestsUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
-
     // The in-game journal snapshot is the source of truth for this table.
     $db->delete('quests', '1=1');
 
@@ -1261,6 +1299,10 @@ function handleActiveQuestsUpdate(array $data): void
 function handleTradeSummaryUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'trade_summary');
+    if ($gamets <= 0) {
+        return;
+    }
 
     $speaker = cleanBridgeString($data['speaker'] ?? '');
     $player = cleanBridgeString($data['player'] ?? ($GLOBALS['PLAYER_NAME'] ?? ''));
@@ -1273,11 +1315,6 @@ function handleTradeSummaryUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = DataLastKnownGameTS();
-    }
-
     $people = [];
     foreach ([$speaker, $player] as $name) {
         if ($name !== '' && !in_array($name, $people, true)) {
@@ -1510,6 +1547,66 @@ function dialecticMaybeSyncPlayerNameFromGameData(array $data): void
             return;
         }
     }
+}
+
+function dialecticNormalizeSurvivalValue($value): float
+{
+    if (!is_numeric($value)) {
+        return 0.0;
+    }
+    return max(0.0, min(1000000.0, (float)$value));
+}
+
+function dialecticSurvivalStageFromValue(float $value): int
+{
+    return max(0, min(5, (int)floor(max(0.0, $value) / 200.0)));
+}
+
+function handlePlayerSurvivalUpdate(array $data): void
+{
+    $schema = cleanBridgeString($data['schema'] ?? '');
+    if ($schema !== 'dialectic.player_survival.v1') {
+        throw new InvalidArgumentException('Unsupported player survival schema');
+    }
+
+    $needs = is_array($data['needs'] ?? null) ? $data['needs'] : [];
+    $radiationPayload = is_array($data['radiation'] ?? null) ? $data['radiation'] : [];
+    $normalizedNeeds = [];
+    foreach (['hunger', 'dehydration', 'sleep_deprivation'] as $need) {
+        $payload = is_array($needs[$need] ?? null) ? $needs[$need] : [];
+        $value = dialecticNormalizeSurvivalValue($payload['value'] ?? 0);
+        $normalizedNeeds[$need] = [
+            'value' => $value,
+            'stage' => dialecticSurvivalStageFromValue($value),
+        ];
+    }
+
+    $radiationValue = dialecticNormalizeSurvivalValue($radiationPayload['value'] ?? 0);
+    $survival = [
+        'schema' => 'dialectic.player_survival.v1',
+        'hardcore_enabled' => dialecticGameDataBool($data['hardcore_enabled'] ?? false),
+        'needs' => $normalizedNeeds,
+        'radiation' => [
+            'value' => $radiationValue,
+            'stage' => dialecticSurvivalStageFromValue($radiationValue),
+        ],
+        'gamets' => max(0, (int)($data['gamets'] ?? 0)),
+        'captured_at' => max(0, (int)($data['timestamp'] ?? 0)),
+        'updated_at' => time(),
+    ];
+
+    $player = new Player();
+    if (!$player->setJson('survival', $survival)) {
+        throw new RuntimeException('Unable to store player survival state');
+    }
+
+    Logger::debug('[gamedata.php] Updated player survival state' . Logger::formatContext([
+        'hardcore' => $survival['hardcore_enabled'],
+        'hunger_stage' => $normalizedNeeds['hunger']['stage'],
+        'dehydration_stage' => $normalizedNeeds['dehydration']['stage'],
+        'sleep_stage' => $normalizedNeeds['sleep_deprivation']['stage'],
+        'radiation_stage' => $survival['radiation']['stage'],
+    ]));
 }
 
 function flattenActorProfileFields(array $data): array
@@ -1931,31 +2028,74 @@ function handleStatsUpdate(array $data, NpcMaster $npcMaster): void {
     Logger::debug("[gamedata.php] Updated stats for {$actorType}: {$actorName}");
 }
 
-/**
- * Handle Fallout statistics update (player only)
- * This handles the ~40 Fallout stats like Quests Completed, Days Passed, etc.
- */
+/** Store a validated Fallout player-stat snapshot for player tooling and the dashboard. */
 function handleFalloutStatsUpdate(array $data): void {
     if (!isset($data['stats']) || !is_array($data['stats'])) {
         Logger::error("[gamedata.php] Fallout stats update missing stats data");
         return;
     }
-    
-    try {
-        require_once(__DIR__ . "/lib/core/player.class.php");
-        $player = new Player();
-        
-        $stats = $data['stats'];
-        
-        // Save each stat to core_player table
-        foreach ($stats as $statKey => $statValue) {
-            $player->set($statKey, (string)$statValue);
+
+    $schema = trim((string)($data['schema'] ?? ''));
+    if ($schema !== 'dialectic.fallout_stats.v1') {
+        Logger::warn("[gamedata.php] Rejected Fallout stats update with unsupported schema" . Logger::formatContext([
+            'schema' => $schema,
+        ]));
+        return;
+    }
+
+    $allowed = array_fill_keys(dialecticFalloutStatNames(), true);
+    $stats = [];
+    foreach ($data['stats'] as $statKey => $statValue) {
+        $statKey = trim((string)$statKey);
+        if (!isset($allowed[$statKey]) || !is_numeric($statValue)) {
+            continue;
         }
-        
-        Logger::debug("[gamedata.php] Updated " . count($stats) . " Fallout stats to core_player");
-        
+        $stats[$statKey] = max(0, min(2147483647, (int)$statValue));
+    }
+    if ($stats === []) {
+        Logger::warn("[gamedata.php] Fallout stats update contained no supported values");
+        return;
+    }
+
+    try {
+        $db = $GLOBALS['db'];
+        $valueRows = [];
+        foreach ($stats as $statKey => $statValue) {
+            $valueRows[] = "('" . $db->escape($statKey) . "', '" . $db->escape((string)$statValue) . "')";
+        }
+
+        $valuesSql = implode(',', $valueRows);
+        if ($db->query("INSERT INTO core_player (id, value) VALUES {$valuesSql} ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value") === false) {
+            throw new RuntimeException('Could not update core_player Fallout statistics');
+        }
+        if ($db->query("INSERT INTO conf_opts (id, value) VALUES {$valuesSql} ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value") === false) {
+            throw new RuntimeException('Could not update conf_opts Fallout statistics');
+        }
+
+        $snapshot = [
+            'schema' => 'dialectic.fallout_stats.v1',
+            'actor_name' => trim((string)($data['actor_name'] ?? '')),
+            'refid' => trim((string)($data['refid'] ?? '0x00000014')),
+            'gamets' => (int)($data['gamets'] ?? 0),
+            'updated_at' => time(),
+            'stats' => $stats,
+        ];
+        $snapshotJson = json_encode($snapshot, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($snapshotJson !== false) {
+            $safeSnapshot = $db->escape($snapshotJson);
+            if ($db->query("INSERT INTO core_player (id, value) VALUES ('fallout_stats', '{$safeSnapshot}') ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value") === false) {
+                throw new RuntimeException('Could not update Fallout statistics snapshot');
+            }
+        }
+
+        Logger::info("[FALLOUT_STATS_UPDATE] Stored Fallout player stats" . Logger::formatContext([
+            'count' => count($stats),
+            'actor' => $data['actor_name'] ?? '',
+            'gamets' => $data['gamets'] ?? 0,
+        ]));
     } catch (Exception $e) {
         Logger::error("[gamedata.php] Failed to save Fallout stats: " . $e->getMessage());
+        throw $e;
     }
 }
 

@@ -196,8 +196,23 @@ class Logger {
         }
 
         self::$FAILED_LOG_TARGETS[$logFile] = true;
-        error_log("[WARN] Dialectic logger cannot write to {$logFile}; further writes to this target are suppressed for this request");
+        self::reportLogFailureOnce($logFile);
         return false;
+    }
+
+    private static function reportLogFailureOnce(string $logFile): void
+    {
+        $marker = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR
+            . 'dialectic_log_failure_' . md5($logFile) . '.marker';
+        $now = time();
+        $lastReported = is_file($marker) ? (int)@filemtime($marker) : 0;
+        if ($lastReported > 0 && ($now - $lastReported) < 300) {
+            return;
+        }
+
+        @touch($marker);
+        @error_log("[WARN] Dialectic logger cannot write to {$logFile}; repeated warnings are suppressed for five minutes");
     }
 
     public static function phaseStart(string $phase, array $context = []): void {

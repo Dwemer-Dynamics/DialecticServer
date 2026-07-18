@@ -341,7 +341,7 @@ if (in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext","ch
 
 
 $fast_commands = ["updateprofile","updateprofile_narrator","diary","diary_narrator","diary_player","setconf","request","_speech","captured_dialogue",
-    "infoaction","status_msg","delete_event","itemfound","chat","waitstart","waitstop",
+    "infoaction","status_msg","delete_event","itemfound","chat","goodnight","waitstart","waitstop",
     "updateprofiles_batch_async","core_profile_assign","switchrace","combatbark",
     "region"];
 

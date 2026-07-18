@@ -12,6 +12,8 @@ $response = [
     'version' => trim((string)@file_get_contents($root . DIRECTORY_SEPARATOR . '.version_number.txt')),
     'build' => trim((string)@file_get_contents($root . DIRECTORY_SEPARATOR . '.version.txt')),
     'database' => false,
+    'database_encoding' => '',
+    'database_encoding_supported' => false,
     'schema' => false,
     'background_processor' => false,
     'background_port' => 12347,
@@ -34,10 +36,17 @@ try {
 
     $db = $GLOBALS['db'] ?? null;
     $response['database'] = is_object($db) && (bool)$db->query('SELECT 1');
-    $response['schema'] = $response['database'] && !dialecticRuntimeNeedsDbUpdates();
+    $response['database_encoding'] = $response['database'] ? dialecticRuntimeDatabaseEncoding() : '';
+    $response['database_encoding_supported'] = $response['database'] && dialecticRuntimeDatabaseEncodingIsSupported();
+    $response['schema'] = $response['database']
+        && $response['database_encoding_supported']
+        && !dialecticRuntimeNeedsDbUpdates();
     $response['background_port'] = dialecticBackgroundProcessorPort();
     $response['background_processor'] = dialecticBackgroundProcessorIsRunning(0.2);
     $response['status'] = $response['schema'] ? 'ok' : 'degraded';
+    if ($response['database'] && !$response['database_encoding_supported']) {
+        $response['error'] = dialecticRuntimeDatabaseEncodingError();
+    }
 } catch (Throwable $e) {
     $response['error'] = $e->getMessage();
 }

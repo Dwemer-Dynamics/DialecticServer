@@ -25,12 +25,16 @@ if ($Reset) {
 
 $databaseExists = (& wsl.exe -- sudo -n -u postgres psql -Atqc "SELECT 1 FROM pg_database WHERE datname='$database';").Trim()
 if ($databaseExists -ne "1") {
-    & wsl.exe -- sudo -n -u postgres createdb -O $owner $database
+    & wsl.exe -- sudo -n -u postgres createdb -O $owner --encoding=UTF8 --locale=C --template=template0 $database
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to create PostgreSQL database '$database'."
     }
 } else {
     Write-Host "Database '$database' already exists."
+    $databaseEncoding = (& wsl.exe -- sudo -n -u postgres psql -d $database -Atqc "SHOW server_encoding;").Trim()
+    if ($databaseEncoding -ne 'UTF8') {
+        throw "Database '$database' uses $databaseEncoding. Run tools/migrate-dialectic-db-utf8-wsl.sh inside WSL before continuing."
+    }
 }
 
 & wsl.exe -- sudo -n -u postgres psql -d $database -v ON_ERROR_STOP=1 `

@@ -399,6 +399,7 @@ class google_openaijson
             if (strlen(($data["choices"][0]["delta"]["content"]))>0) {
                 $buffer.=$data["choices"][0]["delta"]["content"];
                 $this->_buffer.=$data["choices"][0]["delta"]["content"];
+                $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_buffer;
                 $this->_numOutputTokens += 1;
 
             }

@@ -801,6 +801,7 @@ foreach ($rows as $row) {
 $promptModalContentById = [];
 
 $TITLE = "AI Responses";
+$BODY_CLASS = 'hub-page';
 ob_start();
 include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.html");
 ?>
@@ -1171,6 +1172,7 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
         }
     }
 </style>
+<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'hub-navigation.css'); ?>">
 <?php include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.php"); ?>
 
 <div id="contentModal" class="modal">
@@ -1188,12 +1190,10 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
 
 <main class="container-fluid ai-response-page">
     <div class="tab-container">
-        <div class="tab-buttons">
-            <a class="tab-button" href="events-memories.php?tab=eventlog">&#x1F4DD; Events</a>
-            <a class="tab-button active" href="ai-response.php">&#x1F4AC; AI Responses</a>
-            <a class="tab-button" href="events-memories.php?tab=memory">&#x1F9E0; Memories</a>
-            <a class="tab-button" href="events-memories.php?tab=quests">&#x1F3AF; Active Quests</a>
-        </div>
+        <?php
+        $eventsMemoriesActiveTab = 'responselog';
+        include(__DIR__ . DIRECTORY_SEPARATOR . 'tmpl' . DIRECTORY_SEPARATOR . 'events_memories_navigation.php');
+        ?>
 
         <div id="responselog-tab" class="tab-content">
             <div style="background: #2a2a2a; border-left: 4px solid rgb(255, 182, 65); padding: 12px 15px; border-radius: 5px; margin: 15px 0; font-size: 0.9em;">

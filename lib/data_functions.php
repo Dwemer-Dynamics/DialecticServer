@@ -1586,6 +1586,154 @@ function dialecticBuildCurrentConditionBlockFromMetadata($stats, array $metadata
     return "<condition>\n#Condition\n" . implode("\n", $lines) . "\n</condition>";
 }
 
+function dialecticPlayerSurvivalStageLabel(string $kind, int $stage): string
+{
+    $labels = [
+        'hunger' => [
+            1 => 'Peckish', 2 => 'Hungry', 3 => 'Starving',
+            4 => 'Critically starving', 5 => 'Dying of starvation',
+        ],
+        'dehydration' => [
+            1 => 'Thirsty', 2 => 'Dehydrated', 3 => 'Severely dehydrated',
+            4 => 'Critically dehydrated', 5 => 'Dying of dehydration',
+        ],
+        'sleep_deprivation' => [
+            1 => 'Tired', 2 => 'Sleep deprived', 3 => 'Severely sleep deprived',
+            4 => 'Critically sleep deprived', 5 => 'Near collapse from sleep deprivation',
+        ],
+        'radiation' => [
+            1 => 'Minor radiation poisoning', 2 => 'Advanced radiation poisoning',
+            3 => 'Critical radiation poisoning', 4 => 'Deadly radiation poisoning',
+            5 => 'Fatal radiation exposure',
+        ],
+    ];
+
+    return $labels[$kind][max(0, min(5, $stage))] ?? '';
+}
+
+function dialecticIsPlayerSurvivalStateFresh(array $survival, int $staleSeconds = 180, ?int $now = null): bool
+{
+    $updatedAt = max(0, (int)($survival['updated_at'] ?? $survival['captured_at'] ?? 0));
+    if ($updatedAt <= 0) {
+        return false;
+    }
+
+    return (($now ?? time()) - $updatedAt) <= max(1, $staleSeconds);
+}
+
+function dialecticGetFreshPlayerSurvivalState(int $staleSeconds = 180): ?array
+{
+    try {
+        require_once(__DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'player.class.php');
+        $player = new Player();
+        $survival = $player->getJson('survival');
+    } catch (Throwable $e) {
+        Logger::debug('Could not read player survival state: ' . $e->getMessage());
+        return null;
+    }
+
+    if (!is_array($survival) || empty($survival)) {
+        return null;
+    }
+
+    if (!dialecticIsPlayerSurvivalStateFresh($survival, $staleSeconds)) {
+        return null;
+    }
+
+    return $survival;
+}
+
+function dialecticPlayerSurvivalEntries(?array $survival = null): array
+{
+    $survival = $survival ?? dialecticGetFreshPlayerSurvivalState();
+    if (!is_array($survival)) {
+        return [];
+    }
+
+    $entries = [];
+    if (!empty($survival['hardcore_enabled'])) {
+        $needs = is_array($survival['needs'] ?? null) ? $survival['needs'] : [];
+        foreach ([
+            'hunger' => 'Hunger',
+            'dehydration' => 'Thirst',
+            'sleep_deprivation' => 'Sleep',
+        ] as $key => $label) {
+            $stage = max(0, min(5, (int)($needs[$key]['stage'] ?? 0)));
+            $description = dialecticPlayerSurvivalStageLabel($key, $stage);
+            if ($description !== '') {
+                $entries[] = [
+                    'key' => $key,
+                    'label' => $label,
+                    'description' => $description,
+                ];
+            }
+        }
+    }
+
+    $radiation = is_array($survival['radiation'] ?? null) ? $survival['radiation'] : [];
+    $radiationStage = max(0, min(5, (int)($radiation['stage'] ?? 0)));
+    $radiationDescription = dialecticPlayerSurvivalStageLabel('radiation', $radiationStage);
+    if ($radiationDescription !== '') {
+        $entries[] = [
+            'key' => 'radiation',
+            'label' => 'Radiation',
+            'description' => $radiationDescription,
+        ];
+    }
+
+    return $entries;
+}
+
+function dialecticDescribePlayerSurvivalState(?array $survival = null): string
+{
+    $descriptions = array_map(static function (array $entry): string {
+        return strtolower((string)($entry['description'] ?? ''));
+    }, dialecticPlayerSurvivalEntries($survival));
+
+    return implode(', ', array_values(array_filter($descriptions)));
+}
+
+function dialecticBuildPlayerSurvivalConditionBlock(?array $survival = null): string
+{
+    if (!dialecticPromptContextSectionEnabled('enabled_appearance_subsections', 'current_condition')) {
+        return '';
+    }
+
+    $lines = array_map(static function (array $entry): string {
+        return '- ' . $entry['label'] . ': ' . $entry['description'];
+    }, dialecticPlayerSurvivalEntries($survival));
+
+    if (empty($lines)) {
+        return '';
+    }
+
+    $playerName = trim((string)($GLOBALS['PLAYER_NAME'] ?? 'The Courier'));
+    if ($playerName === '') {
+        $playerName = 'The Courier';
+    }
+    return "\n\n<condition>\n#{$playerName}'s Condition\n" . implode("\n", $lines) . "\n</condition>\n";
+}
+
+function dialecticPlayerSurvivalProfileEnricher(string $actorName, string $actorType, array $context = []): string
+{
+    if (strcasecmp(trim($actorType), 'player') !== 0
+        || !empty($GLOBALS['DIALECTIC_SUPPRESS_PLAYER_SURVIVAL_NEARBY'])
+        || !dialecticPromptContextSectionEnabled('enabled_appearance_subsections', 'current_condition')) {
+        return '';
+    }
+
+    $description = dialecticDescribePlayerSurvivalState();
+    return $description === '' ? '' : 'Survival: ' . $description;
+}
+
+if (function_exists('dialecticRegisterActorProfileEnricher')) {
+    dialecticRegisterActorProfileEnricher(
+        'dialectic.player_survival',
+        'dialecticPlayerSurvivalProfileEnricher',
+        55
+    );
+}
+
 function dialecticPromptContextSectionEnabled(string $bucket, string $id): bool
 {
     if (function_exists('dialecticPromptContextOptionEnabled')) {
@@ -5343,6 +5491,45 @@ function call_llm() {
     return call_llm_internal();
 }
 
+function dialecticRecoverPlainLlmSpeech(): bool
+{
+    global $gameRequest, $talkedSoFar, $alreadysent;
+
+    if (($gameRequest[0] ?? '') === 'diary' || count($talkedSoFar ?? []) > 0 || count($alreadysent ?? []) > 0) {
+        return false;
+    }
+
+    $raw = trim(strval($GLOBALS['DIALECTIC_LLM_RAW_TEXT'] ?? ''));
+    if ($raw === '' || strlen($raw) < 3 || preg_match('/[[:alpha:]]/u', $raw) !== 1) {
+        return false;
+    }
+    if (preg_match('/^(?:\{|\[|data\s*:|<!doctype|<html|error\b)/i', $raw) === 1) {
+        return false;
+    }
+
+    $raw = preg_replace('/^```(?:json|text|markdown)?\s*|\s*```$/i', '', $raw);
+    $raw = preg_replace('/<(think|thinking|reasoning)>.*?<\/\1>/is', '', $raw);
+    $clean = trim(cleanResponse($raw));
+    if ($clean === '' || preg_match('/[[:alpha:]]/u', $clean) !== 1) {
+        return false;
+    }
+
+    $sentences = array_values(array_filter(split_sentences_stream($clean), static function ($line) {
+        return trim(strval($line)) !== '';
+    }));
+    if (empty($sentences)) {
+        return false;
+    }
+
+    Logger::warn('[LLM] Recovered valid plain-text model output as speech' . Logger::formatContext([
+        'speaker' => $GLOBALS['DIALECTIC_NAME'] ?? '',
+        'chars' => strlen($clean),
+        'preview' => Logger::summarizePayload($clean, 160),
+    ]));
+    returnLines($sentences);
+    return true;
+}
+
 function call_llm_internal() {
     global $contextData, $gameRequest, $receivedData, $startTime, $db;
     global $ERROR_TRIGGERED, $talkedSoFar, $alreadysent, $FUNCTIONS_ARE_ENABLED;
@@ -5350,6 +5537,7 @@ function call_llm_internal() {
     
     $outputWasValid = true;
     $firstLlmChunkLogged = false;
+    unset($GLOBALS['DIALECTIC_LLM_RAW_TEXT']);
     
 
     if (isset($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"])) {
@@ -5684,6 +5872,14 @@ function call_llm_internal() {
         }
         if ($tmpData==-1 || (isset($GLOBALS["VALIDATE_LLM_OUTPUT_FNCT"]) && !$GLOBALS["VALIDATE_LLM_OUTPUT_FNCT"]($tmpData))) {
             if ($tmpData == -1 && count($talkedSoFar) == 0 && count($alreadysent) == 0) {
+                if (dialecticRecoverPlainLlmSpeech()) {
+                    if (method_exists($connectionHandler, "close")) {
+                        $connectionHandler->close("plain-text-recovery");
+                    }
+                    $buffer = "";
+                    $breakFlag = true;
+                    continue;
+                }
                 $streamErrorReason = "stream_error";
                 if (method_exists($connectionHandler, "getLastStreamErrorCode")) {
                     $streamErrorReason .= " code=" . strval($connectionHandler->getLastStreamErrorCode() ?? "");
@@ -5770,6 +5966,10 @@ function call_llm_internal() {
                 }
 
     } // --- end while
+
+    if ($outputWasValid && trim($buffer) === '' && count($talkedSoFar) == 0 && count($alreadysent) == 0) {
+        dialecticRecoverPlainLlmSpeech();
+    }
     
     
     if ($outputWasValid && trim($buffer)) {
@@ -6246,9 +6446,27 @@ function call_llm_internal() {
                     }
                     $commandArgsForResponse = array_values($decodedActionLine['parameter_args'] ?? []);
                     $payload = dialecticEncodeCommandAction($commandName, $commandArgsForResponse);
-                    dialectic_buffer_command_response_line($speaker, $payload, [
+                    $responseMetadata = [
                         "request_type" => $requestTypeForActionEmit,
-                    ]);
+                    ];
+                    $structuredParameter = $decodedActionLine['parameter'] ?? null;
+                    if (!is_array($structuredParameter)) {
+                        $parameterString = trim(strval($decodedActionLine['parameter_string'] ?? ''));
+                        if ($parameterString !== '' && $parameterString[0] === '{') {
+                            $decodedParameter = json_decode($parameterString, true);
+                            if (is_array($decodedParameter)) {
+                                $structuredParameter = $decodedParameter;
+                            }
+                        }
+                    }
+                    if (is_array($structuredParameter)) {
+                        foreach ($structuredParameter as $metadataKey => $metadataValue) {
+                            if (is_string($metadataKey) && is_scalar($metadataValue)) {
+                                $responseMetadata[$metadataKey] = $metadataValue;
+                            }
+                        }
+                    }
+                    dialectic_buffer_command_response_line($speaker, $payload, $responseMetadata);
                     $decodedCommand = dialecticDecodeCommandAction($payload);
                     $commandPayload = $decodedCommand["command_payload"];
                     $pluginOutputLogLines[] = json_encode([
@@ -7147,7 +7365,6 @@ function buildDynamicBiography(array $FOLLOWER_CONF, bool $forLetter = false, bo
     } else {
         $STATS_ADD = "";
     }
-
     // Add dialogue target's equipment (if DIALOGUE_TARGET is set)
     if (isset($GLOBALS["DIALOGUE_TARGET"]) && !empty($GLOBALS["DIALOGUE_TARGET"])) {
         $targetName = $GLOBALS["DIALOGUE_TARGET"];
