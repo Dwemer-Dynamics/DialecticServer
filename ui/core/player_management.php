@@ -147,35 +147,6 @@ if (!empty($survival)) {
   : '';
 }
 
-// Organize Fallout stats into categories
-$statCategories = [
- 'Core Stats' => [
- 'Days Passed', 'Hours Slept', 'Hours Waited'
- ],
- 'Exploration' => [
- 'Locations Discovered', 'Factions Discovered'
- ],
- 'Economy' => [
- 'Caps Found', 'Most Caps Carried', 'Containers Looted', 'Barters'
- ],
- 'Character Development' => [
- 'Skill Increases', 'Skill Books Read', 'Books Read'
- ],
- 'Survival' => [
- 'Food Eaten', 'Chems Taken', 'Stimpaks Taken', 'RadAway Taken', 'Doctors Bags Used'
- ],
- 'Social' => [
- 'Speech Successes', 'Bribes', 'Intimidations'
- ],
- 'Utility' => [
- 'Locks Picked', 'Lockpicks Broken', 'Terminals Hacked'
- ],
- 'Quests' => [
- 'Quests Completed', 'Main Quests Completed', 'Side Quests Completed',
- 'Misc Objectives Completed', 'Questlines Completed', 'Companions Recruited'
- ]
-];
-
 $isEmbed = isset($_GET['embed']) && $_GET['embed'] == '1';
 
 if (!$isEmbed) {

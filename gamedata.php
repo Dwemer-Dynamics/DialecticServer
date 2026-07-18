@@ -28,6 +28,7 @@ require_once(__DIR__ . "/lib/logger.php");
 require_once(__DIR__ . "/lib/settings.php");
 require_once(__DIR__ . "/lib/save_rollback.php");
 require_once(__DIR__ . "/lib/auto_greeting.php");
+require_once(__DIR__ . "/lib/fallout_stats.php");
 
 $requestStart = microtime(true);
 
@@ -2027,31 +2028,74 @@ function handleStatsUpdate(array $data, NpcMaster $npcMaster): void {
     Logger::debug("[gamedata.php] Updated stats for {$actorType}: {$actorName}");
 }
 
-/**
- * Handle Fallout statistics update (player only)
- * This handles the ~40 Fallout stats like Quests Completed, Days Passed, etc.
- */
+/** Store a validated Fallout player-stat snapshot for player tooling and the dashboard. */
 function handleFalloutStatsUpdate(array $data): void {
     if (!isset($data['stats']) || !is_array($data['stats'])) {
         Logger::error("[gamedata.php] Fallout stats update missing stats data");
         return;
     }
-    
-    try {
-        require_once(__DIR__ . "/lib/core/player.class.php");
-        $player = new Player();
-        
-        $stats = $data['stats'];
-        
-        // Save each stat to core_player table
-        foreach ($stats as $statKey => $statValue) {
-            $player->set($statKey, (string)$statValue);
+
+    $schema = trim((string)($data['schema'] ?? ''));
+    if ($schema !== 'dialectic.fallout_stats.v1') {
+        Logger::warn("[gamedata.php] Rejected Fallout stats update with unsupported schema" . Logger::formatContext([
+            'schema' => $schema,
+        ]));
+        return;
+    }
+
+    $allowed = array_fill_keys(dialecticFalloutStatNames(), true);
+    $stats = [];
+    foreach ($data['stats'] as $statKey => $statValue) {
+        $statKey = trim((string)$statKey);
+        if (!isset($allowed[$statKey]) || !is_numeric($statValue)) {
+            continue;
         }
-        
-        Logger::debug("[gamedata.php] Updated " . count($stats) . " Fallout stats to core_player");
-        
+        $stats[$statKey] = max(0, min(2147483647, (int)$statValue));
+    }
+    if ($stats === []) {
+        Logger::warn("[gamedata.php] Fallout stats update contained no supported values");
+        return;
+    }
+
+    try {
+        $db = $GLOBALS['db'];
+        $valueRows = [];
+        foreach ($stats as $statKey => $statValue) {
+            $valueRows[] = "('" . $db->escape($statKey) . "', '" . $db->escape((string)$statValue) . "')";
+        }
+
+        $valuesSql = implode(',', $valueRows);
+        if ($db->query("INSERT INTO core_player (id, value) VALUES {$valuesSql} ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value") === false) {
+            throw new RuntimeException('Could not update core_player Fallout statistics');
+        }
+        if ($db->query("INSERT INTO conf_opts (id, value) VALUES {$valuesSql} ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value") === false) {
+            throw new RuntimeException('Could not update conf_opts Fallout statistics');
+        }
+
+        $snapshot = [
+            'schema' => 'dialectic.fallout_stats.v1',
+            'actor_name' => trim((string)($data['actor_name'] ?? '')),
+            'refid' => trim((string)($data['refid'] ?? '0x00000014')),
+            'gamets' => (int)($data['gamets'] ?? 0),
+            'updated_at' => time(),
+            'stats' => $stats,
+        ];
+        $snapshotJson = json_encode($snapshot, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($snapshotJson !== false) {
+            $safeSnapshot = $db->escape($snapshotJson);
+            if ($db->query("INSERT INTO core_player (id, value) VALUES ('fallout_stats', '{$safeSnapshot}') ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value") === false) {
+                throw new RuntimeException('Could not update Fallout statistics snapshot');
+            }
+        }
+
+        Logger::info("[FALLOUT_STATS_UPDATE] Stored Fallout player stats" . Logger::formatContext([
+            'count' => count($stats),
+            'actor' => $data['actor_name'] ?? '',
+            'gamets' => $data['gamets'] ?? 0,
+        ]));
     } catch (Exception $e) {
         Logger::error("[gamedata.php] Failed to save Fallout stats: " . $e->getMessage());
+        throw $e;
     }
 }
 
