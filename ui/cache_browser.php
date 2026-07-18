@@ -109,6 +109,7 @@ $imageFiles = dialecticCacheScanFiles($galleryRoot, ['jpg', 'jpeg', 'png', 'webp
             audio { width:100%; }
         }
     </style>
+    <link rel="stylesheet" href="<?php echo htmlspecialchars($webRoot, ENT_QUOTES, 'UTF-8'); ?>/ui/css/dialectic-theme.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'dialectic-theme.css'); ?>">
 </head>
 <body>
 <main>

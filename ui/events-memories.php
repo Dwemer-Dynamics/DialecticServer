@@ -24,17 +24,14 @@ if (!file_exists($configFilepath."conf.php")) {
 require_once(__DIR__.DIRECTORY_SEPARATOR."profile_loader.php");
 
 $TITLE = "Roleplay";
-$BODY_CLASS = 'hub-page dialectic-hub-flow';
+$BODY_CLASS = 'hub-page';
 
 ob_start();
 
 include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
 ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><style>
- /* Override main container styles */
- main {
- padding-top: 80px; /* Space for navbar */
- padding-bottom: 40px; /* Reduced space for footer */
- padding-left: 10px;
+ main.events-memories-page {
+ padding: 20px 12px 40px;
  }
  
  /* Override footer styles */
@@ -574,7 +571,7 @@ function getTimeColor($time) {
  if ($time <= 8) return "#ffa500"; // orange
  return "#ff6666"; // red
 }
-?><!-- Modal HTML --><div id="contentModal" class="modal"><div class="modal-content"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;"><h2 style="margin: 0; color: rgb(255, 182, 65); font-family: 'Gothic821', sans-serif;"> Prompt Viewer</h2><div><button id="copyPromptBtn" class="btn-base btn-primary" style="margin-right: 10px; padding: 8px 16px;"> Copy</button><span class="close">&times;</span></div></div><div id="modalText"></div></div></div><div class="container-fluid"><div class="tab-container"><?php
+?><!-- Modal HTML --><div id="contentModal" class="modal"><div class="modal-content"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;"><h2 style="margin: 0; color: rgb(255, 182, 65); font-family: 'Gothic821', sans-serif;"> Prompt Viewer</h2><div><button id="copyPromptBtn" class="btn-base btn-primary" style="margin-right: 10px; padding: 8px 16px;"> Copy</button><span class="close">&times;</span></div></div><div id="modalText"></div></div></div><main class="container-fluid events-memories-page"><div class="tab-container"><?php
  $eventsMemoriesActiveTab = $activeTab;
  include(__DIR__ . DIRECTORY_SEPARATOR . 'tmpl' . DIRECTORY_SEPARATOR . 'events_memories_navigation.php');
 ?><!-- Event Log Tab --><div id="eventlog-tab" class="tab-content <?php echo $activeTab === 'eventlog' ? 'active' : ''; ?>"><?php
@@ -1216,7 +1213,7 @@ function getTimeColor($time) {
 <div id="adventure-tab" class="tab-content embed-tab <?php echo $activeTab === 'adventure' ? 'active' : ''; ?>"><iframe class="embed-frame" title="Adventure Log" <?php echo $activeTab === 'adventure' ? 'src' : 'data-src'; ?>="<?php echo $webRoot; ?>/ui/adventurelog.php?embed=1"></iframe></div>
 <div id="diaries-tab" class="tab-content embed-tab <?php echo $activeTab === 'diaries' ? 'active' : ''; ?>"><iframe class="embed-frame" title="DIALECTIC Diaries" <?php echo $activeTab === 'diaries' ? 'src' : 'data-src'; ?>="<?php echo $webRoot; ?>/ui/diarylog.php?embed=1"></iframe></div>
 <div id="gallery-tab" class="tab-content embed-tab <?php echo $activeTab === 'gallery' ? 'active' : ''; ?>"><iframe class="embed-frame" title="Image Gallery" <?php echo $activeTab === 'gallery' ? 'src' : 'data-src'; ?>="<?php echo $webRoot; ?>/ui/image_gallery.php?embed=1"></iframe></div>
-</div></div><script>
+</div></main><script>
 // Modal functionality
 document.addEventListener("DOMContentLoaded", function() {
  var modal = document.getElementById("contentModal");
