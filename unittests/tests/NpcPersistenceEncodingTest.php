@@ -71,6 +71,28 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
         );
     }
 
+    public function testMalformedStoredJsonScalarIsRepairedToObject(): void
+    {
+        $this->assertTrue($this->npcMaster->create([
+            'npc_name' => 'Sunny Stored Scalar Test',
+            'extended_data' => ['inventory' => ['Varmint rifle']],
+        ]));
+        $row = $this->npcMaster->getByName('Sunny Stored Scalar Test');
+        $this->assertNotEmpty($row);
+
+        $this->assertNotFalse($GLOBALS['db']->execQuery(
+            "UPDATE core_npc_master SET extended_data='\"legacy scalar\"'::jsonb WHERE id=" . intval($row['id'])
+        ));
+        $corruptRow = $this->npcMaster->getById((int)$row['id']);
+
+        $this->assertSame([], $this->npcMaster->getExtendedData($corruptRow));
+        $repairedRow = $this->npcMaster->getById((int)$row['id']);
+        $this->assertSame([], json_decode((string)$repairedRow['extended_data'], true, 512, JSON_THROW_ON_ERROR));
+        $this->assertSame('object', $GLOBALS['db']->fetchOne(
+            "SELECT jsonb_typeof(extended_data) AS value_type FROM core_npc_master WHERE id=" . intval($row['id'])
+        )['value_type']);
+    }
+
     public function testInvalidUtf8DoesNotOverwriteExistingExtendedData(): void
     {
         $this->assertTrue($this->npcMaster->create([

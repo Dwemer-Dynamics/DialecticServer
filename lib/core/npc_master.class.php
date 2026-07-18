@@ -890,12 +890,7 @@ class NpcMaster
 
     public function getExtendedData($currentNpcData): array
     {
-        try {
-            return $this->decodeJsonObjectForPersistence($currentNpcData['extended_data'] ?? '{}', 'extended_data');
-        } catch (InvalidArgumentException $e) {
-            Logger::error('[NPC] Could not decode extended_data: ' . $e->getMessage());
-            return [];
-        }
+        return $this->decodeStoredJsonObject($currentNpcData, 'extended_data');
     }
 
     public function setExtendedData($currentNpcData, array $data)
@@ -906,18 +901,77 @@ class NpcMaster
 
     public function getMetadata($currentNpcData): array
     {
-        try {
-            return $this->decodeJsonObjectForPersistence($currentNpcData['metadata'] ?? '{}', 'metadata');
-        } catch (InvalidArgumentException $e) {
-            Logger::error('[NPC] Could not decode metadata: ' . $e->getMessage());
-            return [];
-        }
+        return $this->decodeStoredJsonObject($currentNpcData, 'metadata');
     }
 
     public function setMetadata($currentNpcData, array $data)
     {
         $currentNpcData['metadata'] = $this->encodeJsonObjectForPersistence($data, 'metadata');
         return $currentNpcData;
+    }
+
+    private function decodeStoredJsonObject($currentNpcData, string $fieldName): array
+    {
+        $row = is_array($currentNpcData) ? $currentNpcData : [];
+        $rawValue = $row[$fieldName] ?? '{}';
+
+        try {
+            return $this->decodeJsonObjectForPersistence($rawValue, $fieldName);
+        } catch (InvalidArgumentException $error) {
+            $recovered = $this->recoverStoredJsonObject($rawValue, $fieldName);
+            $npcId = intval($row['id'] ?? 0);
+            $npcName = trim(strval($row['npc_name'] ?? ''));
+            $repaired = false;
+
+            if ($npcId > 0 && in_array($fieldName, ['extended_data', 'metadata'], true)) {
+                $encoded = $this->encodeJsonObjectForPersistence($recovered, $fieldName);
+                $repaired = $this->db->updateRow(
+                    $this->table,
+                    [$fieldName => $encoded],
+                    "id = {$npcId}"
+                ) !== false;
+            }
+
+            static $loggedRows = [];
+            $logKey = $fieldName . ':' . $npcId . ':' . $npcName;
+            if (!isset($loggedRows[$logKey])) {
+                Logger::warn('[NPC] Normalized malformed JSON metadata' . Logger::formatContext([
+                    'npc_id' => $npcId,
+                    'npc' => $npcName,
+                    'field' => $fieldName,
+                    'repaired' => $repaired,
+                    'reason' => $error->getMessage(),
+                ]));
+                $loggedRows[$logKey] = true;
+            }
+
+            return $recovered;
+        }
+    }
+
+    private function recoverStoredJsonObject($value, string $fieldName): array
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        try {
+            $decoded = json_decode(
+                trim($value),
+                true,
+                512,
+                JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE
+            );
+            if (is_string($decoded)) {
+                return $this->decodeJsonObjectForPersistence($decoded, $fieldName);
+            }
+            if (is_array($decoded) && ($decoded === [] || !array_is_list($decoded))) {
+                return $decoded;
+            }
+        } catch (Throwable $ignored) {
+        }
+
+        return [];
     }
 
     public function updateMetadataKeysByName(string $npcName, array $setValues = [], array $unsetKeys = []): bool

@@ -4045,4 +4045,62 @@ if ($checkVersion("tts_gender_fallback_defaults") < 20260715001) {
     }
 }
 
+$npcJsonObjectState = $db->fetchOne("
+    SELECT
+        (SELECT COUNT(*) FROM public.core_npc_master
+          WHERE (extended_data IS NOT NULL AND jsonb_typeof(extended_data) <> 'object')
+             OR (metadata IS NOT NULL AND jsonb_typeof(metadata) <> 'object'))
+      + (SELECT COUNT(*) FROM public.core_npc_master_history
+          WHERE (extended_data IS NOT NULL AND jsonb_typeof(extended_data) <> 'object')
+             OR (metadata IS NOT NULL AND jsonb_typeof(metadata) <> 'object')) AS invalid_rows
+");
+$npcJsonObjectsInvalid = intval($npcJsonObjectState['invalid_rows'] ?? 0) > 0;
+
+if ($checkVersion("npc_json_object_normalization") < 20260717002 || $npcJsonObjectsInvalid) {
+    Logger::debug("Applying npc_json_object_normalization 20260717002 - normalize NPC JSON object fields");
+
+    $b_ok = true;
+    try {
+        foreach (['core_npc_master', 'core_npc_master_history'] as $table) {
+            if (!$db->execQuery("
+                UPDATE public.{$table}
+                   SET extended_data = '{}'::jsonb
+                 WHERE extended_data IS NOT NULL
+                   AND jsonb_typeof(extended_data) <> 'object'
+            ")) {
+                throw new RuntimeException("Failed normalizing {$table}.extended_data");
+            }
+            if (!$db->execQuery("
+                UPDATE public.{$table}
+                   SET metadata = '{}'::jsonb
+                 WHERE metadata IS NOT NULL
+                   AND jsonb_typeof(metadata) <> 'object'
+            ")) {
+                throw new RuntimeException("Failed normalizing {$table}.metadata");
+            }
+        }
+
+        $remaining = $db->fetchOne("
+            SELECT
+                (SELECT COUNT(*) FROM public.core_npc_master
+                  WHERE (extended_data IS NOT NULL AND jsonb_typeof(extended_data) <> 'object')
+                     OR (metadata IS NOT NULL AND jsonb_typeof(metadata) <> 'object'))
+              + (SELECT COUNT(*) FROM public.core_npc_master_history
+                  WHERE (extended_data IS NOT NULL AND jsonb_typeof(extended_data) <> 'object')
+                     OR (metadata IS NOT NULL AND jsonb_typeof(metadata) <> 'object')) AS invalid_rows
+        ");
+        if (intval($remaining['invalid_rows'] ?? 0) !== 0) {
+            throw new RuntimeException('NPC JSON object verification failed');
+        }
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error normalizing NPC JSON object fields: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("npc_json_object_normalization", 20260717002);
+        Logger::info("Applied patch npc_json_object_normalization 20260717002");
+    }
+}
+
 Logger::info(__FILE__." update file processed. This file has ".__LINE__." lines.");

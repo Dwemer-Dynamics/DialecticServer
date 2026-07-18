@@ -49,7 +49,20 @@ function dialecticGameDataRespond(int $statusCode, bool $ok, string $error = '',
         $payload['error'] = $error;
     }
 
-    echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
+    echo json_encode(
+        $payload,
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+    ) . PHP_EOL;
+}
+
+function dialecticGameDataGamets(array $data, string $type): int
+{
+    $gamets = intval($data['gamets'] ?? 0);
+    if ($gamets <= 0) {
+        Logger::debug("[gamedata.php] Deferred {$type} update until a fresh game timestamp is available");
+        return 0;
+    }
+    return $gamets;
 }
 
 // Only accept POST requests
@@ -78,9 +91,27 @@ if (strpos($contentType, 'application/json') === false) {
 
 // Parse JSON body
 $json = file_get_contents('php://input');
-$data = json_decode($json, true);
+try {
+    $data = json_decode(
+        $json,
+        true,
+        512,
+        JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+} catch (JsonException $e) {
+    Logger::error("[gamedata.php] Invalid JSON request" . Logger::formatContext([
+        "bytes" => strlen($json),
+        "json_error" => $e->getMessage(),
+        "payload" => Logger::summarizePayload($json),
+    ]));
+    dialecticGameDataRespond(400, false, "Invalid JSON", [
+        "bytes" => strlen($json),
+        "json_error" => $e->getMessage(),
+    ]);
+    exit;
+}
 
-if (!$data || !isset($data['type'])) {
+if (!is_array($data) || !isset($data['type'])) {
     Logger::error("[gamedata.php] Bad request - missing type field" . Logger::formatContext([
         "bytes" => strlen($json),
         "payload" => Logger::summarizePayload($json),
@@ -624,6 +655,11 @@ function handleWorldContextUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
 
+    $gamets = dialecticGameDataGamets($data, 'world_context');
+    if ($gamets <= 0) {
+        return;
+    }
+
     $location = cleanBridgeString($data['location'] ?? '');
     $worldspace = cleanBridgeString($data['worldspace'] ?? '');
     if ($location === '') {
@@ -641,10 +677,11 @@ function handleWorldContextUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
+    $recentCutoff = time() - 120;
+    $db->execQuery(
+        "UPDATE eventlog SET gamets={$gamets} " .
+        "WHERE sess='dialectic' AND gamets<=5 AND localts>={$recentCutoff}"
+    );
 
     $context = "(Context location: {$location}, State: {$state}";
     if ($worldspace !== '' && strcasecmp($worldspace, $location) !== 0) {
@@ -726,6 +763,10 @@ function dialecticNearbyActorIsSceneParticipant(array $actor): bool
 function handleNearbyActorsUpdate(array $data, NpcMaster $npcMaster): array
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'nearby_actors');
+    if ($gamets <= 0) {
+        return ['deferred' => true, 'reason' => 'missing_gamets'];
+    }
     $previousRow = $db->fetchOne("SELECT party FROM eventlog WHERE type='nearby_actors' ORDER BY rowid DESC LIMIT 1");
     $previousSnapshot = is_array($previousRow)
         ? (json_decode((string)($previousRow['party'] ?? ''), true) ?: [])
@@ -739,11 +780,6 @@ function handleNearbyActorsUpdate(array $data, NpcMaster $npcMaster): array
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
-
     $player = cleanBridgeString($data['player'] ?? '');
     $peopleNames = [];
     foreach ($actors as $actor) {
@@ -996,6 +1032,10 @@ function dialecticNormalizeNearbyItemsContainer($items): array
 function handleNearbyItemsUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'nearby_items');
+    if ($gamets <= 0) {
+        return;
+    }
     $rawItems = $data['items'] ?? [];
     $items = dialecticNormalizeNearbyItemsContainer($rawItems);
 
@@ -1003,11 +1043,6 @@ function handleNearbyItemsUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
-
     $normalizedItems = [];
     $skippedSamples = [];
     foreach ($items as $item) {
@@ -1080,6 +1115,10 @@ function handleNearbyItemsUpdate(array $data): void
 function handlePointsOfInterestUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'points_of_interest');
+    if ($gamets <= 0) {
+        return;
+    }
     $pois = $data['pois'] ?? [];
     if (!is_array($pois)) {
         $pois = [];
@@ -1089,11 +1128,6 @@ function handlePointsOfInterestUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
-
     $player = cleanBridgeString($data['player'] ?? '');
     $poiNames = [];
     $skippedPoiSamples = [];
@@ -1167,6 +1201,10 @@ function handlePointsOfInterestUpdate(array $data): void
 function handleActiveQuestsUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'active_quests');
+    if ($gamets <= 0) {
+        return;
+    }
     $quests = $data['quests'] ?? [];
     if (!is_array($quests)) {
         $quests = [];
@@ -1176,11 +1214,6 @@ function handleActiveQuestsUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
-
     // The in-game journal snapshot is the source of truth for this table.
     $db->delete('quests', '1=1');
 
@@ -1265,6 +1298,10 @@ function handleActiveQuestsUpdate(array $data): void
 function handleTradeSummaryUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'trade_summary');
+    if ($gamets <= 0) {
+        return;
+    }
 
     $speaker = cleanBridgeString($data['speaker'] ?? '');
     $player = cleanBridgeString($data['player'] ?? ($GLOBALS['PLAYER_NAME'] ?? ''));
@@ -1277,11 +1314,6 @@ function handleTradeSummaryUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = DataLastKnownGameTS();
-    }
-
     $people = [];
     foreach ([$speaker, $player] as $name) {
         if ($name !== '' && !in_array($name, $people, true)) {

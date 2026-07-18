@@ -5017,10 +5017,16 @@ function logEvent($dataArray,$forcePeople='')
     if (!isset($dataArray)) { // function called without parameter values
         Logger::error("logEvent: undefined input parameter");
     } else {
-        if( (!isset($dataArray[2])) || ($dataArray[2] < 5) ) { // wrong game timestamp. Sometime this function is called with gamets 0 or 1 then successive incremented values 
-            $new_gts = DataLastKnownGameTS();    
-            Logger::error("logEvent: wrong game timestamp " . ($dataArray[2] ?? 0) . " replaced with " . $new_gts);
-            $dataArray[2] = $new_gts;
+        if ((!isset($dataArray[2])) || ($dataArray[2] < 5)) {
+            // Never substitute wall-clock time or a timestamp from the previously
+            // loaded save. The next valid world-context update backfills these
+            // short-lived startup rows with the fresh in-game timestamp.
+            static $missingGametsLogged = false;
+            if (!$missingGametsLogged) {
+                Logger::debug("logEvent: retaining pending game timestamp until world context is ready");
+                $missingGametsLogged = true;
+            }
+            $dataArray[2] = 0;
         }
 
         $eventType = strtolower((string)($dataArray[0] ?? ""));
