@@ -11,6 +11,7 @@ body.hub-page {
 }
 
 body.hub-page > main {
+    display: flow-root;
     box-sizing: border-box;
     width: 100%;
     height: auto;
