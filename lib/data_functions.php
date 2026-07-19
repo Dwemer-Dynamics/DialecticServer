@@ -5420,18 +5420,13 @@ function snapshot_response_prompt_debug_data($connectorData = null) {
 }
 
 function dialectic_try_llm_fallback($reason = "unknown") {
-    if (isset($GLOBALS["IN_FALLBACK_MODE"])) {
-        Logger::info("[FALLBACK] Already in fallback mode; not retrying. reason={$reason}");
-        return null;
-    }
-
     if (empty($GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"]) || !is_array($GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"])) {
         Logger::info("[FALLBACK] No current profile data available; cannot retry. reason={$reason}");
         return null;
     }
 
     $profileData = $GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"];
-    $fallbackConnectorId = class_exists('LLMRandomizer')
+    $legacyFallbackConnectorId = class_exists('LLMRandomizer')
         ? LLMRandomizer::getConnectorIdForField($profileData, "llm_fallback_id")
         : ($profileData["llm_fallback_id"] ?? null);
 
@@ -5448,37 +5443,80 @@ function dialectic_try_llm_fallback($reason = "unknown") {
     $fallbackEnabled = array_key_exists("LLM_FALLBACK_ENABLED", $metadata)
         ? filter_var($metadata["LLM_FALLBACK_ENABLED"], FILTER_VALIDATE_BOOLEAN)
         : true;
-    $currentConnectorId = $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]["id"] ?? null;
-    if (!$fallbackEnabled || !$fallbackConnectorId || $fallbackConnectorId == $currentConnectorId) {
+    if (!$fallbackEnabled) {
         Logger::info("[FALLBACK] Fallback not available" . Logger::formatContext([
             "reason" => $reason,
-            "enabled" => $fallbackEnabled ? "yes" : "no",
-            "fallback_id" => $fallbackConnectorId ?? "",
-            "current_id" => $currentConnectorId ?? "",
+            "enabled" => "no",
         ]));
         return null;
     }
 
+    $fallbackConnectorIds = [];
+    foreach ([$legacyFallbackConnectorId, $metadata["LLM_FALLBACK_2_ID"] ?? null, $metadata["LLM_FALLBACK_3_ID"] ?? null] as $connectorId) {
+        $connectorId = filter_var($connectorId, FILTER_VALIDATE_INT, ["options" => ["min_range" => 1]]);
+        if ($connectorId && !in_array($connectorId, $fallbackConnectorIds, true)) {
+            $fallbackConnectorIds[] = $connectorId;
+        }
+    }
+
+    $attempted = $GLOBALS["DIALECTIC_LLM_ATTEMPTED_CONNECTOR_IDS"] ?? [];
+    if (!is_array($attempted)) {
+        $attempted = [];
+    }
+    $currentConnectorId = intval($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]["id"] ?? 0);
+    if ($currentConnectorId > 0 && !in_array($currentConnectorId, $attempted, true)) {
+        $attempted[] = $currentConnectorId;
+    }
+
     $connector = new LLMConnector();
-    $fallbackConnectorData = $connector->getById($fallbackConnectorId);
+    $fallbackConnectorData = null;
+    $fallbackConnectorId = null;
+    foreach ($fallbackConnectorIds as $candidateId) {
+        if (in_array($candidateId, $attempted, true)) {
+            continue;
+        }
+        $attempted[] = $candidateId;
+        $candidate = $connector->getById($candidateId);
+        if ($candidate) {
+            $fallbackConnectorId = $candidateId;
+            $fallbackConnectorData = $candidate;
+            break;
+        }
+        Logger::warn("[FALLBACK] Connector ID {$candidateId} not found; advancing chain. reason={$reason}");
+    }
+    $GLOBALS["DIALECTIC_LLM_ATTEMPTED_CONNECTOR_IDS"] = $attempted;
+
     if (!$fallbackConnectorData) {
-        Logger::warn("[FALLBACK] Fallback connector ID {$fallbackConnectorId} not found. reason={$reason}");
+        Logger::info("[FALLBACK] Connector chain exhausted" . Logger::formatContext([
+            "reason" => $reason,
+            "attempted" => implode(",", $attempted),
+        ]));
         return null;
     }
 
-    Logger::warn("[FALLBACK] Retrying LLM request with fallback connector" . Logger::formatContext([
+    $chainPosition = array_search($fallbackConnectorId, $fallbackConnectorIds, true);
+    Logger::warn("[FALLBACK] Retrying LLM request with connector chain" . Logger::formatContext([
         "reason" => $reason,
         "fallback_id" => $fallbackConnectorId,
+        "chain_position" => $chainPosition === false ? "" : $chainPosition + 1,
+        "chain_length" => count($fallbackConnectorIds),
         "driver" => $fallbackConnectorData["driver"] ?? "",
         "model" => $fallbackConnectorData["model"] ?? "",
     ]));
 
+    $fallbackDepth = intval($GLOBALS["DIALECTIC_LLM_FALLBACK_DEPTH"] ?? 0) + 1;
+    $GLOBALS["DIALECTIC_LLM_FALLBACK_DEPTH"] = $fallbackDepth;
     $GLOBALS["IN_FALLBACK_MODE"] = true;
     $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"] = $fallbackConnectorData;
     $connector->setOldGlobals($fallbackConnectorData);
 
     $result = call_llm_internal();
-    unset($GLOBALS["IN_FALLBACK_MODE"]);
+    $fallbackDepth = intval($GLOBALS["DIALECTIC_LLM_FALLBACK_DEPTH"] ?? 1) - 1;
+    if ($fallbackDepth <= 0) {
+        unset($GLOBALS["DIALECTIC_LLM_FALLBACK_DEPTH"], $GLOBALS["IN_FALLBACK_MODE"]);
+    } else {
+        $GLOBALS["DIALECTIC_LLM_FALLBACK_DEPTH"] = $fallbackDepth;
+    }
     return $result;
 }
 
@@ -5487,7 +5525,8 @@ function call_llm() {
     global $ERROR_TRIGGERED, $talkedSoFar, $alreadysent, $FUNCTIONS_ARE_ENABLED;
     global $overrideParameters, $request;
     
-    // Call the internal function (which now handles fallback itself)
+    unset($GLOBALS["DIALECTIC_LLM_ATTEMPTED_CONNECTOR_IDS"], $GLOBALS["DIALECTIC_LLM_FALLBACK_DEPTH"], $GLOBALS["IN_FALLBACK_MODE"]);
+    // Call the internal function (which now handles the full fallback chain itself)
     return call_llm_internal();
 }
 
@@ -5613,7 +5652,7 @@ function call_llm_internal() {
         "mood"=>"One of :".implode("|",normalizeEmoteMoods($GLOBALS["EMOTEMOODS"] ?? "")),
         "action"=>"One of :".implode("|",$GLOBALS["FUNC_LIST"]),
         "target"=>"action target actor or action destination location name",
-        "item"=>"item identifier and name. For GiveItemTo or Consume, use exact BaseID:ItemName from inventory. For PickupItem, use exact RefID:ItemName from nearby_items",
+        "item"=>"item identifier and name. For GiveItemTo, Consume, EquipItem, or UnequipItem, use exact BaseID:ItemName from inventory. For PickupItem, use exact RefID:ItemName from nearby_items",
         "lang"=>"language used, (es|en|fr|...)"]);
 
 
@@ -5699,64 +5738,9 @@ function call_llm_internal() {
     if ($connectionHandler->primary_handler === false) {
         error_log("[FALLBACK DEBUG] primary_handler is false, checking fallback conditions");
         
-        // Check if we should try fallback BEFORE sending error message
-        if (!isset($GLOBALS["IN_FALLBACK_MODE"])) {
-            $shouldTryFallback = false;
-            $fallbackConnectorId = null;
-            
-            if (isset($GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"])) {
-                $profileData = $GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"];
-                $fallbackConnectorId = class_exists('LLMRandomizer')
-                    ? LLMRandomizer::getConnectorIdForField($profileData, "llm_fallback_id")
-                    : ($profileData["llm_fallback_id"] ?? null);
-                error_log("[FALLBACK DEBUG] Fallback connector ID from profile: " . ($fallbackConnectorId ?? "NULL"));
-                
-                // Check if fallback is enabled in metadata
-                if (!empty($profileData["metadata"])) {
-                    $metadata = is_string($profileData["metadata"]) 
-                        ? json_decode($profileData["metadata"], true) 
-                        : $profileData["metadata"];
-                    if (is_array($metadata)) {
-                        $fallbackEnabled = !empty($metadata["LLM_FALLBACK_ENABLED"]);
-                        error_log("[FALLBACK DEBUG] Fallback enabled in metadata: " . ($fallbackEnabled ? "YES" : "NO"));
-                        $currentConnectorId = $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]["id"] ?? null;
-                        error_log("[FALLBACK DEBUG] Current connector ID: " . ($currentConnectorId ?? "NULL"));
-                        $shouldTryFallback = $fallbackEnabled && $fallbackConnectorId && $fallbackConnectorId != $currentConnectorId;
-                        error_log("[FALLBACK DEBUG] Should try fallback: " . ($shouldTryFallback ? "YES" : "NO"));
-                    }
-                }
-            }
-            
-            if ($shouldTryFallback) {
-                error_log("[FALLBACK] Primary connector failed (connection error). Attempting fallback connector ID: {$fallbackConnectorId}");
-                
-                // Set fallback mode flag to prevent player TTS reprocessing
-                $GLOBALS["IN_FALLBACK_MODE"] = true;
-                
-                // Load and try fallback connector
-                $connector = new LLMConnector();
-                $fallbackConnectorData = $connector->getById($fallbackConnectorId);
-                
-                if ($fallbackConnectorData) {
-                    error_log("[FALLBACK] Loaded fallback connector: {$fallbackConnectorData["driver"]}/{$fallbackConnectorData["model"]}");
-                    $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"] = $fallbackConnectorData;
-                    $connector->setOldGlobals($fallbackConnectorData);
-                    
-                    error_log("[FALLBACK] Recursively retrying with fallback connector");
-                    // Recursively retry with fallback (flag stays set throughout retry)
-                    $result = call_llm_internal();
-                    
-                    // Clear fallback mode flag after retry completes
-                    unset($GLOBALS["IN_FALLBACK_MODE"]);
-                    
-                    return $result;
-                } else {
-                    error_log("[FALLBACK] Fallback connector ID {$fallbackConnectorId} not found.");
-                    unset($GLOBALS["IN_FALLBACK_MODE"]);
-                }
-            }
-        } else {
-            error_log("[FALLBACK DEBUG] Already in fallback mode, not retrying");
+        $fallbackResult = dialectic_try_llm_fallback("connection_error");
+        if ($fallbackResult !== null) {
+            return $fallbackResult;
         }
         
         // No fallback or fallback also failed - send error message
@@ -5782,56 +5766,9 @@ function call_llm_internal() {
     // Check for error response code
     $statusCode = method_exists($connectionHandler, 'getHttpStatusCode') ? $connectionHandler->getHttpStatusCode() : 200;
     if ($statusCode >= 300) {
-        // Check if we should try fallback BEFORE sending error message
-        if (!isset($GLOBALS["IN_FALLBACK_MODE"])) {
-            $shouldTryFallback = false;
-            $fallbackConnectorId = null;
-            
-            if (isset($GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"])) {
-                $profileData = $GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"];
-                $fallbackConnectorId = class_exists('LLMRandomizer')
-                    ? LLMRandomizer::getConnectorIdForField($profileData, "llm_fallback_id")
-                    : ($profileData["llm_fallback_id"] ?? null);
-                
-                // Check if fallback is enabled in metadata
-                if (!empty($profileData["metadata"])) {
-                    $metadata = is_string($profileData["metadata"]) 
-                        ? json_decode($profileData["metadata"], true) 
-                        : $profileData["metadata"];
-                    if (is_array($metadata)) {
-                        $fallbackEnabled = !empty($metadata["LLM_FALLBACK_ENABLED"]);
-                        $currentConnectorId = $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]["id"] ?? null;
-                        $shouldTryFallback = $fallbackEnabled && $fallbackConnectorId && $fallbackConnectorId != $currentConnectorId;
-                    }
-                }
-            }
-            
-            if ($shouldTryFallback) {
-                error_log("[FALLBACK] Primary connector failed (HTTP {$statusCode}). Attempting fallback connector ID: {$fallbackConnectorId}");
-                
-                // Set fallback mode flag to prevent player TTS reprocessing
-                $GLOBALS["IN_FALLBACK_MODE"] = true;
-                
-                // Load and try fallback connector
-                $connector = new LLMConnector();
-                $fallbackConnectorData = $connector->getById($fallbackConnectorId);
-                
-                if ($fallbackConnectorData) {
-                    $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"] = $fallbackConnectorData;
-                    $connector->setOldGlobals($fallbackConnectorData);
-                    
-                    // Recursively retry with fallback (flag stays set throughout retry)
-                    $result = call_llm_internal();
-                    
-                    // Clear fallback mode flag after retry completes
-                    unset($GLOBALS["IN_FALLBACK_MODE"]);
-                    
-                    return $result;
-                } else {
-                    error_log("[FALLBACK] Fallback connector ID {$fallbackConnectorId} not found.");
-                    unset($GLOBALS["IN_FALLBACK_MODE"]);
-                }
-            }
+        $fallbackResult = dialectic_try_llm_fallback("http_{$statusCode}");
+        if ($fallbackResult !== null) {
+            return $fallbackResult;
         }
         
         Logger::error("LLM provider error response code: $statusCode");
@@ -5968,7 +5905,15 @@ function call_llm_internal() {
     } // --- end while
 
     if ($outputWasValid && trim($buffer) === '' && count($talkedSoFar) == 0 && count($alreadysent) == 0) {
-        dialecticRecoverPlainLlmSpeech();
+        if (!dialecticRecoverPlainLlmSpeech()) {
+            if (method_exists($connectionHandler, "close")) {
+                $connectionHandler->close("empty-response-before-fallback");
+            }
+            $fallbackResult = dialectic_try_llm_fallback("empty_response");
+            if ($fallbackResult !== null) {
+                return $fallbackResult;
+            }
+        }
     }
     
     

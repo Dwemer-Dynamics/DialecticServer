@@ -18,6 +18,7 @@ class CoreProfile
             ],
             'RPG_COMMENTS' => ['levelup', 'combat_end', 'lockpick', 'sleep', 'location_changed', 'quest_updated', 'trade_completed'],
             'RPG_COMMENTS_CHANCE' => 50,
+            'LLM_FALLBACK_ENABLED' => true,
             'COMBAT_BARK_COOLDOWN' => 30,
             'DIARY_PROMPT' => "Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#'s recent dialogues and events into #DIALECTIC_NAME#'s diary. WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.",
             'DIARY_COOLDOWN' => 120,
