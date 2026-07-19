@@ -12,7 +12,7 @@ function shouldTriggerRPGComment($eventType) {
     }
     
     // Get the trigger chance percentage (default 50%)
-    $chance = 50;
+    $chance = 20;
     if (isset($GLOBALS["RPG_COMMENTS_CHANCE"])) {
         $chance = intval($GLOBALS["RPG_COMMENTS_CHANCE"]);
     }
@@ -272,14 +272,6 @@ $PROMPTS=array(
             return is_array($payload) ? (string)($payload["text"] ?? "") : (string)($gameRequest[3] ?? "");
         })()],
         "extra" => shouldTriggerRPGComment("quest_updated") ? [] : ["dontuse" => true]
-    ],
-    "trade_completed"=>[
-        "cue"=>["({$GLOBALS["DIALECTIC_NAME"]} comments briefly on the completed trade, its items, or caps exchange. Use only the supplied trade facts. {$GLOBALS["TEMPLATE_DIALOG"]}"],
-        "player_request"=>[(static function () use ($gameRequest) {
-            $payload = json_decode((string)($gameRequest[3] ?? ""), true);
-            return is_array($payload) ? (string)($payload["text"] ?? "") : (string)($gameRequest[3] ?? "");
-        })()],
-        "extra" => shouldTriggerRPGComment("trade_completed") ? [] : ["dontuse" => true]
     ],
     // Database Prompt (Rechat)
     // Encourages natural multi-party conversation - NPCs can address each other directly

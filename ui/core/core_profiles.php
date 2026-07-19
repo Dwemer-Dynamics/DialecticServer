@@ -2007,7 +2007,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
                 </div>
                 <?php
                     // Get current RPG_Comments_Chance value from metadata
-                    $rpgChance = 50; // Default to 50%
+                    $rpgChance = 20; // Default to 20%
                     try {
                         if (!empty($editItem["metadata"])) {
                             $tmpMeta = json_decode($editItem["metadata"], true);
@@ -2015,7 +2015,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
                                 $rpgChance = intval($tmpMeta['RPG_COMMENTS_CHANCE']);
                             }
                         }
-                    } catch (Throwable $_e) { $rpgChance = 50; }
+                    } catch (Throwable $_e) { $rpgChance = 20; }
                 ?>
                 <div class="setting-row">
                     <div>

@@ -123,8 +123,8 @@ $DYNAMIC_PROMPT_GOALS = "Based on story developments and achievements, update th
     . "reduction priority when required: 1- compress related goals, 2-eliminate 'study' related goals, 3- eliminate older goals).";
 $DIARY_PROMPT = "Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#'s recent dialogues and events into #DIALECTIC_NAME#'s diary. WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.";
 
-$RPG_COMMENTS=["levelup","combat_end","lockpick","sleep","location_changed","quest_updated","trade_completed","keepmechecked"]; //AI Service(s).
-$RPG_COMMENTS_CHANCE=50; //Chance (0-100) for enabled RPG comments to trigger.
+$RPG_COMMENTS=["levelup","combat_end","lockpick","sleep","location_changed","quest_updated","keepmechecked"]; //AI Service(s).
+$RPG_COMMENTS_CHANCE=20; //Chance (0-100) for enabled RPG comments to trigger.
 $LOCATION_BLACKLIST="The Strip, Lucky 38"; //Comma-separated list of location names to exclude from Points of Interest context.
 $ITEM_BLACKLIST=""; //Comma-separated list of item/armor names to exclude from dynamic context.
 $SHORTER_NEARBY_ITEM_LIST=false; //Group duplicate nearby ground items into one counted entry and show a single representative RefID in item descriptions.

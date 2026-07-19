@@ -1323,7 +1323,7 @@ if ($checkVersion("core_profiles") < 20260626001) {
             'RECHAT_ALLOW_ACTIONS' => false,
             'DYNAMIC_PROFILE_FIELDS' => ['personality', 'speechstyle', 'goals'],
             'RPG_COMMENTS' => ['levelup', 'combat_end', 'lockpick', 'sleep'],
-            'RPG_COMMENTS_CHANCE' => 50,
+            'RPG_COMMENTS_CHANCE' => 20,
             'COMBAT_BARK_COOLDOWN' => 30,
             'AUTO_DIARY_ENABLED' => false,
             'AUTO_DIARY_WAIT_ENABLED' => true,

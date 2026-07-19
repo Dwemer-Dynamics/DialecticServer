@@ -432,7 +432,7 @@ if (in_array(($gameRequest[0] ?? ''), ['bored', 'auto_greeting'], true) && diale
     }
 }
 
-if (in_array(($gameRequest[0] ?? ''), ['rpg_lvlup', 'combatend', 'combatendmighty', 'combatbark', 'lockpicked', 'goodmorning', 'player_consumed', 'location_changed', 'quest_updated', 'trade_completed'], true) && dialecticRuntimeGetActiveProfile() === null) {
+if (in_array(($gameRequest[0] ?? ''), ['rpg_lvlup', 'combatend', 'combatendmighty', 'combatbark', 'lockpicked', 'goodmorning', 'player_consumed', 'location_changed', 'quest_updated'], true) && dialecticRuntimeGetActiveProfile() === null) {
     $rpgTarget = function_exists('dialectic_extract_conversation_target')
         ? dialectic_extract_conversation_target((string)($gameRequest[3] ?? ""))
         : "";
@@ -2027,7 +2027,6 @@ $rpgCommentEventMap = [
     'goodmorning'   => 'sleep',
     'location_changed' => 'location_changed',
     'quest_updated' => 'quest_updated',
-    'trade_completed' => 'trade_completed',
 ];
 $rpgCommentEventType = $rpgCommentEventMap[$gameRequest[0]] ?? null;
 
