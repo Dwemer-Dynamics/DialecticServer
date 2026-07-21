@@ -17,24 +17,25 @@ Write-Host "Ensuring WSL PostgreSQL database '$database' exists with owner '$own
 
 if ($Reset) {
     Write-Host "Reset requested; dropping '$database'."
-    & wsl.exe -- sudo -n -u postgres dropdb --if-exists $database
+    & wsl.exe -- sudo -n -u postgres dropdb --maintenance-db=template1 --if-exists $database
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to drop PostgreSQL database '$database'."
     }
 }
 
-$databaseExists = (& wsl.exe -- sudo -n -u postgres psql -Atqc "SELECT 1 FROM pg_database WHERE datname='$database';").Trim()
+$databaseExists = (& wsl.exe -- sudo -n -u postgres psql -d template1 -Atqc "SELECT 1 FROM pg_database WHERE datname='$database';").Trim()
 if ($databaseExists -ne "1") {
-    & wsl.exe -- sudo -n -u postgres createdb -O $owner --encoding=UTF8 --locale=C --template=template0 $database
+    & wsl.exe -- sudo -n -u postgres createdb --maintenance-db=template1 -O $owner --encoding=UTF8 --locale=C --template=template0 $database
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to create PostgreSQL database '$database'."
     }
 } else {
     Write-Host "Database '$database' already exists."
-    $databaseEncoding = (& wsl.exe -- sudo -n -u postgres psql -d $database -Atqc "SHOW server_encoding;").Trim()
-    if ($databaseEncoding -ne 'UTF8') {
-        throw "Database '$database' uses $databaseEncoding. Run tools/migrate-dialectic-db-utf8-wsl.sh inside WSL before continuing."
-    }
+}
+
+$databaseEncoding = (& wsl.exe -- sudo -n -u postgres psql -d $database -Atqc "SHOW server_encoding;").Trim()
+if ($databaseEncoding -ne 'UTF8') {
+    throw "Database '$database' uses $databaseEncoding. Run tools/migrate-dialectic-db-utf8-wsl.sh inside WSL before continuing."
 }
 
 & wsl.exe -- sudo -n -u postgres psql -d $database -v ON_ERROR_STOP=1 `
