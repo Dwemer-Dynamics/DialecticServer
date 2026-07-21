@@ -78,6 +78,64 @@ SELECT format(
 SQL
 }
 
+repair_legacy_text_encoding() {
+    local target_database="$1"
+
+    run_postgres psql -d "$target_database" -X -v ON_ERROR_STOP=1 <<'SQL'
+CREATE OR REPLACE FUNCTION pg_temp.dialectic_repair_utf8(value text)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+STRICT
+AS $$
+BEGIN
+    BEGIN
+        RETURN convert_from(textsend(value), 'UTF8');
+    EXCEPTION
+        WHEN character_not_in_repertoire OR untranslatable_character THEN
+            BEGIN
+                RETURN convert_from(textsend(value), 'WIN1252');
+            EXCEPTION
+                WHEN character_not_in_repertoire OR untranslatable_character THEN
+                    RETURN convert_from(textsend(value), 'LATIN1');
+            END;
+    END;
+END;
+$$;
+
+SELECT format(
+           'UPDATE %I.%I SET %I = pg_temp.dialectic_repair_utf8(%I) WHERE %I IS NOT NULL;',
+           table_schema,
+           table_name,
+           column_name,
+           column_name,
+           column_name
+       )
+  FROM information_schema.columns
+ WHERE table_schema IN ('public', 'dialectic_meta', 'plugins')
+   AND data_type IN ('text', 'character varying', 'character')
+   AND is_generated = 'NEVER'
+ ORDER BY table_schema, table_name, ordinal_position
+\gexec
+
+SELECT format(
+           'UPDATE %I.%I SET %I = pg_temp.dialectic_repair_utf8(%I::text)::%s WHERE %I IS NOT NULL;',
+           table_schema,
+           table_name,
+           column_name,
+           column_name,
+           CASE data_type WHEN 'json' THEN 'json' ELSE 'jsonb' END,
+           column_name
+       )
+  FROM information_schema.columns
+ WHERE table_schema IN ('public', 'dialectic_meta', 'plugins')
+   AND data_type IN ('json', 'jsonb')
+   AND is_generated = 'NEVER'
+ ORDER BY table_schema, table_name, ordinal_position
+\gexec
+SQL
+}
+
 migration_complete=0
 cleanup() {
     local status=$?
@@ -140,6 +198,9 @@ run_postgres createdb --owner="$owner" --encoding=UTF8 --locale=C --template=tem
 
 echo "Restoring the safety dump into the UTF-8 staging database."
 run_postgres pg_restore --exit-on-error --dbname="$staging_database" "$backup_file"
+
+echo "Normalizing legacy text bytes in the UTF-8 staging database."
+repair_legacy_text_encoding "$staging_database"
 
 source_counts="$(table_counts "$database")"
 target_counts="$(table_counts "$staging_database")"
