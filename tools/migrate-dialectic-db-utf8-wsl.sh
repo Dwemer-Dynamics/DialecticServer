@@ -107,33 +107,41 @@ $$;
 
 SELECT format(
            'UPDATE %I.%I SET %I = pg_temp.dialectic_repair_utf8(%I) WHERE %I IS NOT NULL;',
-           table_schema,
-           table_name,
-           column_name,
-           column_name,
-           column_name
+           columns.table_schema,
+           columns.table_name,
+           columns.column_name,
+           columns.column_name,
+           columns.column_name
        )
-  FROM information_schema.columns
- WHERE table_schema IN ('public', 'dialectic_meta', 'plugins')
-   AND data_type IN ('text', 'character varying', 'character')
-   AND is_generated = 'NEVER'
- ORDER BY table_schema, table_name, ordinal_position
+  FROM information_schema.columns AS columns
+  JOIN information_schema.tables AS tables
+    ON tables.table_schema = columns.table_schema
+   AND tables.table_name = columns.table_name
+   AND tables.table_type = 'BASE TABLE'
+ WHERE columns.table_schema IN ('public', 'dialectic_meta', 'plugins')
+   AND columns.data_type IN ('text', 'character varying', 'character')
+   AND columns.is_generated = 'NEVER'
+ ORDER BY columns.table_schema, columns.table_name, columns.ordinal_position
 \gexec
 
 SELECT format(
            'UPDATE %I.%I SET %I = pg_temp.dialectic_repair_utf8(%I::text)::%s WHERE %I IS NOT NULL;',
-           table_schema,
-           table_name,
-           column_name,
-           column_name,
-           CASE data_type WHEN 'json' THEN 'json' ELSE 'jsonb' END,
-           column_name
+           columns.table_schema,
+           columns.table_name,
+           columns.column_name,
+           columns.column_name,
+           CASE columns.data_type WHEN 'json' THEN 'json' ELSE 'jsonb' END,
+           columns.column_name
        )
-  FROM information_schema.columns
- WHERE table_schema IN ('public', 'dialectic_meta', 'plugins')
-   AND data_type IN ('json', 'jsonb')
-   AND is_generated = 'NEVER'
- ORDER BY table_schema, table_name, ordinal_position
+  FROM information_schema.columns AS columns
+  JOIN information_schema.tables AS tables
+    ON tables.table_schema = columns.table_schema
+   AND tables.table_name = columns.table_name
+   AND tables.table_type = 'BASE TABLE'
+ WHERE columns.table_schema IN ('public', 'dialectic_meta', 'plugins')
+   AND columns.data_type IN ('json', 'jsonb')
+   AND columns.is_generated = 'NEVER'
+ ORDER BY columns.table_schema, columns.table_name, columns.ordinal_position
 \gexec
 SQL
 }
