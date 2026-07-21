@@ -4,6 +4,7 @@ set -Eeuo pipefail
 
 database="${DIALECTIC_DB_NAME:-dialectic}"
 owner="${DIALECTIC_DB_USER:-dwemer}"
+maintenance_database="${DIALECTIC_MAINTENANCE_DB:-template1}"
 backup_dir="${DIALECTIC_BACKUP_DIR:-/var/backups/dialectic}"
 timestamp="$(date -u +%Y%m%d%H%M%S)"
 staging_database="${database}_utf8_${timestamp}"
@@ -21,6 +22,7 @@ validate_identifier() {
 
 validate_identifier "$database" "database name"
 validate_identifier "$owner" "database owner"
+validate_identifier "$maintenance_database" "maintenance database name"
 validate_identifier "$staging_database" "staging database name"
 validate_identifier "$backup_database" "backup database name"
 
@@ -39,15 +41,15 @@ run_postgres() {
 }
 
 database_exists() {
-    run_postgres psql -d postgres -X -Atqc "SELECT 1 FROM pg_database WHERE datname = '$1'" | grep -qx 1
+    run_postgres psql -d "$maintenance_database" -X -Atqc "SELECT 1 FROM pg_database WHERE datname = '$1'" | grep -qx 1
 }
 
 database_encoding() {
-    run_postgres psql -d postgres -X -Atqc "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = '$1'"
+    run_postgres psql -d "$maintenance_database" -X -Atqc "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = '$1'"
 }
 
 set_database_read_only() {
-    run_postgres psql -d postgres -X -v ON_ERROR_STOP=1 -v db="$1" <<'SQL'
+    run_postgres psql -d "$maintenance_database" -X -v ON_ERROR_STOP=1 -v db="$1" <<'SQL'
 ALTER DATABASE :"db" SET default_transaction_read_only = on;
 SELECT pg_terminate_backend(pid)
   FROM pg_stat_activity
@@ -57,7 +59,7 @@ SQL
 }
 
 restore_database_writes() {
-    run_postgres psql -d postgres -X -v ON_ERROR_STOP=1 -v db="$1" <<'SQL'
+    run_postgres psql -d "$maintenance_database" -X -v ON_ERROR_STOP=1 -v db="$1" <<'SQL'
 ALTER DATABASE :"db" WITH ALLOW_CONNECTIONS true;
 ALTER DATABASE :"db" RESET default_transaction_read_only;
 SQL
@@ -145,11 +147,11 @@ cleanup() {
 
     set +e
     if database_exists "$staging_database"; then
-        run_postgres dropdb --force "$staging_database" >/dev/null 2>&1
+        run_postgres dropdb --maintenance-db="$maintenance_database" --force "$staging_database" >/dev/null 2>&1
     fi
 
     if ! database_exists "$database" && database_exists "$backup_database"; then
-        run_postgres psql -d postgres -X -v ON_ERROR_STOP=1 \
+        run_postgres psql -d "$maintenance_database" -X -v ON_ERROR_STOP=1 \
             -v backup_db="$backup_database" -v db="$database" >/dev/null 2>&1 <<'SQL'
 ALTER DATABASE :"backup_db" RENAME TO :"db";
 SQL
@@ -194,7 +196,7 @@ echo "Creating safety dump: ${backup_file}"
 run_postgres pg_dump --format=custom --file="$backup_file" "$database"
 
 echo "Creating UTF-8 staging database '${staging_database}'."
-run_postgres createdb --owner="$owner" --encoding=UTF8 --locale=C --template=template0 "$staging_database"
+run_postgres createdb --maintenance-db="$maintenance_database" --owner="$owner" --encoding=UTF8 --locale=C --template=template0 "$staging_database"
 
 echo "Restoring the safety dump into the UTF-8 staging database."
 run_postgres pg_restore --exit-on-error --dbname="$staging_database" "$backup_file"
@@ -217,22 +219,22 @@ if [[ "$target_encoding" != "UTF8" ]]; then
 fi
 
 echo "Swapping the verified UTF-8 database into place."
-run_postgres psql -d postgres -X -v ON_ERROR_STOP=1 -v db="$database" <<'SQL'
+run_postgres psql -d "$maintenance_database" -X -v ON_ERROR_STOP=1 -v db="$database" <<'SQL'
 ALTER DATABASE :"db" WITH ALLOW_CONNECTIONS false;
 SELECT pg_terminate_backend(pid)
   FROM pg_stat_activity
  WHERE datname = :'db'
    AND pid <> pg_backend_pid();
 SQL
-run_postgres psql -d postgres -X -v ON_ERROR_STOP=1 \
+run_postgres psql -d "$maintenance_database" -X -v ON_ERROR_STOP=1 \
     -v db="$database" -v backup_db="$backup_database" <<'SQL'
 ALTER DATABASE :"db" RENAME TO :"backup_db";
 SQL
-run_postgres psql -d postgres -X -v ON_ERROR_STOP=1 \
+run_postgres psql -d "$maintenance_database" -X -v ON_ERROR_STOP=1 \
     -v staging_db="$staging_database" -v db="$database" <<'SQL'
 ALTER DATABASE :"staging_db" RENAME TO :"db";
 SQL
-run_postgres psql -d postgres -X -v ON_ERROR_STOP=1 \
+run_postgres psql -d "$maintenance_database" -X -v ON_ERROR_STOP=1 \
     -v db="$database" -v owner="$owner" <<'SQL'
 ALTER DATABASE :"db" OWNER TO :"owner";
 ALTER DATABASE :"db" WITH ALLOW_CONNECTIONS true;
