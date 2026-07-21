@@ -13,6 +13,7 @@ $enginePath = dirname(__DIR__) . DIRECTORY_SEPARATOR;
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "runtime_bootstrap.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "logger.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "background_processor.php");
+require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "fallout_stats.php");
 
 dialecticRuntimeBootstrap($enginePath, [
     'load_general_settings' => true,
@@ -340,6 +341,21 @@ $worldState = empty($worldContext) ? 'Not reported' : (!empty($worldContext['is_
 $worldDate = dialectic_home_game_date($worldGameTime);
 $worldTime = dialectic_home_game_time($worldGameTime);
 $latestLocalTimestamp = $latestEvent['localts'] ?? ($latestEvent['ts'] ?? null);
+$falloutStatCategories = dialecticFalloutStatCategories();
+$falloutStats = [];
+if ($hasConfOpts) {
+    $statIds = array_map(static function (string $statName) use ($db): string {
+        return "'" . $db->escape($statName) . "'";
+    }, dialecticFalloutStatNames());
+    if ($statIds !== []) {
+        foreach (dialectic_home_rows($db, "SELECT id, value FROM conf_opts WHERE id IN (" . implode(',', $statIds) . ")") as $statRow) {
+            $statName = (string)($statRow['id'] ?? '');
+            if ($statName !== '' && is_numeric($statRow['value'] ?? null)) {
+                $falloutStats[$statName] = max(0, (int)$statRow['value']);
+            }
+        }
+    }
+}
 
 ob_start();
 include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.html");
@@ -491,6 +507,47 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
         font-size: 0.86rem;
         color: var(--dialectic-muted);
         margin-top: 6px;
+    }
+
+    .fallout-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .fallout-stats-category {
+        background: var(--dialectic-surface-dark);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        padding: 13px;
+    }
+
+    .fallout-stats-category h4 {
+        color: var(--dialectic-accent);
+        font-size: 0.94rem;
+        font-weight: 400;
+        margin: 0 0 9px;
+    }
+
+    .fallout-stat-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: baseline;
+        gap: 12px;
+        padding: 5px 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.045);
+        color: #d4d4d4;
+        font-size: 0.84rem;
+    }
+
+    .fallout-stat-row:first-of-type {
+        border-top: 0;
+    }
+
+    .fallout-stat-row strong {
+        color: #f7f7f7;
+        font-weight: 400;
+        font-variant-numeric: tabular-nums;
     }
 
     .widget-table {
@@ -741,6 +798,10 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
         .widget-stats {
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 10px;
+        }
+
+        .fallout-stats-grid {
+            grid-template-columns: minmax(0, 1fr);
         }
 
         .stat-card {
@@ -999,6 +1060,31 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
                             });
                         })();
                     </script>
+                <?php endif; ?>
+            </div>
+        </article>
+
+        <article class="widget widget-wide">
+            <div class="widget-header">
+                <h3><i class="bi bi-person-vcard"></i> Fallout Stats</h3>
+            </div>
+            <div class="widget-content">
+                <?php if ($falloutStats === []): ?>
+                    <p class="empty-state">Load a Fallout save to import player statistics.</p>
+                <?php else: ?>
+                    <div class="fallout-stats-grid">
+                        <?php foreach ($falloutStatCategories as $categoryName => $categoryStats): ?>
+                            <section class="fallout-stats-category">
+                                <h4><?php echo dialectic_home_h($categoryName); ?></h4>
+                                <?php foreach ($categoryStats as $statName): ?>
+                                    <div class="fallout-stat-row">
+                                        <span><?php echo dialectic_home_h($statName); ?></span>
+                                        <strong><?php echo dialectic_home_h(number_format((int)($falloutStats[$statName] ?? 0))); ?></strong>
+                                    </div>
+                                <?php endforeach; ?>
+                            </section>
+                        <?php endforeach; ?>
+                    </div>
                 <?php endif; ?>
             </div>
         </article>

@@ -8,6 +8,7 @@ WHERE metadata @> '{"source":"functions.php","builtin":true}'::jsonb
     'CheckInventory',
     'ComeCloser',
     'Consume',
+    'EquipItem',
     'DecreaseWalkSpeed',
     'EndConversation',
     'Follow',
@@ -24,6 +25,7 @@ WHERE metadata @> '{"source":"functions.php","builtin":true}'::jsonb
     'OpenInventory',
     'PickupItem',
     'ReadQuests',
+    'Relax',
     'DirectorCommand',
     'SpawnCaps',
     'SpawnItem',
@@ -34,6 +36,7 @@ WHERE metadata @> '{"source":"functions.php","builtin":true}'::jsonb
     'TakeASeat',
     'TakeCapsFromPlayer',
     'TravelTo',
+    'UnequipItem',
     'WaitHere'
   );
 
@@ -44,6 +47,7 @@ WHERE metadata @> '{"source":"functions.php","builtin":true}'::jsonb
     'CheckInventory',
     'ComeCloser',
     'Consume',
+    'EquipItem',
     'DecreaseWalkSpeed',
     'EndConversation',
     'Follow',
@@ -60,6 +64,7 @@ WHERE metadata @> '{"source":"functions.php","builtin":true}'::jsonb
     'OpenInventory',
     'PickupItem',
     'ReadQuests',
+    'Relax',
     'DirectorCommand',
     'SpawnCaps',
     'SpawnItem',
@@ -70,6 +75,7 @@ WHERE metadata @> '{"source":"functions.php","builtin":true}'::jsonb
     'TakeASeat',
     'TakeCapsFromPlayer',
     'TravelTo',
+    'UnequipItem',
     'WaitHere'
   );
 
@@ -92,6 +98,7 @@ INSERT INTO public.core_action (
     ('CheckInventory', 'Check_Inventory', 'Search #DIALECTIC_NAME#''s inventory and list contents.', '#DIALECTIC_NAME#''s INVENTORY:#RESULT#', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":[],"properties":{"target":{"type":"string","description":"Optional item to look for. Leave blank to list all items."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command","followup":{"enabled":true,"arg_name":"target","prompt":"Reply with one short in-character line about the inventory result below. Do not ask follow-up questions."}}'::jsonb, TRUE, 0, NULL),
     ('ComeCloser', 'Come_Closer', '#DIALECTIC_NAME# approaches #PLAYER_NAME#.', '#DIALECTIC_NAME# approaches #PLAYER_NAME#.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":[],"properties":{"target":{"type":"string","description":"Keep blank."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command","cooldown_seconds":30}'::jsonb, TRUE, 0, NULL),
     ('Consume', 'Consume', '#DIALECTIC_NAME# consumes food, drink, chems, or another aid item from inventory.', '#DIALECTIC_NAME# consumes an item from inventory.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":["target"],"properties":{"target":{"type":"string","description":"Exact inventory item name to consume."},"item":{"type":"string","description":"Optional fallback copy of the same item name."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
+    ('EquipItem', 'Equip_Item', '#DIALECTIC_NAME# equips a weapon or wearable item already present in inventory.', '#DIALECTIC_NAME# equips #ITEM#.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":["item"],"properties":{"item":{"type":"string","description":"Exact weapon or wearable item name from inventory."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
     ('DecreaseWalkSpeed', 'Decrease_Walk_Speed', 'Decrease #DIALECTIC_NAME#''s movement speed.', 'Decreases #DIALECTIC_NAME#''s speed or pace.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":[],"properties":{"speed":{"type":"string","enum":["jog","walk"],"description":"Requested pace."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
     ('EndConversation', 'End_Conversation', '#DIALECTIC_NAME# ends the conversation for a short time.', '#DIALECTIC_NAME# ends the conversation.', TRUE, FALSE, FALSE, TRUE, '{"type":"object","required":[],"properties":{"target":{"type":"string","description":"Keep blank."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
     ('Follow', 'Follow', 'Move to and follow the specified target actor.', '#DIALECTIC_NAME# follows #TARGET#.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":["target"],"properties":{"target":{"type":"string","description":"Target NPC, actor, or being to follow."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command","cooldown_seconds":30}'::jsonb, TRUE, 0, NULL),
@@ -108,6 +115,7 @@ INSERT INTO public.core_action (
     ('OpenInventory', 'Open_Inventory', 'Open #DIALECTIC_NAME#''s inventory for free item exchange with #PLAYER_NAME#.', 'Opens #DIALECTIC_NAME#''s inventory for item exchange with #PLAYER_NAME#.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":[],"properties":{"target":{"type":"string","description":"Keep blank."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command","suppress_placeholder_infoaction":true}'::jsonb, TRUE, 0, NULL),
     ('PickupItem', 'Pickup_Item', '#DIALECTIC_NAME# picks up a nearby item from the ground.', '#DIALECTIC_NAME# picks up #ITEM#.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":["item"],"properties":{"item":{"type":"string","description":"Exact nearby RefID:ItemName."},"target":{"type":"string","description":"Keep blank."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
     ('ReadQuests', 'Read_Quests', 'Read the quest log and get information about current quests.', '', TRUE, TRUE, TRUE, TRUE, '{"type":"object","required":[],"properties":{"id_quest":{"type":"string","description":"Optional specific quest id or name."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command","followup":{"enabled":true,"arg_name":"id_quest","prompt":"Reply with one short in-character line about the quest result below. Do not ask follow-up questions."}}'::jsonb, TRUE, 0, NULL),
+    ('Relax', 'Relax', '#DIALECTIC_NAME# relaxes at the current location without being dismissed. JIP CCC companions use their native relaxation state.', '#DIALECTIC_NAME# relaxes at the current location.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":[],"properties":{},"additionalProperties":false}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
     ('DirectorCommand', 'Director_Command', 'Send a short freeform instruction to the game director so it can stage a scene or event.', 'The director is preparing a scene instruction.', FALSE, FALSE, TRUE, FALSE, '{"type":"object","required":["instruction"],"properties":{"instruction":{"type":"string","description":"Short freeform director brief describing the scene instruction or event to stage."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"server_action"}'::jsonb, FALSE, 0, NULL),
     ('SpawnCaps', 'Spawn_Caps', 'Create caps and give them to #PLAYER_NAME# or another nearby actor.', '#TARGET# receives #AMOUNT# caps.', FALSE, FALSE, TRUE, FALSE, '{"type":"object","required":["amount"],"properties":{"target":{"type":"string","description":"Recipient actor. Leave blank to give the caps to #PLAYER_NAME#."},"amount":{"type":"integer","description":"Positive caps amount, maximum 1000000."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
     ('SpawnItem', 'Spawn_Item', 'Create a named item from the descriptions database and give it to #PLAYER_NAME# or another nearby actor.', '#TARGET# receives #ITEM#.', FALSE, FALSE, TRUE, FALSE, '{"type":"object","required":["item"],"properties":{"target":{"type":"string","description":"Recipient actor. Leave blank to give the item to #PLAYER_NAME#."},"item":{"type":"string","description":"Item name from the descriptions database."},"amount":{"type":"integer","description":"Quantity to create, default 1 and maximum 100."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
@@ -117,7 +125,8 @@ INSERT INTO public.core_action (
     ('StopWalk', 'Stop_Walk', 'Stop all of #DIALECTIC_NAME#''s movement or travel actions.', 'Stop all of #DIALECTIC_NAME#''s actions immediately.', FALSE, FALSE, FALSE, TRUE, '{"type":"object","required":[],"properties":{"target":{"type":"string","description":"Keep blank."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
     ('TakeASeat', 'Take_A_Seat', '#DIALECTIC_NAME# takes a seat at a nearby seating location.', '#DIALECTIC_NAME# sits in a nearby chair or piece of furniture.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":[],"properties":{"target":{"type":"string","description":"Keep blank."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
     ('TakeCapsFromPlayer', 'Take_Caps_From_#PLAYER_NAME#', '#DIALECTIC_NAME# takes caps from #PLAYER_NAME# once #PLAYER_NAME# agrees.', '#PLAYER_NAME# gave #TARGET# caps to #DIALECTIC_NAME#.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":["amount"],"properties":{"amount":{"type":"integer","description":"Caps amount to take from #PLAYER_NAME#."},"target":{"type":"string","description":"Optional reason or transaction target."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
-('TravelTo', 'Travel_To', 'Travel long distance to a building, city, door, or other location.', '#DIALECTIC_NAME# begins travelling to #TARGET#.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":["location"],"properties":{"location":{"type":"string","description":"Building, city, door, or other location."},"target":{"type":"string","description":"Optional destination fallback. If used, the server treats it as location."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
+    ('TravelTo', 'Travel_To', 'Travel long distance to a building, city, door, or other location.', '#DIALECTIC_NAME# begins travelling to #TARGET#.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":["location"],"properties":{"location":{"type":"string","description":"Building, city, door, or other location."},"target":{"type":"string","description":"Optional destination fallback. If used, the server treats it as location."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
+    ('UnequipItem', 'Unequip_Item', '#DIALECTIC_NAME# removes a currently equipped weapon or wearable item.', '#DIALECTIC_NAME# removes #ITEM#.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":["item"],"properties":{"item":{"type":"string","description":"Exact currently equipped weapon or wearable item name from inventory."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command"}'::jsonb, TRUE, 0, NULL),
     ('WaitHere', 'Wait_Here', '#DIALECTIC_NAME# waits at the current location.', '#DIALECTIC_NAME# waits and stands at the place.', TRUE, TRUE, FALSE, TRUE, '{"type":"object","required":[],"properties":{"target":{"type":"string","description":"Keep blank."}}}'::jsonb, '{"source":"functions.php","status":"active","builtin":true,"dispatch":"plugin_command","cooldown_seconds":30}'::jsonb, TRUE, 0, NULL)
 ON CONFLICT (code_name) DO UPDATE SET
     action_name = EXCLUDED.action_name,

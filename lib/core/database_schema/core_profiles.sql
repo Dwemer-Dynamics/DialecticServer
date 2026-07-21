@@ -113,7 +113,7 @@ INSERT INTO public.core_profiles (
     4,
     6,
     NULL,
-    '{"RECHAT_H":"4","RECHAT_P":"100","RECHAT_ALLOW_ACTIONS":true,"DYNAMIC_PROFILE_FIELDS":["personality","speechstyle","goals"],"RPG_COMMENTS":["levelup","combat_end","lockpick","sleep"],"RPG_COMMENTS_CHANCE":50,"COMBAT_BARK_COOLDOWN":30,"DIARY_PROMPT":"Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#''s recent dialogues and events into #DIALECTIC_NAME#''s diary. WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.","DIARY_COOLDOWN":120,"CONTEXT_HISTORY_DIARY":100,"AUTO_DIARY_ENABLED":false,"AUTO_DIARY_WAIT_ENABLED":true,"SALUTATION_AFTER_A_WHILE":false}',
+    '{"RECHAT_H":"4","RECHAT_P":"100","RECHAT_ALLOW_ACTIONS":true,"DYNAMIC_PROFILE_FIELDS":["personality","speechstyle","goals"],"RPG_COMMENTS":["levelup","combat_end","lockpick","sleep","location_changed","quest_updated"],"RPG_COMMENTS_CHANCE":20,"LLM_FALLBACK_ENABLED":true,"COMBAT_BARK_COOLDOWN":30,"DIARY_PROMPT":"Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#''s recent dialogues and events into #DIALECTIC_NAME#''s diary. WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.","DIARY_COOLDOWN":120,"CONTEXT_HISTORY_DIARY":100,"AUTO_DIARY_ENABLED":false,"AUTO_DIARY_WAIT_ENABLED":true,"SALUTATION_AFTER_A_WHILE":false}',
     1,
     1,
     NULL

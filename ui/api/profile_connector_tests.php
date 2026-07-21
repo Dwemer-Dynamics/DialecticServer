@@ -456,6 +456,10 @@ function profileConnectorTestsTestLlm(int $connectorId): array
         }
     }
 
+    // Connector response parsing uses the shared mood, animation, and
+    // expression helpers that are present during normal request handling.
+    require_once($GLOBALS["ENGINE_PATH"] . "lib" . DIRECTORY_SEPARATOR . "data_functions.php");
+
     $run = profileConnectorTestsRunWithCapturedErrors(function () use ($llm, $connector, $driver) {
         $GLOBALS["DIALECTIC_NAME"] = 'DIALECTIC Profile Test';
         $GLOBALS["PLAYER_NAME"] = $GLOBALS["PLAYER_NAME"] ?? 'Courier';

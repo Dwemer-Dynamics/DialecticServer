@@ -264,6 +264,7 @@ $latestLocalTs = intval($summary["latest_localts"] ?? 0);
             color: #c8c8c8;
         }
     </style>
+    <link rel="stylesheet" href="css/dialectic-theme.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'dialectic-theme.css'); ?>">
 </head>
 <body>
 <main>
