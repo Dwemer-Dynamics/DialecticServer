@@ -40,6 +40,29 @@ run_postgres() {
     fi
 }
 
+ensure_postgresql_ready() {
+    local attempt
+    if run_postgres pg_isready -d "$maintenance_database" -q; then
+        return 0
+    fi
+
+    if [[ "$(id -u)" -eq 0 ]]; then
+        echo "PostgreSQL is not running; starting it now."
+        /etc/init.d/postgresql start >/dev/null 2>&1 || true
+    fi
+
+    for attempt in {1..15}; do
+        if run_postgres pg_isready -d "$maintenance_database" -q; then
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "PostgreSQL is not running or is not accepting local connections." >&2
+    echo "Start DwemerDistro, then run this migration again." >&2
+    return 1
+}
+
 database_exists() {
     run_postgres psql -d "$maintenance_database" -X -Atqc "SELECT 1 FROM pg_database WHERE datname = '$1'" | grep -qx 1
 }
@@ -145,6 +168,10 @@ SELECT format(
 \gexec
 SQL
 }
+
+if ! ensure_postgresql_ready; then
+    exit 1
+fi
 
 migration_complete=0
 cleanup() {
