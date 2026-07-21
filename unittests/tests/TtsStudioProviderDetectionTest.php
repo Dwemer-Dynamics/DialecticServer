@@ -33,7 +33,7 @@ final class TtsStudioProviderDetectionTest extends TestCase
     public function testDetectsStandardApiFromSpeakersEndpoint(): void
     {
         $runtime = dialecticTtsStudioClassifyPocketTtsRuntime(
-            'http://127.0.0.1:8020',
+            'http://127.0.0.1:8024',
             ['api_format' => 'audio_cpp'],
             $this->probe(404),
             $this->probe(404),
@@ -56,5 +56,13 @@ final class TtsStudioProviderDetectionTest extends TestCase
 
         $this->assertFalse($runtime['reachable']);
         $this->assertSame('audio_cpp', $runtime['mode']);
+    }
+
+    public function testNormalizesDedicatedServiceIdentities(): void
+    {
+        $this->assertSame('chatterbox', dialecticTtsStudioNormalizeProviderIdentity('Chatterbox'));
+        $this->assertSame('pockettts', dialecticTtsStudioNormalizeProviderIdentity('pocket_tts'));
+        $this->assertSame('xtts-fastapi', dialecticTtsStudioNormalizeProviderIdentity('xtts'));
+        $this->assertSame('', dialecticTtsStudioNormalizeProviderIdentity('unknown'));
     }
 }

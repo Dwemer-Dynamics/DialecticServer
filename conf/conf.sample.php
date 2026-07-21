@@ -231,7 +231,7 @@ $TTS["XTTSFASTAPI"]["PARALINGUISTIC_TAGS_ENABLED"]=false; //Enable paralinguisti
 $TTS["XTTSFASTAPI"]["PARALINGUISTIC_TAGS_PROMPT"]=''; //Prompt snippet for instructing LLM to use paralinguistic tags.
 $TTS["XTTSFASTAPI"]["PARALINGUISTIC_TAGS_LIST"]='[clear throat],[sigh],[shush],[cough],[groan],[sniff],[gasp],[chuckle],[laugh]'; //Comma-separated list of supported tags.
 //Chatterbox
-$TTS["CHATTERBOX"]["endpoint"]='http://127.0.0.1:8020'; //API endpoint.
+$TTS["CHATTERBOX"]["endpoint"]='http://127.0.0.1:8023'; //API endpoint.
 $TTS["CHATTERBOX"]["language"]='en'; //Language.
 $TTS["CHATTERBOX"]["voiceid"]='TheNarrator'; //Generated voice file name.
 $TTS["CHATTERBOX"]["voicelogic"]='voicetype';
@@ -244,7 +244,7 @@ $TTS["OMNIVOICE"]["language"]='en'; //Active OmniVoice language profile.
 $TTS["OMNIVOICE"]["voiceid"]='TheNarrator'; //Generated voice file name.
 $TTS["OMNIVOICE"]["voicelogic"]='voicetype';
 //PocketTTS
-$TTS["POCKETTTS"]["endpoint"]='http://127.0.0.1:8020'; //API endpoint.
+$TTS["POCKETTTS"]["endpoint"]='http://127.0.0.1:8024'; //API endpoint.
 $TTS["POCKETTTS"]["language"]='en'; //Language.
 $TTS["POCKETTTS"]["voiceid"]='TheNarrator'; //Generated voice file name.
 $TTS["POCKETTTS"]["model"]='pocket-tts'; //audio.cpp model id.

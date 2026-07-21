@@ -8,6 +8,19 @@ if (!function_exists('dialecticTtsStudioProbeSucceeded')) {
     }
 }
 
+if (!function_exists('dialecticTtsStudioNormalizeProviderIdentity')) {
+    function dialecticTtsStudioNormalizeProviderIdentity(string $provider): string
+    {
+        return match (strtolower(trim($provider))) {
+            'xtts', 'xtts-fastapi' => 'xtts-fastapi',
+            'pocket_tts', 'pocket-tts', 'pockettts' => 'pockettts',
+            'chatterbox' => 'chatterbox',
+            'omnivoice' => 'omnivoice',
+            default => '',
+        };
+    }
+}
+
 if (!function_exists('dialecticTtsStudioClassifyPocketTtsRuntime')) {
     function dialecticTtsStudioClassifyPocketTtsRuntime(
         string $endpoint,
