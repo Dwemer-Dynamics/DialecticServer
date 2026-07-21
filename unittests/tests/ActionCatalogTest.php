@@ -112,6 +112,7 @@ final class ActionCatalogTest extends TestCase
             'CheckInventory',
             'ComeCloser',
             'Consume',
+            'EquipItem',
             'DecreaseWalkSpeed',
             'EndConversation',
             'Follow',
@@ -126,6 +127,7 @@ final class ActionCatalogTest extends TestCase
             'OpenInventory',
             'PickupItem',
             'ReadQuests',
+            'Relax',
             'DirectorCommand',
             'SpawnCaps',
             'SpawnItem',
@@ -137,6 +139,7 @@ final class ActionCatalogTest extends TestCase
             'TakeASeat',
             'TakeCapsFromPlayer',
             'TravelTo',
+            'UnequipItem',
             'WaitHere',
         ];
         $rows = dialecticLoadActionCatalogBaseSeedRowsFromSeedFile();

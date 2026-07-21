@@ -652,6 +652,10 @@ if (isset($_GET["export"]) && is_numeric($_GET["export"])) {
     $ttsConnector = new TTSConnector();
     $apiBadge = new ApiBadge();
     
+    $profileMetadata = is_string($profileRow['metadata'] ?? null)
+        ? (json_decode($profileRow['metadata'], true) ?: [])
+        : ($profileRow['metadata'] ?? []);
+
     // Collect all LLM connectors referenced by this profile
     $llmConnectorIds = array_filter([
         $profileRow['llm_primary_id'],
@@ -660,6 +664,8 @@ if (isset($_GET["export"]) && is_numeric($_GET["export"])) {
         $profileRow['llm_quaternary_id'],
         $profileRow['llm_formatter_id'],
         $profileRow['llm_fallback_id'],
+        $profileMetadata['LLM_FALLBACK_2_ID'] ?? null,
+        $profileMetadata['LLM_FALLBACK_3_ID'] ?? null,
         $profileRow['diary_connector_id']
     ], function($id) { return !empty($id); });
     
@@ -1025,6 +1031,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_profile"])) {
             }
         }
         
+        $importedMetadata = $profileData['metadata'] ?? null;
+        if (is_string($importedMetadata)) {
+            $importedMetadata = json_decode($importedMetadata, true);
+        }
+        if (!is_array($importedMetadata)) {
+            $importedMetadata = [];
+        }
+        foreach (['LLM_FALLBACK_2_ID', 'LLM_FALLBACK_3_ID'] as $metadataConnectorKey) {
+            $oldConnectorId = $importedMetadata[$metadataConnectorKey] ?? null;
+            $importedMetadata[$metadataConnectorKey] = $oldConnectorId && isset($llmConnectorIdMap[$oldConnectorId])
+                ? (int)$llmConnectorIdMap[$oldConnectorId]
+                : null;
+        }
+
         // Step 4: Create new profile with remapped connector IDs
         $newProfileData = [
             'label' => $profileLabel,
@@ -1045,7 +1065,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_profile"])) {
                 ? $llmConnectorIdMap[$profileData['llm_fallback_id']] : null,
             'diary_connector_id' => !empty($profileData['diary_connector_id']) && isset($llmConnectorIdMap[$profileData['diary_connector_id']]) 
                 ? $llmConnectorIdMap[$profileData['diary_connector_id']] : null,
-            'metadata' => $profileData['metadata'] ?? null,
+            'metadata' => json_encode($importedMetadata, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
             'slot' => null, // Don't assign slot automatically
             'prompt' => $profileData['prompt'] ?? null
         ];
@@ -1722,7 +1742,7 @@ $ttsById = $byId($ttsRows);
             ['key' => 'AUTO_DIARY_ENABLED', 'icon' => '&#x1F4D9;', 'title' => 'Auto Diary', 'enabled' => $autoDiaryEnabled, 'short' => 'Generate nearby NPC diaries during sleep or wait.', 'help' => 'Automatically generate diary entries when NPCs are nearby during sleep/wait events. NPCs using this profile will have auto diary enabled by default.'],
             ['key' => 'AUTO_DIARY_WAIT_ENABLED', 'icon' => '&#x23F3;', 'title' => 'Auto Diary Wait', 'enabled' => $autoDiaryWaitEnabled, 'short' => 'Include wait events when Auto Diary is enabled.', 'help' => 'When Auto Diary is enabled, this controls whether diary entries are created during wait events. If disabled, auto diary will only trigger on sleep events.'],
             ['key' => 'LLM_RANDOMIZER_ENABLED', 'icon' => '&#x1F3B2;', 'title' => 'LLM Randomizer', 'enabled' => $randomizerEnabled, 'short' => 'Rotate among the four profile LLM connectors.', 'help' => 'Randomly switches between the 4 LLM connectors for NPCs using this profile. Will roughly switch every 2-3 responses per NPC.'],
-            ['key' => 'LLM_FALLBACK_ENABLED', 'icon' => '&#x1F504;', 'title' => 'LLM Fallback', 'enabled' => $fallbackEnabled, 'short' => 'Retry failed requests with the fallback connector.', 'help' => 'Automatically retry with the fallback connector when the primary connector fails. Response time will be longer when fallback is used.'],
+            ['key' => 'LLM_FALLBACK_ENABLED', 'icon' => '&#x1F504;', 'title' => 'LLM Fallback Chain', 'enabled' => $fallbackEnabled, 'short' => 'Retry failed requests through the ordered fallback connectors.', 'help' => 'Automatically retry failed, rate-limited, or empty requests through up to three ordered fallback connectors. Response time will be longer only when fallback is used.'],
         ];
     ?>
 
@@ -1845,7 +1865,9 @@ const saveAllBtn = document.getElementById('btn_save_all');
                         ['field' => 'tts_connector_id',  'icon' => '&#x1F50A;',         'title' => 'TTS Connector',   'desc' => 'Voice synthesis connector used for spoken output.', 'options' => 'tts'],
                         ['field' => 'diary_connector_id','icon' => '&#x1F4D3;',         'title' => 'Diary LLM',        'desc' => 'Connector used for diary generation.', 'options' => 'llm'],
                         ['field' => 'llm_formatter_id',  'icon' => '&#x1F9FE;',         'title' => 'Formatter LLM',    'desc' => 'Connector used for JSON formatting and structured background tasks.', 'options' => 'llm'],
-                        ['field' => 'llm_fallback_id',   'icon' => '&#x1F504;',         'title' => 'Fallback LLM',     'desc' => 'Backup connector used when primary requests fail.', 'options' => 'llm'],
+                        ['field' => 'llm_fallback_id',   'icon' => '&#x1F504;',         'title' => 'Fallback LLM 1',   'desc' => 'First backup connector used when the active response connector fails.', 'options' => 'llm'],
+                        ['field' => 'LLM_FALLBACK_2_ID', 'icon' => '&#x32;&#xFE0F;&#x20E3;', 'title' => 'Fallback LLM 2', 'desc' => 'Second backup connector used if fallback 1 also fails.', 'options' => 'llm', 'metadata' => true],
+                        ['field' => 'LLM_FALLBACK_3_ID', 'icon' => '&#x33;&#xFE0F;&#x20E3;', 'title' => 'Fallback LLM 3', 'desc' => 'Final backup connector used if the earlier connectors fail.', 'options' => 'llm', 'metadata' => true],
                     ],
                 ],
             ];
@@ -1857,12 +1879,20 @@ const saveAllBtn = document.getElementById('btn_save_all');
                     <div class="connector-group-subtitle"><?= htmlspecialchars($groupCfg['description']) ?></div>
                     <div class="connector-group-fields">
                         <?php foreach (($groupCfg['rows'] ?? []) as $rowCfg): ?>
-                            <?php $selectedId = (string)($editItem[$rowCfg['field']] ?? ''); ?>
+                            <?php
+                                $isMetadataConnector = !empty($rowCfg['metadata']);
+                                $selectedId = $isMetadataConnector
+                                    ? (string)($profileMetadata[$rowCfg['field']] ?? '')
+                                    : (string)($editItem[$rowCfg['field']] ?? '');
+                                $fieldName = $isMetadataConnector
+                                    ? 'meta_vis[' . $rowCfg['field'] . ']'
+                                    : $rowCfg['field'];
+                            ?>
                             <div class="connector-option-card">
                                 <div class="setting-key"><span class="setting-icon"><?= $rowCfg['icon'] ?></span><span><?= htmlspecialchars($rowCfg['title']) ?></span></div>
                                 <div class="setting-desc"><?= htmlspecialchars($rowCfg['desc']) ?></div>
                                 <div class="setting-control">
-                                    <select name="<?= htmlspecialchars($rowCfg['field']) ?>" id="<?= htmlspecialchars($rowCfg['field']) ?>">
+                                    <select name="<?= htmlspecialchars($fieldName) ?>" id="<?= htmlspecialchars($rowCfg['field']) ?>">
                                         <option value="">-- None --</option>
                                         <?php $optionType = $rowCfg['options'] ?? 'llm'; ?>
                                         <?php $optionRows = ($optionType === 'tts') ? ($ttsRows ?? []) : ($llmRows ?? []); ?>
@@ -1977,7 +2007,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
                 </div>
                 <?php
                     // Get current RPG_Comments_Chance value from metadata
-                    $rpgChance = 50; // Default to 50%
+                    $rpgChance = 20; // Default to 20%
                     try {
                         if (!empty($editItem["metadata"])) {
                             $tmpMeta = json_decode($editItem["metadata"], true);
@@ -1985,7 +2015,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
                                 $rpgChance = intval($tmpMeta['RPG_COMMENTS_CHANCE']);
                             }
                         }
-                    } catch (Throwable $_e) { $rpgChance = 50; }
+                    } catch (Throwable $_e) { $rpgChance = 20; }
                 ?>
                 <div class="setting-row">
                     <div>

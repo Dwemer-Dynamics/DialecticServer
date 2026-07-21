@@ -1323,7 +1323,7 @@ if ($checkVersion("core_profiles") < 20260626001) {
             'RECHAT_ALLOW_ACTIONS' => false,
             'DYNAMIC_PROFILE_FIELDS' => ['personality', 'speechstyle', 'goals'],
             'RPG_COMMENTS' => ['levelup', 'combat_end', 'lockpick', 'sleep'],
-            'RPG_COMMENTS_CHANCE' => 50,
+            'RPG_COMMENTS_CHANCE' => 20,
             'COMBAT_BARK_COOLDOWN' => 30,
             'AUTO_DIARY_ENABLED' => false,
             'AUTO_DIARY_WAIT_ENABLED' => true,
@@ -3504,6 +3504,33 @@ if ($checkVersion("core_action") < 20260716002) {
     if ($b_ok) {
         $updateVersion("core_action", 20260716002);
         Logger::info("Applied patch core_action 20260716002");
+    }
+}
+
+if ($checkVersion("core_action") < 20260719001) {
+    Logger::debug("Applying core_action 20260719001 - add equipment actions");
+
+    $b_ok = true;
+    try {
+        $seedPath = realpath(__DIR__ . '/../data/core_action_seed.sql');
+        if ($seedPath === false || !is_file($seedPath)) {
+            throw new RuntimeException("Missing core_action seed file");
+        }
+
+        $seedSql = trim(strval(file_get_contents($seedPath)));
+        if ($seedSql === '') {
+            throw new RuntimeException("Empty core_action seed file");
+        }
+
+        $db->execQuery($seedSql);
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error applying equipment action seed: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("core_action", 20260719001);
+        Logger::info("Applied patch core_action 20260719001");
     }
 }
 

@@ -19,6 +19,7 @@ function dialecticCanonicalActionCodes()
         'CheckInventory',
         'ComeCloser',
         'Consume',
+        'EquipItem',
         'IncreaseWalkSpeed',
         'DecreaseWalkSpeed',
         'EndConversation',
@@ -32,6 +33,7 @@ function dialecticCanonicalActionCodes()
         'MoveTo',
         'PickupItem',
         'ReadQuests',
+        'Relax',
         'DirectorCommand',
         'SpawnCaps',
         'SpawnItem',
@@ -45,6 +47,7 @@ function dialecticCanonicalActionCodes()
         'Barter',
         'OpenInventory',
         'TravelTo',
+        'UnequipItem',
         'WaitHere',
     ];
 }
@@ -426,6 +429,7 @@ $F_DESCRIPTIONS_LOCAL["SheatheWeapon"] = "Sheathes/put away current weapon";
 $F_DESCRIPTIONS_LOCAL["TravelTo"] = "Travel long distance to a building, city, door or other location. Also known as lead the way.";
 $F_DESCRIPTIONS_LOCAL["TakeASeat"] = "#DIALECTIC_NAME# takes a seat at a nearby seating location.";
 $F_DESCRIPTIONS_LOCAL["ReadQuests"] = "Only use if #PLAYER_NAME# explicitly asks about a quest. Read the quest log and get information about current quests.";
+$F_DESCRIPTIONS_LOCAL["Relax"] = "#DIALECTIC_NAME# relaxes at the current location without being dismissed. JIP CCC companions use their native relaxation state.";
 $F_DESCRIPTIONS_LOCAL["DirectorCommand"] = "Send a short freeform instruction to the game director so it can stage a scene or event.";
 $F_DESCRIPTIONS_LOCAL["SpawnCaps"] = "Create caps and give them to #PLAYER_NAME# or another nearby actor.";
 $F_DESCRIPTIONS_LOCAL["SpawnItem"] = "Create a named item from the descriptions database and give it to #PLAYER_NAME# or another nearby actor.";
@@ -445,6 +449,8 @@ $F_DESCRIPTIONS_LOCAL["PickupItem"] = "#DIALECTIC_NAME# picks up a specific item
 $F_DESCRIPTIONS_LOCAL["MakeFollower"] = "#DIALECTIC_NAME# joins #PLAYER_NAME#, forming a squad or adventuring party.";
 
 $F_DESCRIPTIONS_LOCAL["Consume"] = "#DIALECTIC_NAME# consumes food, drink, chems, or another aid item from inventory. Use the exact inventory item name in the target field.";
+$F_DESCRIPTIONS_LOCAL["EquipItem"] = "#DIALECTIC_NAME# equips a weapon or wearable item already present in their inventory. Use the exact item name from <inventory>.";
+$F_DESCRIPTIONS_LOCAL["UnequipItem"] = "#DIALECTIC_NAME# removes a currently equipped weapon or wearable item. Use the exact equipped item name from <inventory>.";
     
 $F_DESCRIPTIONS_LOCAL["EndConversation"] = "#DIALECTIC_NAME# ends the conversation and becomes unavailable to talk for a short time.";
 
@@ -459,6 +465,7 @@ $F_RETURNMESSAGES_LOCAL["CheckInventory"] = "#DIALECTIC_NAME#'s INVENTORY:#RESUL
 $F_RETURNMESSAGES_LOCAL["SheatheWeapon"] = "Sheathes/put away current weapon";
 $F_RETURNMESSAGES_LOCAL["TakeASeat"] = "#DIALECTIC_NAME# sits in a nearby chair or piece of furniture.";
 $F_RETURNMESSAGES_LOCAL["ReadQuests"] = "";
+$F_RETURNMESSAGES_LOCAL["Relax"] = "#DIALECTIC_NAME# relaxes at the current location.";
 $F_RETURNMESSAGES_LOCAL["DirectorCommand"] = "The director is preparing a scene instruction.";
 $F_RETURNMESSAGES_LOCAL["SpawnCaps"] = "#TARGET# receives #AMOUNT# caps.";
 $F_RETURNMESSAGES_LOCAL["SpawnItem"] = "#TARGET# receives #ITEM#.";
@@ -478,6 +485,8 @@ $F_RETURNMESSAGES_LOCAL["PickupItem"] = "#DIALECTIC_NAME# picks up #ITEM#.";
 $F_RETURNMESSAGES_LOCAL["MakeFollower"] = "#DIALECTIC_NAME# is now part of the adventuring party.";
 
 $F_RETURNMESSAGES_LOCAL["Consume"] = "#DIALECTIC_NAME# consumes an item from inventory.";
+$F_RETURNMESSAGES_LOCAL["EquipItem"] = "#DIALECTIC_NAME# equips #ITEM#.";
+$F_RETURNMESSAGES_LOCAL["UnequipItem"] = "#DIALECTIC_NAME# removes #ITEM#.";
 
 // Action display names. Plugin commands must always resolve back to canonical code names.
 
@@ -492,6 +501,7 @@ $F_NAMES_LOCAL["CheckInventory"] = "CheckInventory";
 $F_NAMES_LOCAL["SheatheWeapon"] = "SheatheWeapon";
 $F_NAMES_LOCAL["TakeASeat"] = "TakeASeat";
 $F_NAMES_LOCAL["ReadQuests"] = "ReadQuests";
+$F_NAMES_LOCAL["Relax"] = "Relax";
 $F_NAMES_LOCAL["DirectorCommand"] = "DirectorCommand";
 $F_NAMES_LOCAL["SpawnCaps"] = "SpawnCaps";
 $F_NAMES_LOCAL["SpawnItem"] = "SpawnItem";
@@ -512,6 +522,8 @@ $F_NAMES_LOCAL["PickupItem"] = "PickupItem";
 $F_NAMES_LOCAL["MakeFollower"] = "Join_#PLAYER_NAME#_Party";
 
 $F_NAMES_LOCAL["Consume"] = "Consume";
+$F_NAMES_LOCAL["EquipItem"] = "EquipItem";
+$F_NAMES_LOCAL["UnequipItem"] = "UnequipItem";
 
 $F_NAMES_LOCAL["EndConversation"] = "EndConversation";
 
@@ -911,6 +923,44 @@ $GLOBALS["FUNCTIONS"] = [
                 ],
             ],
             "required" => ["target"],
+        ],
+    ],
+    [
+        "name" => $F_NAMES_LOCAL["Relax"],
+        "description" => $F_DESCRIPTIONS_LOCAL["Relax"],
+        "parameters" => [
+            "type" => "object",
+            "properties" => new stdClass(),
+            "required" => [],
+            "additionalProperties" => false,
+        ],
+    ],
+    [
+        "name" => $F_NAMES_LOCAL["EquipItem"],
+        "description" => $F_DESCRIPTIONS_LOCAL["EquipItem"],
+        "parameters" => [
+            "type" => "object",
+            "properties" => [
+                "item" => [
+                    "type" => "string",
+                    "description" => "Exact weapon or wearable item name from <inventory> to equip.",
+                ],
+            ],
+            "required" => ["item"],
+        ],
+    ],
+    [
+        "name" => $F_NAMES_LOCAL["UnequipItem"],
+        "description" => $F_DESCRIPTIONS_LOCAL["UnequipItem"],
+        "parameters" => [
+            "type" => "object",
+            "properties" => [
+                "item" => [
+                    "type" => "string",
+                    "description" => "Exact currently equipped weapon or wearable item name from <inventory> to remove.",
+                ],
+            ],
+            "required" => ["item"],
         ],
     ],
 
