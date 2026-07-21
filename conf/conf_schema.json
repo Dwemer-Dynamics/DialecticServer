@@ -173,7 +173,7 @@
  },
  "CHATTERBOX": {
  "_title":"Chatterbox",
- "endpoint":{"type":"url","description":"Chatterbox endpoint. Uses same port as XTTS (8020) by default. Click[HOST PC IP] or [WSL IP] to configure.", "helpurl":"https://dwemerdynamics.com/dialectic/tts.html#Chatterbox"},
+ "endpoint":{"type":"url","description":"Chatterbox endpoint. DwemerDistro uses dedicated port 8023. Click[HOST PC IP] or [WSL IP] to configure.", "helpurl":"https://dwemerdynamics.com/dialectic/tts.html#Chatterbox"},
  "language":{"type":"select","values":[ "ar","pt","zh-cn", "cs","nl","en","fr", "de", "it", "pl", "ru", "es", "tr","ja", "ko","hu","hi"],"description":"Language to use."},
  "voiceid":{"type":"string","description":"Generated voice file name. Click the help link to go to voice management.","helpurl":"xtts_clone.php"},
  "voicelogic":{"type":"select","values":["voicetype","name"], "description":"Default profile only. Logic used for generating [TTS CHATTERBOX voiceid] <br> voicetype = NPC voicetype ID (FemaleAdult01) <br> name = NPC name (doc_mitchell)", "scope":"global"},
@@ -190,7 +190,7 @@
  },
  "POCKETTTS": {
  "_title":"PocketTTS",
-  "endpoint":{"type":"url","description":"PocketTTS endpoint. Legacy bridge defaults to 8020; DwemerDistro audio.cpp defaults to 8086. The connector detects the API automatically from the endpoint. Click[HOST PC IP] or [WSL IP] to configure.", "helpurl":"https://dwemerdynamics.com/dialectic/tts.html#PocketTts"},
+  "endpoint":{"type":"url","description":"PocketTTS endpoint. Python PocketTTS uses dedicated port 8024; DwemerDistro audio.cpp uses 8086. The connector detects the API automatically from the endpoint. Click[HOST PC IP] or [WSL IP] to configure.", "helpurl":"https://dwemerdynamics.com/dialectic/tts.html#PocketTts"},
   "language":{"type":"select","values":[ "ar","pt","zh-cn", "cs","nl","en","fr", "de", "it", "pl", "ru", "es", "tr","ja", "ko","hu","hi"],"description":"Language to use."},
   "voiceid":{"type":"string","description":"Generated voice file name. Click the help link to go to voice management.","helpurl":"xtts_clone.php"},
   "model":{"type":"string","description":"audio.cpp model id. Default: pocket-tts."},
