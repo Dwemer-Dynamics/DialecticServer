@@ -1,0 +1,58 @@
+<?php
+
+if (!function_exists('dialecticTtsStudioProbeSucceeded')) {
+    function dialecticTtsStudioProbeSucceeded(array $probe): bool
+    {
+        $httpCode = intval($probe['http_code'] ?? 0);
+        return ($probe['response'] ?? false) !== false && $httpCode >= 200 && $httpCode < 300;
+    }
+}
+
+if (!function_exists('dialecticTtsStudioClassifyPocketTtsRuntime')) {
+    function dialecticTtsStudioClassifyPocketTtsRuntime(
+        string $endpoint,
+        array $metadata,
+        array $healthProbe,
+        array $modelsProbe,
+        array $speakersProbe
+    ): array {
+        if (dialecticTtsStudioProbeSucceeded($healthProbe) && dialecticTtsStudioProbeSucceeded($modelsProbe)) {
+            return [
+                'reachable' => true,
+                'mode' => 'audio_cpp',
+                'reason' => 'audio.cpp health and models endpoints responded',
+            ];
+        }
+
+        if (dialecticTtsStudioProbeSucceeded($speakersProbe) && is_array($speakersProbe['decoded'] ?? null)) {
+            return [
+                'reachable' => true,
+                'mode' => 'standard',
+                'reason' => 'Standard PocketTTS speakers endpoint responded',
+            ];
+        }
+
+        $apiFormatValue = $metadata['api_format'] ?? '';
+        $apiFormat = is_scalar($apiFormatValue) ? strtolower(trim(strval($apiFormatValue))) : '';
+        $normalizedEndpoint = rtrim(strtolower(trim($endpoint)), '/');
+        $fallbackMode = ($apiFormat === 'audio_cpp'
+            || $apiFormat === 'audiocpp'
+            || strpos($normalizedEndpoint, ':8086') !== false
+            || str_ends_with($normalizedEndpoint, '/v1/audio/speech'))
+            ? 'audio_cpp'
+            : 'standard';
+
+        $probe = $fallbackMode === 'audio_cpp' ? $healthProbe : $speakersProbe;
+        $reason = trim(strval($probe['curl_error'] ?? ''));
+        if ($reason === '') {
+            $httpCode = intval($probe['http_code'] ?? 0);
+            $reason = 'HTTP ' . ($httpCode > 0 ? strval($httpCode) : 'no response');
+        }
+
+        return [
+            'reachable' => false,
+            'mode' => $fallbackMode,
+            'reason' => $reason,
+        ];
+    }
+}
