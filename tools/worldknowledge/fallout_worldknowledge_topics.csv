@@ -1,0 +1,351 @@
+include,topic,page_title,category,game,source_category,source_url,pageid
+1,brahmin,Brahmin (Fallout 3),creature,both,curated,,
+1,centaur,Centaur (Fallout 3),creature,both,curated,,
+1,deathclaw,Deathclaw,creature,both,curated,,
+1,eyebot,Eyebot (Fallout: New Vegas),creature,both,curated,,
+1,feral_ghoul,Feral ghoul,creature,both,curated,,
+1,mister_gutsy,Mister Gutsy (Fallout: New Vegas),creature,both,curated,,
+1,mister_handy,Mister Handy (Fallout: New Vegas),creature,both,curated,,
+1,mole_rat,Mole Rat (Fallout 3),creature,both,curated,,
+1,protectron,Protectron (Fallout: New Vegas),creature,both,curated,,
+1,radroach,Radroach (Fallout 3),creature,both,curated,,
+1,radscorpion,Radscorpion,creature,both,curated,,
+1,robobrain,Robobrain (Fallout: New Vegas),creature,both,curated,,
+1,sentry_bot,Sentry Bot (Fallout: New Vegas),creature,both,curated,,
+1,super_mutant,Super mutant,creature,both,curated,,
+1,abomination,Abomination (Mothership Zeta),creature,fallout3,Fallout 3 creatures,https://fallout.wiki/wiki/Abomination_(Mothership_Zeta),5771
+1,alien,Alien (Mothership Zeta),creature,fallout3,curated,,
+1,bloatfly,Bloatfly (Fallout 3),creature,fallout3,curated,,
+1,experimental_weapons_drone,Experimental Weapons Drone,creature,fallout3,Fallout 3 Drones,https://fallout.wiki/wiki/Experimental_Weapons_Drone,42292
+1,fire_ant,Fire Ant (Fallout 3),creature,fallout3,curated,,
+1,guardian_drone,Guardian Drone,creature,fallout3,Fallout 3 Drones,https://fallout.wiki/wiki/Guardian_Drone,42143
+1,mirelurk,Mirelurk (Fallout 3),creature,fallout3,curated,,
+1,mirelurk_king,Mirelurk King (Fallout 3),creature,fallout3,curated,,
+1,swampfolk,Swampfolk,creature,fallout3,Swampfolk,https://fallout.wiki/wiki/Swampfolk,36617
+1,trog,Trog (Fallout 3),creature,fallout3,curated,,
+1,yao_guai,Yao Guai (Fallout 3),creature,fallout3,curated,,
+1,bighorner,Bighorner,creature,fnv,curated,,
+1,cazador,Cazador,creature,fnv,curated,,
+1,cyberdog,Cyberdog (Fallout: New Vegas),creature,fnv,curated,,
+1,gecko,Gecko (Fallout: New Vegas),creature,fnv,curated,,
+1,ghost_people,Ghost People,creature,fnv,curated,,
+1,giant_mantis,Giant Mantis,creature,fnv,Fallout: New Vegas creatures|Giant Mantis|Honest Hearts creatures,https://fallout.wiki/wiki/Giant_Mantis,109157
+1,lakelurk,Lakelurk,creature,fnv,curated,,
+1,lobotomite,Lobotomite,creature,fnv,curated,,
+1,marked_men,Marked Men,creature,fnv,curated,,
+1,mongrel,Mongrel (Fallout: New Vegas),creature,fnv,Fallout: New Vegas creatures,https://fallout.wiki/wiki/Mongrel_(Fallout:_New_Vegas),651908
+1,nightstalker,Nightstalker,creature,fnv,curated,,
+1,raven,Raven,creature,fnv,Fallout: New Vegas creatures,https://fallout.wiki/wiki/Raven,102054
+1,securitron,Securitron,creature,fnv,curated,,
+1,spore_carrier,Spore Carrier,creature,fnv,curated,,
+1,tunneler,Tunneler,creature,fnv,curated,,
+1,alaskan_reclamation_operation,Alaskan Reclamation Operation,event,both,curated,,
+1,automation_riots,Automation Riots,event,both,curated,,
+1,battle_of_anchorage,Battle of Anchorage,event,both,curated,,
+1,brotherhood_civil_war,Brotherhood Civil War,event,both,curated,,
+1,ncr_brotherhood_war,Brotherhood War,event,both,curated,,
+1,brotherhood_exodus,Exodus,event,both,curated,,
+1,food_riots,Food Riots,event,both,curated,,
+1,formation_of_the_brotherhood_of_steel,Formation of the Brotherhood of Steel (Event),event,both,curated,,
+1,glow_expedition,Glow Expedition,event,both,curated,,
+1,great_war,Great War,event,both,curated,,
+1,invasion_of_alaska,Invasion of Alaska,event,both,curated,,
+1,mariposa_mutiny,Mariposa Mutiny,event,both,curated,,
+1,navarro_conflict,Navarro Conflict,event,both,curated,,
+1,resource_wars,Resource Wars,event,both,curated,,
+1,brotherhood_schism,Schism,event,both,curated,,
+1,sino_american_war,Sino-American War,event,both,curated,,
+1,united_states_annexation_of_canada,United States Annexation of Canada,event,both,curated,,
+1,unity_conflict,Unity Conflict,event,both,curated,,
+1,battle_of_arizona_spillway,Battle of Arizona Spillway,event,fnv,curated,,
+1,battle_of_nelson,Battle of Nelson,event,fnv,curated,,
+1,battle_of_willow_beach,Battle of Willow Beach,event,fnv,curated,,
+1,bitter_springs_massacre,Bitter Springs Massacre,event,fnv,curated,,
+1,first_battle_of_hoover_dam,First Battle of Hoover Dam,event,fnv,curated,,
+1,mojave_campaign,Mojave Campaign,event,fnv,curated,,
+1,ncr_legion_war,NCR-Legion War,event,fnv,curated,,
+1,ncrcf_prison_break,NCRCF Prison Break,event,fnv,curated,,
+1,operation_sunburst,Operation: Sunburst,event,fnv,curated,,
+1,sierra_madre_gala_event,Sierra Madre Gala Event,event,fnv,curated,,
+1,ultra_luxe_shootout,Ultra-Luxe Shootout,event,fnv,curated,,
+1,west_side_massacre,West Side Massacre,event,fnv,curated,,
+1,brotherhood_of_steel,Brotherhood of Steel,faction,both,curated,,
+1,enclave,Enclave,faction,both,curated,,
+1,apostles_of_the_eternal_light,Apostles of the Eternal Light,faction,fallout3,Fallout 3 factions,https://fallout.wiki/wiki/Apostles_of_the_Eternal_Light,7737
+1,brotherhood_outcasts,Brotherhood Outcasts,faction,fallout3,curated,,
+1,children_of_atom,Children of Atom,faction,fallout3,curated,,
+1,chinese_remnants,Chinese Remnants,faction,fallout3,Fallout 3 factions,https://fallout.wiki/wiki/Chinese_Remnants,52259
+1,littlehorn_associates,Littlehorn & Associates,faction,fallout3,Fallout 3 factions,https://fallout.wiki/wiki/Littlehorn_%26_Associates,28196
+1,lyons_pride,Lyons' Pride,faction,fallout3,curated,,
+1,nuka_cola_fan_club,Nuka-Cola Fan Club,faction,fallout3,Fallout 3 factions,https://fallout.wiki/wiki/Nuka-Cola_Fan_Club,352086
+1,pitt_raiders,Pitt Raiders,faction,fallout3,curated,,
+1,pitt_slaves,Pitt Slaves (Faction),faction,fallout3,curated,,
+1,point_lookout_tribals,Point Lookout Tribals,faction,fallout3,curated,,
+1,regulators,Regulators (faction),faction,fallout3,curated,,
+1,reillys_rangers,Reilly's Rangers,faction,fallout3,curated,,
+1,slavers,Slavers (Fallout 3),faction,fallout3,Fallout 3 factions,https://fallout.wiki/wiki/Slavers_(Fallout_3),409421
+1,sudden_death_overtime,Sudden-Death Overtime,faction,fallout3,Fallout 3 factions,https://fallout.wiki/wiki/Sudden-Death_Overtime,25217
+1,talon_company,Talon Company,faction,fallout3,curated,,
+1,tenpenny_tower_security,Tenpenny Tower Security,faction,fallout3,Fallout 3 factions,https://fallout.wiki/wiki/Tenpenny_Tower_Security,762372
+1,the_family,The Family (Fallout 3),faction,fallout3,curated,,
+1,treeminders,Treeminders,faction,fallout3,Fallout 3 factions,https://fallout.wiki/wiki/Treeminders,25261
+1,vault_101_security,Vault 101 Security,faction,fallout3,Fallout 3 factions,https://fallout.wiki/wiki/Vault_101_Security,25374
+1,alpha_team,Alpha Team,faction,fnv,Fallout: New Vegas factions,https://fallout.wiki/wiki/Alpha_Team,4280
+1,boomers,Boomers,faction,fnv,curated,,
+1,bright_brotherhood,Bright Brotherhood,faction,fnv,Fallout: New Vegas factions,https://fallout.wiki/wiki/Bright_Brotherhood,103731
+1,caesars_legion,Caesar's Legion,faction,fnv,curated,,
+1,cassidy_caravans,Cassidy Caravans,faction,fnv,Fallout: New Vegas factions,https://fallout.wiki/wiki/Cassidy_Caravans,13259
+1,chairmen,Chairmen,faction,fnv,curated,,
+1,dead_horses,Dead Horses,faction,fnv,curated,,
+1,enclave_remnants,Enclave Remnants,faction,fnv,curated,,
+1,fiends,Fiends,faction,fnv,curated,,
+1,followers_of_the_apocalypse,Followers of the Apocalypse,faction,fnv,curated,,
+1,great_khans,Great Khans,faction,fnv,curated,,
+1,the_kings,Kings,faction,fnv,curated,,
+1,mojave_express,Mojave Express,faction,fnv,Fallout: New Vegas factions,https://fallout.wiki/wiki/Mojave_Express,13274
+1,new_california_republic,New California Republic,faction,fnv,curated,,
+1,omertas,Omertas,faction,fnv,curated,,
+1,powder_gangers,Powder Gangers,faction,fnv,curated,,
+1,sorrows,Sorrows,faction,fnv,curated,,
+1,state_of_utobitha,State of Utobitha,faction,fnv,Fallout: New Vegas factions,https://fallout.wiki/wiki/State_of_Utobitha,56944
+1,the_misfits,The Misfits,faction,fnv,Fallout: New Vegas factions,https://fallout.wiki/wiki/The_Misfits,120308
+1,van_graffs,Van Graffs,faction,fnv,curated,,
+1,vipers,Vipers,faction,fnv,Fallout: New Vegas factions,https://fallout.wiki/wiki/Vipers,18666
+1,westside_cooperative,Westside Cooperative,faction,fnv,Fallout: New Vegas factions,https://fallout.wiki/wiki/Westside_Cooperative,569928
+1,white_glove_society,White Glove Society,faction,fnv,curated,,
+1,white_legs,White Legs,faction,fnv,curated,,
+1,united_states,United States,location,both,Fallout 3 unmarked locations|Fallout: New Vegas unmarked locations,https://fallout.wiki/wiki/United_States,18794
+1,adams_air_force_base,Adams Air Force Base,location,fallout3,curated,,
+1,anacostia_crossing_station,Anacostia Crossing Station,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Anacostia_Crossing_Station,8248
+1,anchorage_memorial,Anchorage Memorial,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Anchorage_Memorial,8266
+1,arefu,Arefu,location,fallout3,curated,,
+1,bethesda_ruins,Bethesda Ruins,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Bethesda_Ruins,24800
+1,big_town,Big Town,location,fallout3,curated,,
+1,canterbury_commons,Canterbury Commons,location,fallout3,curated,,
+1,capital_wasteland,Capital Wasteland,location,fallout3,curated,,
+1,chaste_acres_dairy_farm,Chaste Acres Dairy Farm,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Chaste_Acres_Dairy_Farm,13009
+1,chryslus_building,Chryslus Building,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Chryslus_Building,14686
+1,clifftop_shacks,Clifftop Shacks,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Clifftop_Shacks,25258
+1,corvega_factory,Corvega Factory,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Corvega_Factory,14692
+1,county_sewer_mainline,County Sewer Mainline,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/County_Sewer_Mainline,25988
+1,deathclaw_sanctuary,Deathclaw Sanctuary,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Deathclaw_Sanctuary,24652
+1,dunwich_building,Dunwich Building,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Dunwich_Building,14722
+1,galaxy_news_radio,Galaxy News Radio,location,fallout3,curated,,
+1,greener_pastures_disposal_site,Greener Pastures Disposal Site,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Greener_Pastures_Disposal_Site,24330
+1,hamilton_s_hideaway,Hamilton's Hideaway,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Hamilton's_Hideaway,25128
+1,jefferson_memorial,Jefferson Memorial,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Jefferson_Memorial,22031
+1,l_o_b_enterprises,L.O.B. Enterprises,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/L.O.B._Enterprises,24786
+1,little_lamplight,Little Lamplight,location,fallout3,curated,,
+1,mdpl_13_power_station,MDPL-13 Power Station,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/MDPL-13_Power_Station,24861
+1,mama_dolce_s,Mama Dolce's,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Mama_Dolce's,14968
+1,mason_dixon_salvage,Mason Dixon Salvage,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Mason_Dixon_Salvage,25467
+1,megaton,Megaton,location,fallout3,curated,,
+1,metro_central,Metro Central,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Metro_Central,26735
+1,mothership_zeta,Mothership Zeta,location,fallout3,curated,,
+1,my_megaton_house,My Megaton House,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/My_Megaton_House,24589
+1,northwest_seneca_station,Northwest Seneca Station,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Northwest_Seneca_Station,25541
+1,oasis,Oasis,location,fallout3,curated,,
+1,olney_sewers,Olney Sewers,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Olney_Sewers,24524
+1,our_lady_of_hope_hospital,Our Lady of Hope Hospital,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Our_Lady_of_Hope_Hospital,13059
+1,paradise_falls,Paradise Falls,location,fallout3,curated,,
+1,point_lookout,Point Lookout (location),location,fallout3,curated,,
+1,reclining_groves_resort_homes,Reclining Groves Resort Homes,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Reclining_Groves_Resort_Homes,25749
+1,republic_of_dave,Republic of Dave,location,fallout3,curated,,
+1,rivet_city,Rivet City,location,fallout3,curated,,
+1,robco_facility,RobCo Facility,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/RobCo_Facility,24919
+1,robot_repair_center,Robot Repair Center,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Robot_Repair_Center,25603
+1,shalebridge,Shalebridge,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Shalebridge,25604
+1,statesman_hotel,Statesman Hotel,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Statesman_Hotel,13092
+1,taft_tunnel,Taft Tunnel,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Taft_Tunnel,27293
+1,tenpenny_tower,Tenpenny Tower,location,fallout3,curated,,
+1,the_citadel,The Citadel,location,fallout3,curated,,
+1,the_mall,The Mall,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/The_Mall,26632
+1,the_pitt,The Pitt (Fallout 3),location,fallout3,curated,,
+1,underworld,Underworld,location,fallout3,curated,,
+1,vault_101,Vault 101,location,fallout3,curated,,
+1,vault_112,Vault 112,location,fallout3,curated,,
+1,vault_87,Vault 87,location,fallout3,curated,,
+1,washington_monument,Washington Monument,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Washington_Monument,22162
+1,yao_guai_tunnels,Yao Guai Tunnels,location,fallout3,Fallout 3 locations,https://fallout.wiki/wiki/Yao_Guai_Tunnels,24828
+1,188_trading_post,188 Trading Post,location,fnv,188 Trading Post|Central Mountains primary locations|Fallout: New Vegas locations|Fallout: New Vegas marked locations|Fallout: New Vegas shops,https://fallout.wiki/wiki/188_Trading_Post,214
+1,atomic_wrangler_casino,Atomic Wrangler Casino,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas unmarked locations|New Vegas Conurbation Freeside primary locations,https://fallout.wiki/wiki/Atomic_Wrangler_Casino,6747
+1,big_mt,Big MT,location,fnv,curated,,
+1,black_mountain,Black Mountain,location,fnv,curated,,
+1,boulder_city,Boulder City,location,fnv,curated,,
+1,california,California,location,fnv,Fallout: New Vegas unmarked locations,https://fallout.wiki/wiki/California,19762
+1,camp_forlorn_hope,Camp Forlorn Hope,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas marked locations,https://fallout.wiki/wiki/Camp_Forlorn_Hope,165
+1,camp_guardian,Camp Guardian,location,fnv,Camp Guardian|Fallout: New Vegas locations|Fallout: New Vegas marked locations,https://fallout.wiki/wiki/Camp_Guardian,93
+1,camp_mccarran,Camp McCarran,location,fnv,curated,,
+1,camp_searchlight,Camp Searchlight,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas marked locations,https://fallout.wiki/wiki/Camp_Searchlight,159
+1,cottonwood_cove,Cottonwood Cove,location,fnv,curated,,
+1,freeside,Freeside,location,fnv,curated,,
+1,gomorrah,Gomorrah,location,fnv,curated,,
+1,goodsprings,Goodsprings,location,fnv,curated,,
+1,helios_one,HELIOS One,location,fnv,curated,,
+1,hidden_valley,Hidden Valley,location,fnv,curated,,
+1,hidden_valley_bunker,Hidden Valley Bunker,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas marked locations|Hidden Valley,https://fallout.wiki/wiki/Hidden_Valley_Bunker,104758
+1,higgs_village,Higgs Village,location,fnv,Old World Blues locations,https://fallout.wiki/wiki/Higgs_Village,200826
+1,hoover_dam,Hoover Dam,location,fnv,curated,,
+1,jacobstown,Jacobstown,location,fnv,curated,,
+1,king_s_school_of_impersonation,King's School of Impersonation,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas unmarked locations|New Vegas Conurbation Freeside primary locations,https://fallout.wiki/wiki/King's_School_of_Impersonation,14233
+1,lucky_38,Lucky 38,location,fnv,curated,,
+1,lucky_38_presidential_suite,Lucky 38 Presidential Suite,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas safehouses|Fallout: New Vegas unmarked locations,https://fallout.wiki/wiki/Lucky_38_Presidential_Suite,12940
+1,mick_ralph_s,Mick & Ralph's,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas shops|Fallout: New Vegas unmarked locations|New Vegas Conurbation Freeside primary locations,https://fallout.wiki/wiki/Mick_%26_Ralph's,13273
+1,mojave_outpost,Mojave Outpost,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas marked locations|Southwest Desert primary locations,https://fallout.wiki/wiki/Mojave_Outpost,173
+1,mojave_wasteland,Mojave Wasteland,location,fnv,curated,,
+1,ncr_correctional_facility,NCR Correctional Facility,location,fnv,Central Mountains primary locations|Fallout: New Vegas locations|Fallout: New Vegas marked locations|Powder Gangers locations,https://fallout.wiki/wiki/NCR_Correctional_Facility,101987
+1,ncr_sharecropper_farms,NCR Sharecropper Farms,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas unmarked locations|NCR Sharecropper Farms,https://fallout.wiki/wiki/NCR_Sharecropper_Farms,188
+1,nellis_air_force_base,Nellis Air Force Base,location,fnv,curated,,
+1,nelson,Nelson,location,fnv,Caesar's Legion locations|Fallout: New Vegas locations|Fallout: New Vegas marked locations|Nelson,https://fallout.wiki/wiki/Nelson,176
+1,new_vegas,New Vegas,location,fnv,curated,,
+1,new_vegas_strip,New Vegas Strip,location,fnv,curated,,
+1,nipton,Nipton,location,fnv,curated,,
+1,novac,Novac,location,fnv,curated,,
+1,primm,Primm,location,fnv,curated,,
+1,puesta_del_sol,Puesta del Sol,location,fnv,Dead Money locations,https://fallout.wiki/wiki/Puesta_del_Sol,123399
+1,repconn_headquarters,REPCONN Headquarters,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas unmarked locations|REPCONN locations,https://fallout.wiki/wiki/REPCONN_Headquarters,102835
+1,ranger_station_charlie,Ranger Station Charlie,location,fnv,Central Mountains primary locations|Fallout: New Vegas locations|Fallout: New Vegas marked locations|Ranger Stations,https://fallout.wiki/wiki/Ranger_Station_Charlie,99299
+1,salida_del_sol,Salida del Sol,location,fnv,Dead Money locations,https://fallout.wiki/wiki/Salida_del_Sol,123272
+1,sierra_madre,Sierra Madre,location,fnv,curated,,
+1,silver_rush,Silver Rush,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas shops|Fallout: New Vegas unmarked locations|New Vegas Conurbation Freeside primary locations,https://fallout.wiki/wiki/Silver_Rush,13284
+1,sunset_sarsaparilla_headquarters,Sunset Sarsaparilla Headquarters,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas marked locations,https://fallout.wiki/wiki/Sunset_Sarsaparilla_Headquarters,126
+1,the_divide,The Divide,location,fnv,curated,,
+1,the_fort,The Fort,location,fnv,curated,,
+1,the_sink,The Sink,location,fnv,Old World Blues locations,https://fallout.wiki/wiki/The_Sink,178162
+1,the_tops,The Tops,location,fnv,curated,,
+1,ultra_luxe,Ultra-Luxe,location,fnv,curated,,
+1,vault_11,Vault 11,location,fnv,Central Mountains primary locations|Fallout: New Vegas locations|Fallout: New Vegas marked locations|Fallout: New Vegas vaults|Vault 11,https://fallout.wiki/wiki/Vault_11,142
+1,vault_19,Vault 19,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas marked locations|Fallout: New Vegas vaults,https://fallout.wiki/wiki/Vault_19,184
+1,vault_21,Vault 21,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas unmarked locations|Fallout: New Vegas vaults|New Vegas Conurbation New Vegas primary locations,https://fallout.wiki/wiki/Vault_21,13142
+1,vault_22,Vault 22,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas marked locations|Fallout: New Vegas vaults|Vault 22|Vault 22 locations,https://fallout.wiki/wiki/Vault_22,143
+1,vault_3,Vault 3,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas marked locations|Fallout: New Vegas vaults|New Vegas Conurbation South Vegas primary locations,https://fallout.wiki/wiki/Vault_3,144
+1,vault_34,Vault 34,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas marked locations|Fallout: New Vegas vaults|Vault 34,https://fallout.wiki/wiki/Vault_34,145
+1,villa,Villa,location,fnv,Dead Money locations,https://fallout.wiki/wiki/Villa,12960
+1,westside,Westside,location,fnv,Fallout: New Vegas locations|Fallout: New Vegas marked locations|Westside,https://fallout.wiki/wiki/Westside,185
+1,x_13_research_facility,X-13 Research Facility,location,fnv,Old World Blues locations,https://fallout.wiki/wiki/X-13_Research_Facility,200842
+1,zion_canyon,Zion Canyon,location,fnv,curated,,
+1,mysterious_stranger,Mysterious Stranger (Character),person,both,Fallout 3 characters|Fallout: New Vegas characters,https://fallout.wiki/wiki/Mysterious_Stranger_(Character),28115
+1,abraham_washington,Abraham Washington,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Abraham_Washington,5784
+1,allistair_tenpenny,Allistair Tenpenny,person,fallout3,curated,,
+1,amata,Amata,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Amata,4348
+1,ashur,Ashur,person,fallout3,curated,,
+1,bittercup,Bittercup,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Bittercup,26211
+1,bloomseer_poplar,Bloomseer Poplar,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Bloomseer_Poplar,26516
+1,brailee_ewers,Brailee Ewers,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Brailee_Ewers,25979
+1,butch_deloria,Butch DeLoria,person,fallout3,curated,,
+1,charon,Charon (Fallout 3),person,fallout3,curated,,
+1,chief_gustavo,Chief Gustavo,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Chief_Gustavo,13138
+1,clover,Clover,person,fallout3,curated,,
+1,colin_moriarty,Colin Moriarty,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Colin_Moriarty,23276
+1,colonel_autumn,Colonel Autumn,person,fallout3,curated,,
+1,confessor_cromwell,Confessor Cromwell,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Confessor_Cromwell,24296
+1,derek_pacion,Derek Pacion,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Derek_Pacion,26056
+1,desmond_lockheart,Desmond Lockheart,person,fallout3,curated,,
+1,doctor_lesko,Doctor Lesko,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Doctor_Lesko,23836
+1,dogmeat,Dogmeat (Fallout 3),person,fallout3,curated,,
+1,dominic_d_ellsadro,Dominic D'Ellsadro,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Dominic_D'Ellsadro,26264
+1,doctor_zimmer,Dr. Zimmer,person,fallout3,curated,,
+1,elder_lyons,Elder Lyons,person,fallout3,curated,,
+1,eulogy_jones,Eulogy Jones,person,fallout3,curated,,
+1,fawkes,Fawkes,person,fallout3,curated,,
+1,freddie_gomez,Freddie Gomez,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Freddie_Gomez,25113
+1,hannibal_hamlin,Hannibal Hamlin,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Hannibal_Hamlin,24261
+1,harold,Harold,person,fallout3,curated,,
+1,herbert_daring_dashwood,"Herbert ""Daring"" Dashwood",person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Herbert_%22Daring%22_Dashwood,13124
+1,ian_west,Ian West,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Ian_West,24324
+1,james,James (Fallout 3),person,fallout3,curated,,
+1,jericho,Jericho,person,fallout3,curated,,
+1,president_eden,John Henry Eden,person,fallout3,curated,,
+1,ken_ewers,Ken Ewers,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Ken_Ewers,25836
+1,liberty_prime,Liberty Prime,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Liberty_Prime,14818
+1,lucas_simms,Lucas Simms,person,fallout3,curated,,
+1,lydia_montenegro,Lydia Montenegro,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Lydia_Montenegro,13125
+1,madison_li,Madison Li (Fallout 3),person,fallout3,curated,,
+1,manya,Manya,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Manya,25740
+1,mister_burke,Mister Burke,person,fallout3,curated,,
+1,moira_brown,Moira Brown,person,fallout3,curated,,
+1,nova,Nova,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Nova,23722
+1,old_man_harris,Old Man Harris,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Old_Man_Harris,26614
+1,paladin_kodiak,Paladin Kodiak,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Paladin_Kodiak,25715
+1,pinkerton,Pinkerton,person,fallout3,curated,,
+1,pronto,Pronto,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Pronto,23845
+1,protector_casdin,Protector Casdin,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Protector_Casdin,25789
+1,reilly,Reilly,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Reilly,13463
+1,ronald_laren,Ronald Laren,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Ronald_Laren,25611
+1,scribe_jameson,Scribe Jameson,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Scribe_Jameson,25709
+1,scribe_rothchild,Scribe Rothchild,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Scribe_Rothchild,23107
+1,seagrave_holmes,Seagrave Holmes,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Seagrave_Holmes,23848
+1,sarah_lyons,Sentinel Lyons,person,fallout3,curated,,
+1,sergeant_rl_3,Sergeant RL-3,person,fallout3,curated,,
+1,squire_maxson,Squire Maxson,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Squire_Maxson,750368
+1,star_paladin_cross,Star Paladin Cross,person,fallout3,curated,,
+1,sticky,Sticky,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Sticky,14956
+1,synth,Synth,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Synth,407217
+1,the_antagonizer,The AntAgonizer,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/The_AntAgonizer,8054
+1,three_dog,Three Dog,person,fallout3,curated,,
+1,tree_father_birch,Tree Father Birch,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Tree_Father_Birch,24809
+1,wally_mack,Wally Mack,person,fallout3,Fallout 3 characters,https://fallout.wiki/wiki/Wally_Mack,23232
+1,wernher,Wernher,person,fallout3,curated,,
+1,aaron_kimball,Aaron Kimball,person,fnv,curated,,
+1,ambassador_crocker,Ambassador Dennis Crocker,person,fnv,curated,,
+1,antony,Antony,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Antony,7940
+1,benny,Benny,person,fnv,curated,,
+1,caesar,Caesar,person,fnv,curated,,
+1,capt_ronald_curtis,Capt. Ronald Curtis,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Capt._Ronald_Curtis,105860
+1,cass,Cass,person,fnv,curated,,
+1,chief_hanlon,Chief Hanlon,person,fnv,curated,,
+1,chris_haversam,Chris Haversam,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Chris_Haversam,102538
+1,christine,Christine (Fallout: New Vegas),person,fnv,curated,,
+1,colonel_hsu,Col. James Hsu,person,fnv,curated,,
+1,corporal_betsy,Corporal Betsy,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Corporal_Betsy,101718
+1,corporal_sterling,Corporal Sterling,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Corporal_Sterling,103149
+1,cpl_william_farber,Cpl. William Farber,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Cpl._William_Farber,105698
+1,craig_boone,Craig Boone,person,fnv,curated,,
+1,daniel,Daniel (Honest Hearts),person,fnv,curated,,
+1,dean_domino,Dean Domino,person,fnv,curated,,
+1,deputy_beagle,Deputy Beagle,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Deputy_Beagle,84088
+1,doc_mitchell,Doc Mitchell,person,fnv,curated,,
+1,doctor_henry,Doctor Henry,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Doctor_Henry,22626
+1,doctor_klein,Doctor Klein,person,fnv,curated,,
+1,doctor_mobius,Doctor Mobius,person,fnv,curated,,
+1,dog_and_god,Dog and God,person,fnv,curated,,
+1,ed_e,ED-E,person,fnv,curated,,
+1,easy_pete,Easy Pete,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Easy_Pete,56856
+1,elder_mcnamara,Elder McNamara,person,fnv,curated,,
+1,emily_ortal,Emily Ortal,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Emily_Ortal,104370
+1,fantastic,Fantastic,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Fantastic,56865
+1,father_elijah,Father Elijah,person,fnv,curated,,
+1,general_lee_oliver,General Lee Oliver,person,fnv,curated,,
+1,gloria_van_graff,Gloria Van Graff,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Gloria_Van_Graff,100840
+1,head_paladin_hardin,Head Paladin Hardin,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Head_Paladin_Hardin,104142
+1,jas_wilkins,Jas Wilkins,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Jas_Wilkins,104798
+1,jeannie_may_crawford,Jeannie May Crawford,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Jeannie_May_Crawford,67111
+1,jerry_the_punk,Jerry the Punk,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Jerry_the_Punk,103835
+1,joshua_graham,Joshua Graham,person,fnv,curated,,
+1,judah_kreger,Judah Kreger,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Judah_Kreger,105969
+1,klamath_bob,Klamath Bob,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Klamath_Bob,103697
+1,legate_lanius,Legate Lanius,person,fnv,curated,,
+1,lily_bowen,Lily (Nightkin),person,fnv,curated,,
+1,lt_carrie_boyd,Lt. Carrie Boyd,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Lt._Carrie_Boyd,105890
+1,major_knight,Major Knight,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Major_Knight,103845
+1,old_ben,Old Ben,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Old_Ben,101769
+1,old_lady_gibson,Old Lady Gibson,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Old_Lady_Gibson,13438
+1,papa_khan,Papa Khan,person,fnv,curated,,
+1,philippe,Philippe,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Philippe,12995
+1,pvt_davey_crenshaw,Pvt. Davey Crenshaw,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Pvt._Davey_Crenshaw,111125
+1,ranger_andy,Ranger Andy,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Ranger_Andy,8132
+1,ranger_dobson,Ranger Dobson,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Ranger_Dobson,104318
+1,ranger_ghost,Ranger Ghost,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Ranger_Ghost,92167
+1,ranger_jackson,Ranger Jackson,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Ranger_Jackson,103874
+1,raul,Raul (Fallout: New Vegas),person,fnv,curated,,
+1,rex,Rex (Cyberdog),person,fnv,curated,,
+1,robert_house,Robert House,person,fnv,curated,,
+1,sergeant_bitter_root,Sergeant Bitter-Root,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Sergeant_Bitter-Root,104311
+1,sgt_daniel_contreras,Sgt. Daniel Contreras,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Sgt._Daniel_Contreras,104314
+1,silus,Silus,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Silus,105428
+1,tech_sergeant_reyes,Tech Sergeant Reyes,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Tech_Sergeant_Reyes,104403
+1,the_forecaster,The Forecaster,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/The_Forecaster,13380
+1,thomas_hildern,Thomas Hildern,person,fnv,Fallout: New Vegas characters,https://fallout.wiki/wiki/Thomas_Hildern,103437
+1,ulysses,Ulysses,person,fnv,curated,,
+1,veronica_santangelo,Veronica,person,fnv,curated,,
+1,yes_man,Yes Man,person,fnv,curated,,

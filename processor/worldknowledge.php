@@ -228,6 +228,9 @@ if ($minimeEnabled || $worldknowledgeCustomEnabled) {
 
                             // If rank is good enough, we try to see if user can access advanced or basic lore
                             if ($topTopic["combined_rank"] > 3.3) {
+                                $advancedText = trim((string)($topTopic["topic_desc"] ?? ''));
+                                $basicText = trim((string)($topTopic["topic_desc_basic"] ?? ''));
+
                                 // -----------------------------
                                 // 1) Check advanced article
                                 // -----------------------------
@@ -269,9 +272,9 @@ if ($minimeEnabled || $worldknowledgeCustomEnabled) {
                                     $advancedAllowed = true;
                                 }
 
-                                if ($advancedAllowed) {
+                                if ($advancedAllowed && $advancedText !== '') {
                                     // The user can access advanced world knowledge
-                                    $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge (You have advanced knowledge on this subject, you can use it in your dialogue): {$topTopic["topic"]}\n\"".trim($topTopic["topic_desc"])."\"";
+                                    $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge (You have advanced knowledge on this subject, you can use it in your dialogue): {$topTopic["topic"]}\n\"{$advancedText}\"";
                                 } else {
                                     // -----------------------------
                                     // 2) Check basic article
@@ -305,7 +308,7 @@ if ($minimeEnabled || $worldknowledgeCustomEnabled) {
                                         }
                                     }
 
-                                    if ($basicAllowed) {
+                                    if ($basicAllowed && $basicText !== '') {
                                         $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge (You only have basic knowledge on this subject, you can use it in your dialogue): {$topTopic["topic"]}\n\"".trim($topTopic["topic_desc_basic"])."\"";
                                     } else {
                                         $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge\nYou do not know ANYTHING about {$topTopic["topic"]}";

@@ -6,6 +6,112 @@ require_once 'CallableMock.php';
 // setUp and tearDown for the test database are in DatabaseTestCase.php
 final class WorldKnowledgeTest extends DatabaseTestCase
 {
+    public function testShippedFalloutWorldKnowledgeDatasetContract(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $csvPath = $root.DIRECTORY_SEPARATOR.'data'.DIRECTORY_SEPARATOR.'fallout_worldknowledge_basic.csv';
+        $sourcesPath = $root.DIRECTORY_SEPARATOR.'data'.DIRECTORY_SEPARATOR.'fallout_worldknowledge_sources.jsonl';
+        $handle = fopen($csvPath, 'rb');
+        $this->assertNotFalse($handle);
+
+        $expectedHeader = [
+            'topic',
+            'topic_desc',
+            'knowledge_class',
+            'topic_desc_basic',
+            'knowledge_class_basic',
+            'tags',
+            'category',
+        ];
+        $this->assertSame($expectedHeader, fgetcsv($handle, 0, ',', '"', '\\'));
+
+        $topics = [];
+        $categoryCounts = [];
+        while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
+            $this->assertCount(count($expectedHeader), $row);
+            $data = array_combine($expectedHeader, $row);
+            $this->assertIsArray($data);
+            $topic = strval($data['topic']);
+            $this->assertMatchesRegularExpression('/^[a-z0-9_]+$/', $topic);
+            $this->assertArrayNotHasKey($topic, $topics);
+            $topics[$topic] = true;
+            $this->assertSame('', $data['topic_desc']);
+            $this->assertSame('', $data['knowledge_class']);
+            $this->assertSame('', $data['knowledge_class_basic']);
+            $this->assertSame('', $data['tags']);
+            $wordCount = count(preg_split('/\s+/', trim(strval($data['topic_desc_basic']))));
+            $this->assertGreaterThanOrEqual(40, $wordCount);
+            $this->assertLessThanOrEqual(260, $wordCount);
+            $category = strval($data['category']);
+            $categoryCounts[$category] = intval($categoryCounts[$category] ?? 0) + 1;
+        }
+        fclose($handle);
+
+        $this->assertCount(350, $topics);
+        $this->assertSame(
+            ['creature' => 40, 'event' => 30, 'faction' => 45, 'location' => 110, 'person' => 125],
+            $categoryCounts
+        );
+
+        $sourceTopics = [];
+        foreach (file($sourcesPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+            $source = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
+            $sourceTopics[strval($source['topic'] ?? '')] = true;
+            $this->assertNotEmpty($source['source_url'] ?? '');
+            $this->assertNotEmpty($source['revision_id'] ?? '');
+        }
+        $this->assertSame(array_keys($topics), array_keys($sourceTopics));
+    }
+
+    public function testWorldKnowledgeSchemaSupportsUniqueBasicOnlyTopics(): void
+    {
+        $testDb = new sql();
+        $column = $testDb->fetchOne("
+            SELECT is_nullable
+              FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name = 'worldknowledge'
+               AND column_name = 'topic_desc'
+        ");
+        $uniqueIndex = $testDb->fetchOne("
+            SELECT COUNT(*) AS total
+              FROM pg_indexes
+             WHERE schemaname = 'public'
+               AND tablename = 'worldknowledge'
+               AND indexdef ILIKE 'CREATE UNIQUE INDEX% (topic)'
+        ");
+        $firstImport = $testDb->execQuery("
+            INSERT INTO worldknowledge (topic, topic_desc_basic, category)
+            VALUES ('megaton', 'Megaton is a fortified Capital Wasteland settlement.', 'location')
+            ON CONFLICT (topic) DO UPDATE
+                SET topic_desc_basic = EXCLUDED.topic_desc_basic,
+                    category = EXCLUDED.category
+        ");
+        $secondImport = $testDb->execQuery("
+            INSERT INTO worldknowledge (topic, topic_desc_basic, category)
+            VALUES ('megaton', 'Megaton is built around an undetonated atomic bomb.', 'location')
+            ON CONFLICT (topic) DO UPDATE
+                SET topic_desc_basic = EXCLUDED.topic_desc_basic,
+                    category = EXCLUDED.category
+        ");
+        $imported = $testDb->fetchOne("
+            SELECT COUNT(*) AS total, MAX(topic_desc_basic) AS topic_desc_basic
+              FROM worldknowledge
+             WHERE topic = 'megaton'
+        ");
+        $testDb->close();
+
+        $this->assertSame('YES', $column['is_nullable'] ?? null);
+        $this->assertSame(1, intval($uniqueIndex['total'] ?? 0));
+        $this->assertNotFalse($firstImport);
+        $this->assertNotFalse($secondImport);
+        $this->assertSame(1, intval($imported['total'] ?? 0));
+        $this->assertSame(
+            'Megaton is built around an undetonated atomic bomb.',
+            $imported['topic_desc_basic'] ?? null
+        );
+    }
+
     public function testWorldKnowledge_WhenNoKeywordMatch_ContextShouldNotContainLore(): void
     {
         // default test config
@@ -68,6 +174,56 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             return $this->defaultConnectorResponse($url, $context);
         });
         $this->setJsonRequest('inputtext', 100, 200, 'Tell me about the stimpack vendor.');
+        require(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."main.php");
+    }
+
+    public function testWorldKnowledge_WhenOnlyBasicDescriptionExists_ContextShouldContainBasicLore(): void
+    {
+        require("conf.php");
+
+        $testDb = new sql();
+        $testDb->execQuery("DELETE FROM worldknowledge WHERE topic = 'new_california_republic'");
+        $testDb->insert(
+            'worldknowledge',
+            array(
+                'topic' => 'new_california_republic',
+                'topic_desc_basic' => 'The New California Republic, commonly called the NCR, is a large republic expanding east from California.'
+            )
+        );
+        $testDb->execQuery("
+            UPDATE worldknowledge
+               SET native_vector =
+                     setweight(to_tsvector(coalesce(topic, '')), 'A')
+                  || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
+                  || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
+             WHERE topic = 'new_california_republic'
+        ");
+        $testDb->close();
+
+        $GLOBALS["mockConnectorSend"] = $this->createMock(CallableMock::class);
+        $GLOBALS["mockConnectorSend"]->expects($this->once())
+            ->method('__invoke')
+            ->with(
+                $this->equalTo('https://openrouter.ai/api/v1/chat/completions'),
+                $this->callback(function ($streamContext) {
+                    $options = stream_context_get_options($streamContext);
+                    $this->assertStringContainsString('World Knowledge (You only have basic knowledge on this subject', $options['http']['content']);
+                    $this->assertStringContainsString('The New California Republic, commonly called the NCR', $options['http']['content']);
+                    $this->assertStringNotContainsString('World Knowledge (You have advanced knowledge on this subject', $options['http']['content']);
+                    return true;
+                })
+            )
+            ->willReturnCallback(function ($url, $context) {
+                return $this->defaultConnectorResponse($url, $context);
+            });
+
+        $this->setJsonRequest(
+            'inputtext',
+            100,
+            200,
+            'Tell me about the New California Republic.',
+            ['skip_player_tts' => true]
+        );
         require(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."main.php");
     }
 
