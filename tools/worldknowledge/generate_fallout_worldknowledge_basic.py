@@ -163,6 +163,20 @@ def topic_key(value: str) -> str:
     return value.strip("_")
 
 
+def topic_parts(value: str) -> list[str]:
+    return [part.strip() for part in str(value).split(",") if part.strip()]
+
+
+def canonical_topic(value: str) -> str:
+    parts = topic_parts(value)
+    return parts[0] if parts else ""
+
+
+def comparable_topic(value: str) -> str:
+    value = html.unescape(ascii_punctuation(value)).lower().replace("_", " ")
+    return normalize_space(re.sub(r"[^a-z0-9\s]", " ", value))
+
+
 def split_sentences(value: str) -> list[str]:
     protected = normalize_space(value)
     sentinel = "\u0000"
@@ -850,15 +864,28 @@ def validate_dataset(path: Path) -> dict[str, Any]:
         rows = list(reader)
 
     for index, row in enumerate(rows, start=2):
-        topic = str(row.get("topic", "")).strip()
+        raw_topic = str(row.get("topic", "")).strip()
+        parts = topic_parts(raw_topic)
+        topic = canonical_topic(raw_topic)
         issues = []
         if not topic:
             issues.append("topic is blank")
         elif topic != topic_key(topic):
             issues.append("topic is not a normalized key")
         elif topic in topics:
-            issues.append("topic is duplicated")
+            issues.append("canonical topic is duplicated")
         topics.add(topic)
+        seen_names = {comparable_topic(topic)}
+        for alias in parts[1:]:
+            comparable = comparable_topic(alias)
+            if not comparable:
+                issues.append("topic contains a blank alias")
+            elif comparable in seen_names:
+                issues.append(f"topic contains duplicate alias: {alias}")
+            elif len(alias) > 80 or len(alias.split()) > 8:
+                issues.append(f"topic alias is too long: {alias}")
+            else:
+                seen_names.add(comparable)
         category = str(row.get("category", "")).strip()
         if category not in ALLOWED_CATEGORIES:
             issues.append(f"unsupported category: {category}")

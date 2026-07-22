@@ -347,6 +347,7 @@ $FEATURES["MISC"]["WORLDKNOWLEDGE_INFINIUM"]=true;	//Fallout context information
 $FEATURES["MISC"]["JSON_DIALOGUE_FORMAT_REORDER"]=false; //Reorders properties in the offered JSON schema.
 
 $WORLDKNOWLEDGE_INFINIUM=true;
+$LOCATION_WORLDKNOWLEDGE=true; // Force matching current location and worldspace lore into prompts.
 
 $FEATURES["MISC"]["LIFE_LINK_PLUGIN"]=false; // WIP. Use life link plugin for dynamic profiles
 

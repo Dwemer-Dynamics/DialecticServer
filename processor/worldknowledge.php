@@ -1,6 +1,9 @@
 <?php
 
+require_once(__DIR__.DIRECTORY_SEPARATOR.'..'.DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'worldknowledge_topic.php');
+
 $GLOBALS["WORLDKNOWLEDGE_HINT"] = "";
+$GLOBALS["WORLDKNOWLEDGE_INJECTED_TOPICS"] = [];
 
 // Helper function to properly check boolean values (handles string "false" from form submissions)
 // Guard against redeclaration when worldknowledge.php is included multiple times (e.g., during rechat)
@@ -16,6 +19,11 @@ if (!function_exists('isWorldKnowledgeEnabled')) {
 $minimeEnabled = isMinimeT5Enabled();
 $worldknowledgeCustomEnabled = isWorldKnowledgeEnabled($GLOBALS["WORLDKNOWLEDGE_CUSTOM"] ?? false);
 $worldknowledgeInfiniumEnabled = isWorldKnowledgeEnabled($GLOBALS["WORLDKNOWLEDGE_INFINIUM"] ?? false);
+$worldknowledgeRequestEligible = in_array(
+    $gameRequest[0] ?? '',
+    ["inputtext", "inputtext_s", "rechat", "continue", "instruction", "suggestion"],
+    true
+);
 
 $worldknowledgeRows = 0;
 try {
@@ -43,9 +51,14 @@ error_log("[WORLDKNOWLEDGE DEBUG] MINIME_T5(auto)=" . ($minimeEnabled ? 'Y' : 'N
     . " | WORLDKNOWLEDGE_INFINIUM=" . var_export($GLOBALS["WORLDKNOWLEDGE_INFINIUM"] ?? 'NOT SET', true)
     . " (enabled=" . ($worldknowledgeInfiniumEnabled ? 'Y' : 'N') . ")");
 
+if ($worldknowledgeInfiniumEnabled && $worldknowledgeRequestEligible) {
+    require_once(__DIR__.DIRECTORY_SEPARATOR.'..'.DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'worldknowledge_forced_context.php');
+    dialecticWorldKnowledgeInjectForcedLocationContext($GLOBALS['db'] ?? null);
+}
+
 if ($minimeEnabled || $worldknowledgeCustomEnabled) {
     if ($worldknowledgeInfiniumEnabled) {
-        if (in_array($gameRequest[0], ["inputtext","inputtext_s","rechat", "continue", "instruction", "suggestion"])) {
+        if ($worldknowledgeRequestEligible) {
             
             if ($gameRequest[0] === "rechat") {
                 $pattern = "/\([^)]*Context location[^)]*\)/"; // Remove (Context location..)
@@ -164,6 +177,9 @@ if ($minimeEnabled || $worldknowledgeCustomEnabled) {
                         $currentWorldKnowledgeTopicQuery = $prepareTsQuery($currentWorldKnowledgeTopic);
                         $locationCtxQuery       = $prepareTsQuery($locationCtx);
                         $contextKeywordsQuery   = $prepareTsQuery($contextKeywords);
+                        $currentInputAliasKey   = $GLOBALS["db"]->escape(
+                            preg_replace('/[^a-z0-9]/', '', $normalizedCurrentTopic)
+                        );
 
                         // Query to find the top matching WorldKnowledge entry for this topic
                         $query = "
@@ -181,6 +197,11 @@ if ($minimeEnabled || $worldknowledgeCustomEnabled) {
                                     CASE WHEN native_vector @@ to_tsquery('$locationCtxQuery') THEN 2.0 ELSE 1.0 END +
                                 ts_rank(native_vector, to_tsquery('$contextKeywordsQuery')) *
                                     CASE WHEN native_vector @@ to_tsquery('$contextKeywordsQuery') THEN 1.0 ELSE 0.0 END +
+                                CASE WHEN EXISTS (
+                                    SELECT 1
+                                    FROM unnest(string_to_array(topic, ',')) AS topic_alias(value)
+                                    WHERE regexp_replace(lower(btrim(topic_alias.value)), '[^a-z0-9]', '', 'g') = '$currentInputAliasKey'
+                                ) THEN 100.0 ELSE 0.0 END +
                                 -- Strong boost for alias match in the topic column (commas/underscores normalized)
                                 ts_rank(
                                     to_tsvector('simple',
@@ -206,6 +227,11 @@ if ($minimeEnabled || $worldknowledgeCustomEnabled) {
                                 native_vector @@ to_tsquery('$currentWorldKnowledgeTopicQuery') OR
                                 native_vector @@ to_tsquery('$locationCtxQuery') OR
                                 native_vector @@ to_tsquery('$contextKeywordsQuery') OR
+                                EXISTS (
+                                    SELECT 1
+                                    FROM unnest(string_to_array(topic, ',')) AS topic_alias(value)
+                                    WHERE regexp_replace(lower(btrim(topic_alias.value)), '[^a-z0-9]', '', 'g') = '$currentInputAliasKey'
+                                ) OR
                                 to_tsvector('simple',
                                     regexp_replace(
                                         replace(lower(topic), '_',' '),
@@ -224,10 +250,14 @@ if ($minimeEnabled || $worldknowledgeCustomEnabled) {
 
                         if (!empty($worldknowledgeTopics)) {
                             $topTopic = $worldknowledgeTopics[0];
+                            $canonicalTopic = dialecticWorldKnowledgeCanonicalTopic($topTopic["topic"] ?? '');
                             $msg = 'worldknowledge keyword offered';
 
                             // If rank is good enough, we try to see if user can access advanced or basic lore
-                            if ($topTopic["combined_rank"] > 3.3) {
+                            $hintLengthBeforeTopic = strlen($GLOBALS["WORLDKNOWLEDGE_HINT"]);
+                            if ($topTopic["combined_rank"] > 3.3
+                                && !dialecticWorldKnowledgeTopicWasInjected($topTopic["topic"] ?? '')
+                            ) {
                                 $advancedText = trim((string)($topTopic["topic_desc"] ?? ''));
                                 $basicText = trim((string)($topTopic["topic_desc_basic"] ?? ''));
 
@@ -274,7 +304,7 @@ if ($minimeEnabled || $worldknowledgeCustomEnabled) {
 
                                 if ($advancedAllowed && $advancedText !== '') {
                                     // The user can access advanced world knowledge
-                                    $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge (You have advanced knowledge on this subject, you can use it in your dialogue): {$topTopic["topic"]}\n\"{$advancedText}\"";
+                                    $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge (You have advanced knowledge on this subject, you can use it in your dialogue): {$canonicalTopic}\n\"{$advancedText}\"";
                                 } else {
                                     // -----------------------------
                                     // 2) Check basic article
@@ -309,11 +339,16 @@ if ($minimeEnabled || $worldknowledgeCustomEnabled) {
                                     }
 
                                     if ($basicAllowed && $basicText !== '') {
-                                        $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge (You only have basic knowledge on this subject, you can use it in your dialogue): {$topTopic["topic"]}\n\"".trim($topTopic["topic_desc_basic"])."\"";
+                                        $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge (You only have basic knowledge on this subject, you can use it in your dialogue): {$canonicalTopic}\n\"".trim($topTopic["topic_desc_basic"])."\"";
                                     } else {
-                                        $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge\nYou do not know ANYTHING about {$topTopic["topic"]}";
+                                        $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge\nYou do not know ANYTHING about {$canonicalTopic}";
                                     }
                                 }
+                                if (strlen($GLOBALS["WORLDKNOWLEDGE_HINT"]) > $hintLengthBeforeTopic) {
+                                    dialecticWorldKnowledgeMarkTopicInjected($topTopic["topic"] ?? '');
+                                }
+                            } elseif (dialecticWorldKnowledgeTopicWasInjected($topTopic["topic"] ?? '')) {
+                                $msg = "worldknowledge keyword already injected from scene context";
                             } else {
                                 $msg = "worldknowledge keyword NOT offered (no good results in search)";
                             }
@@ -326,7 +361,7 @@ if ($minimeEnabled || $worldknowledgeCustomEnabled) {
                                     'keywords' => $msg,
                                     'rank_any' => $topTopic["combined_rank"],
                                     'rank_all' => $topTopic["combined_rank"],
-                                    'memory'   => "$currentInputTopic / $currentWorldKnowledgeTopic / $locationCtxQuery / $contextKeywordsQuery => {$topTopic["topic"]}",
+                                    'memory'   => "$currentInputTopic / $currentWorldKnowledgeTopic / $locationCtxQuery / $contextKeywordsQuery => {$canonicalTopic}",
                                     'time'     => $topic_res["elapsed_time"]
                                 )
                             );

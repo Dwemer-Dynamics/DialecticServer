@@ -26,6 +26,7 @@ $enginePath = dirname($rootPath) . DIRECTORY_SEPARATOR;
 $configFilepath = $rootPath . "conf" . DIRECTORY_SEPARATOR;
 require_once($configFilepath . "conf.php");
 require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "db_connection_settings.php");
+require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "worldknowledge_topic.php");
 
 $dbSettings = dialecticDbConnectionSettings('dialectic');
 $host = $dbSettings['host'];
@@ -40,7 +41,7 @@ $password = $dbSettings['password'];
 $message = '';
 
 function worldknowledge_normalize_topic_key($value) {
-    return strtolower(trim((string)$value));
+    return dialecticWorldKnowledgeNormalizeTopicList($value);
 }
 
 function worldknowledge_has_description($topicDesc, $topicDescBasic) {
@@ -79,8 +80,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
                 category
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (topic)
+            ON CONFLICT ((lower(btrim(split_part(topic, ',', 1)))))
             DO UPDATE SET
+                topic                = EXCLUDED.topic,
                 topic_desc           = EXCLUDED.topic_desc,
                 knowledge_class      = EXCLUDED.knowledge_class,
                 topic_desc_basic     = EXCLUDED.topic_desc_basic,
@@ -205,8 +207,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                                 category
                             )
                             VALUES ($1, $2, $3, $4, $5, $6, $7)
-                            ON CONFLICT (topic)
+                            ON CONFLICT ((lower(btrim(split_part(topic, ',', 1)))))
                             DO UPDATE SET
+                                topic                = EXCLUDED.topic,
                                 topic_desc           = EXCLUDED.topic_desc,
                                 knowledge_class      = EXCLUDED.knowledge_class,
                                 topic_desc_basic     = EXCLUDED.topic_desc_basic,
@@ -1512,7 +1515,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <input type="hidden" name="topic_original" id="edit_topic_original">
 
                 <label for="edit_topic">Topic:</label>
-                <small>Topic name for keyword searching.</small>
+                <small>Canonical topic followed by optional comma-separated aliases.</small>
                 <input type="text" name="topic_new" id="edit_topic" required>
                 
 
@@ -1562,7 +1565,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <input type="hidden" name="submit_individual" value="1">
 
                 <label for="topic">Topic (required):</label>
-                <small>Topic name for keyword searching.</small>
+                <small>Canonical topic followed by optional comma-separated aliases.</small>
                 <input type="text" name="topic" id="topic" required>
 
                 <label for="topic_desc">Topic Description (required):</label>

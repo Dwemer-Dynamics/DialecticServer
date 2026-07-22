@@ -4002,6 +4002,42 @@ if ($checkVersion("legacy_currentmission_cleanup") < 20260713003 || $currentMiss
 
 //----------------------------------------------------
 
+if ($checkVersion("general_settings") < 20260722001) {
+    Logger::debug("Applying general_settings 20260722001 - add forced location World Knowledge setting");
+
+    $b_ok = true;
+    try {
+        $settingId = 'LOCATION_WORLDKNOWLEDGE';
+        $existingRow = dialecticGetGeneralSettingRow($settingId);
+        $definition = dialecticGetSchemaDefinition($settingId);
+        $description = dialecticGetManagedGeneralSettingDescriptions()[$settingId]
+            ?? dialecticGetSchemaDescription($settingId);
+
+        if ($existingRow) {
+            $currentValue = $existingRow['value'] ?? ($definition['default'] ?? true);
+        } else {
+            $legacyValue = dialecticReadLegacyGlobalValue($settingId, '__DIALECTIC_SETTING_MISSING__');
+            $currentValue = ($legacyValue === '__DIALECTIC_SETTING_MISSING__')
+                ? ($definition['default'] ?? true)
+                : $legacyValue;
+        }
+
+        if (!dialecticSetGeneralSetting($settingId, $currentValue, $description)) {
+            throw new RuntimeException("Failed writing {$settingId}");
+        }
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error adding forced location World Knowledge setting: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("general_settings", 20260722001);
+        Logger::info("Applied patch general_settings 20260722001");
+    }
+}
+
+//----------------------------------------------------
+
 $managedGeneralSettingIds = array_values(array_unique(dialecticGetManagedGeneralSettingIds()));
 $managedGeneralSettingLiterals = implode(',', array_map(
     static fn(string $settingId): string => $db->escapeLiteral($settingId),
@@ -4195,13 +4231,15 @@ if ($checkVersion("worldknowledge") < 20260720001) {
     }
 }
 
-if ($checkVersion("fallout_worldknowledge_seed") < 20260721001) {
-    Logger::debug("Applying fallout_worldknowledge_seed 20260721001 - seed basic Fallout lore");
+if ($checkVersion("fallout_worldknowledge_seed") < 20260722001) {
+    Logger::debug("Applying fallout_worldknowledge_seed 20260722001 - seed Fallout lore aliases");
 
     $b_ok = true;
     $transactionOpen = false;
     $seedPath = dirname(__DIR__).DIRECTORY_SEPARATOR.'data'.DIRECTORY_SEPARATOR.'fallout_worldknowledge_basic.csv';
     try {
+        require_once(dirname(__DIR__).DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'worldknowledge_topic.php');
+
         if (!is_readable($seedPath)) {
             throw new RuntimeException("World knowledge seed file is not readable: {$seedPath}");
         }
@@ -4230,6 +4268,34 @@ if ($checkVersion("fallout_worldknowledge_seed") < 20260721001) {
                 throw new RuntimeException('Unable to begin world knowledge seed transaction');
             }
             $transactionOpen = true;
+            if (!$db->execQuery("
+                DELETE FROM public.worldknowledge current_row
+                USING (
+                    SELECT ctid
+                    FROM (
+                        SELECT
+                            ctid,
+                            row_number() OVER (
+                                PARTITION BY lower(btrim(split_part(topic, ',', 1)))
+                                ORDER BY
+                                    CASE WHEN topic_desc IS NOT NULL AND btrim(topic_desc) <> '' THEN 1 ELSE 0 END DESC,
+                                    CASE WHEN topic_desc_basic IS NOT NULL AND btrim(topic_desc_basic) <> '' THEN 1 ELSE 0 END DESC,
+                                    ctid
+                            ) AS row_number
+                        FROM public.worldknowledge
+                    ) ranked
+                    WHERE row_number > 1
+                ) duplicates
+                WHERE current_row.ctid = duplicates.ctid
+            ")) {
+                throw new RuntimeException('Failed deduplicating canonical world knowledge topics');
+            }
+            if (!$db->execQuery("
+                CREATE UNIQUE INDEX IF NOT EXISTS worldknowledge_canonical_topic_unique_idx
+                    ON public.worldknowledge ((lower(btrim(split_part(topic, ',', 1)))))
+            ")) {
+                throw new RuntimeException('Failed creating the canonical world knowledge topic index');
+            }
             $seenTopics = [];
             $seedRows = 0;
 
@@ -4242,14 +4308,15 @@ if ($checkVersion("fallout_worldknowledge_seed") < 20260721001) {
                     throw new RuntimeException('Unable to map a world knowledge seed row');
                 }
 
-                $topic = strtolower(trim(strval($data['topic'] ?? '')));
+                $topic = dialecticWorldKnowledgeNormalizeTopicList($data['topic'] ?? '');
+                $canonicalTopic = dialecticWorldKnowledgeCanonicalTopic($topic);
                 $basicDescription = trim(strval($data['topic_desc_basic'] ?? ''));
                 $category = strtolower(trim(strval($data['category'] ?? '')));
-                if ($topic === '' || !preg_match('/^[a-z0-9_]+$/', $topic)) {
+                if ($canonicalTopic === '' || !preg_match('/^[a-z0-9_]+$/', $canonicalTopic)) {
                     throw new RuntimeException("World knowledge seed contains an invalid topic key: {$topic}");
                 }
-                if (isset($seenTopics[$topic])) {
-                    throw new RuntimeException("World knowledge seed contains a duplicate topic: {$topic}");
+                if (isset($seenTopics[$canonicalTopic])) {
+                    throw new RuntimeException("World knowledge seed contains a duplicate canonical topic: {$canonicalTopic}");
                 }
                 if ($basicDescription === '') {
                     throw new RuntimeException("World knowledge seed is missing a basic description for {$topic}");
@@ -4263,13 +4330,13 @@ if ($checkVersion("fallout_worldknowledge_seed") < 20260721001) {
                     }
                 }
 
-                $seenTopics[$topic] = true;
+                $seenTopics[$canonicalTopic] = true;
                 $seedRows++;
                 $topicSql = $db->escape($topic);
                 $descriptionSql = $db->escape($basicDescription);
                 $categorySql = $db->escape($category);
                 if (!$db->execQuery("
-                    INSERT INTO public.worldknowledge (
+                    INSERT INTO public.worldknowledge AS existing (
                         topic,
                         topic_desc,
                         native_vector,
@@ -4289,7 +4356,12 @@ if ($checkVersion("fallout_worldknowledge_seed") < 20260721001) {
                         NULL,
                         '{$categorySql}'
                     )
-                    ON CONFLICT (topic) DO NOTHING
+                    ON CONFLICT ((lower(btrim(split_part(topic, ',', 1))))) DO UPDATE
+                    SET topic = EXCLUDED.topic,
+                        native_vector =
+                              setweight(to_tsvector(EXCLUDED.topic), 'A')
+                           || setweight(to_tsvector(coalesce(existing.topic_desc, '')), 'B')
+                           || setweight(to_tsvector(coalesce(existing.topic_desc_basic, '')), 'C')
                 ")) {
                     throw new RuntimeException("Failed seeding world knowledge topic {$topic}");
                 }
@@ -4314,8 +4386,8 @@ if ($checkVersion("fallout_worldknowledge_seed") < 20260721001) {
     }
 
     if ($b_ok) {
-        $updateVersion("fallout_worldknowledge_seed", 20260721001);
-        Logger::info("Applied patch fallout_worldknowledge_seed 20260721001");
+        $updateVersion("fallout_worldknowledge_seed", 20260722001);
+        Logger::info("Applied patch fallout_worldknowledge_seed 20260722001");
     }
 }
 

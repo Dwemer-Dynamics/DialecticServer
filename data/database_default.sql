@@ -951,6 +951,8 @@ ALTER TABLE public.worldknowledge OWNER TO dwemer;
 
 CREATE UNIQUE INDEX worldknowledge_topic_unique_idx ON public.worldknowledge USING btree (topic);
 
+CREATE UNIQUE INDEX worldknowledge_canonical_topic_unique_idx ON public.worldknowledge USING btree ((lower(btrim(split_part(topic, ','::text, 1)))));
+
 --
 -- Name: quests; Type: TABLE; Schema: public; Owner: dwemer
 --

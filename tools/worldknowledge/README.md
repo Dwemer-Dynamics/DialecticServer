@@ -13,7 +13,13 @@ topic,topic_desc,knowledge_class,topic_desc_basic,knowledge_class_basic,tags,cat
 ```
 
 Only `topic`, `topic_desc_basic`, and `category` are populated. Advanced lore,
-knowledge classes, and tags remain blank.
+knowledge classes, and tags remain blank. A topic may contain CHIM-style
+comma-separated aliases. The first value is always the canonical lowercase
+snake_case key:
+
+```csv
+"new_california_republic,NCR",,,"The NCR is...",,,faction
+```
 
 ## Workflow
 
@@ -56,6 +62,17 @@ knowledge classes, and tags remain blank.
    python tools/worldknowledge/generate_fallout_worldknowledge_basic.py validate `
      tools/worldknowledge/output/fallout_worldknowledge_basic.csv
    ```
+
+5. Generate aliases from the approved descriptions and source titles:
+
+   ```powershell
+   $env:OPENROUTER_API_KEY = "..."
+   python tools/worldknowledge/generate_fallout_worldknowledge_aliases.py
+   ```
+
+   The alias pass caches GLM results, rejects aliases that are not supported by
+   the source text, removes cross-topic collisions, and writes a review report.
+   Use `--no-llm` to rebuild from cached and deterministic aliases only.
 
 Use `build --no-llm --allow-invalid` for local API/cache smoke tests. Extracted
 wiki introductions are then used as drafts rather than release-quality text.
