@@ -66,8 +66,8 @@ if (!function_exists('dialectic_voice_clone_sync_endpoint_from_globals')) {
         }
 
         return [
-            'pockettts' => 'http://127.0.0.1:8020',
-            'chatterbox' => 'http://127.0.0.1:8020',
+            'pockettts' => 'http://127.0.0.1:8024',
+            'chatterbox' => 'http://127.0.0.1:8023',
             'xtts-fastapi' => 'http://127.0.0.1:8020',
         ][$driver] ?? '';
     }
