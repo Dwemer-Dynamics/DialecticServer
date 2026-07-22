@@ -171,7 +171,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'conf_opts' => 20260626001,
             'core_action' => 20260716002,
             'core_player' => 20260707001,
-            'general_settings' => 20260511001,
+            'general_settings' => 20260722001,
             'core_stt_connector' => 20260502002,
             'descriptions_defaults' => 20260626004,
             'prompts' => 20260627001,
@@ -191,6 +191,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'profile_defaults' => 20260713002,
             'playthrough_metadata_schema' => 20260713002,
             'relationship_async_queues' => 20260713002,
+            'fallout_worldknowledge_seed' => 20260722001,
         ];
 
         try {

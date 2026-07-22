@@ -26,6 +26,7 @@ $enginePath = dirname($rootPath) . DIRECTORY_SEPARATOR;
 $configFilepath = $rootPath . "conf" . DIRECTORY_SEPARATOR;
 require_once($configFilepath . "conf.php");
 require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "db_connection_settings.php");
+require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "worldknowledge_topic.php");
 
 $dbSettings = dialecticDbConnectionSettings('dialectic');
 $host = $dbSettings['host'];
@@ -39,6 +40,14 @@ $password = $dbSettings['password'];
 // Initialize message variable
 $message = '';
 
+function worldknowledge_normalize_topic_key($value) {
+    return dialecticWorldKnowledgeNormalizeTopicList($value);
+}
+
+function worldknowledge_has_description($topicDesc, $topicDescBasic) {
+    return trim((string)$topicDesc) !== '' || trim((string)$topicDescBasic) !== '';
+}
+
 // Connect to the database
 $conn = pg_connect(dialecticPgConnectionString($dbSettings));
 if (!$conn) {
@@ -51,7 +60,7 @@ if (!$conn) {
  ********************************************************************/
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual'])) {
     // Collect and sanitize form inputs
-    $topic                = htmlspecialchars($_POST['topic']                ?? '');
+    $topic                = worldknowledge_normalize_topic_key($_POST['topic'] ?? '');
     $topic_desc           = htmlspecialchars($_POST['topic_desc']           ?? '');
     $knowledge_class      = htmlspecialchars($_POST['knowledge_class']      ?? '');
     $topic_desc_basic     = htmlspecialchars($_POST['topic_desc_basic']     ?? '');
@@ -59,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
     $tags                 = htmlspecialchars($_POST['tags']                 ?? '');
     $category             = htmlspecialchars($_POST['category']             ?? '');
 
-    if (!empty($topic) && !empty($topic_desc)) {
+    if (!empty($topic) && worldknowledge_has_description($topic_desc, $topic_desc_basic)) {
         $query = "
             INSERT INTO $schema.worldknowledge (
                 topic, 
@@ -71,8 +80,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
                 category
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (topic)
+            ON CONFLICT ((lower(btrim(split_part(topic, ',', 1)))))
             DO UPDATE SET
+                topic                = EXCLUDED.topic,
                 topic_desc           = EXCLUDED.topic_desc,
                 knowledge_class      = EXCLUDED.knowledge_class,
                 topic_desc_basic     = EXCLUDED.topic_desc_basic,
@@ -113,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
             $message .= "<p>An error occurred while inserting/updating data: " . pg_last_error($conn) . "</p>";
         }
     } else {
-        $message .= '<p>Please fill in at least the "topic" and "topic_desc" fields.</p>';
+        $message .= '<p>Please provide a topic and at least one description.</p>';
     }
 }
 
@@ -162,7 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                 }
 
                 $hasNamedColumns = isset($headerMap['topic']);
-                $requiredColumns = ['topic', 'topic_desc', 'knowledge_class', 'topic_desc_basic', 'knowledge_class_basic'];
+                $requiredColumns = ['topic', 'topic_desc_basic'];
                 $missingColumns = array_values(array_filter($requiredColumns, static function ($column) use ($headerMap) {
                     return !isset($headerMap[$column]);
                 }));
@@ -177,15 +187,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                         continue;
                     }
 
-                    $topic                = strtolower(trim(worldknowledge_csv_value($data, $headerMap, 'topic', 0)));
-                    $topic_desc           = worldknowledge_csv_value($data, $headerMap, 'topic_desc', 1);
-                    $knowledge_class      = worldknowledge_csv_value($data, $headerMap, 'knowledge_class', 2);
-                    $topic_desc_basic     = worldknowledge_csv_value($data, $headerMap, 'topic_desc_basic', 3);
-                    $knowledge_class_basic= worldknowledge_csv_value($data, $headerMap, 'knowledge_class_basic', 4);
-                    $tags                 = worldknowledge_csv_value($data, $headerMap, 'tags', 5);
-                    $category             = worldknowledge_csv_value($data, $headerMap, 'category', 6);
+                    $topic                = worldknowledge_normalize_topic_key(worldknowledge_csv_value($data, $headerMap, 'topic', 0));
+                    $topic_desc           = trim(worldknowledge_csv_value($data, $headerMap, 'topic_desc', 1));
+                    $knowledge_class      = trim(worldknowledge_csv_value($data, $headerMap, 'knowledge_class', 2));
+                    $topic_desc_basic     = trim(worldknowledge_csv_value($data, $headerMap, 'topic_desc_basic', 3));
+                    $knowledge_class_basic= trim(worldknowledge_csv_value($data, $headerMap, 'knowledge_class_basic', 4));
+                    $tags                 = trim(worldknowledge_csv_value($data, $headerMap, 'tags', 5));
+                    $category             = trim(worldknowledge_csv_value($data, $headerMap, 'category', 6));
 
-                    if (!empty($topic) && !empty($topic_desc)) {
+                    if (!empty($topic) && worldknowledge_has_description($topic_desc, $topic_desc_basic)) {
                         $query = "
                             INSERT INTO $schema.worldknowledge (
                                 topic,
@@ -197,8 +207,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                                 category
                             )
                             VALUES ($1, $2, $3, $4, $5, $6, $7)
-                            ON CONFLICT (topic)
+                            ON CONFLICT ((lower(btrim(split_part(topic, ',', 1)))))
                             DO UPDATE SET
+                                topic                = EXCLUDED.topic,
                                 topic_desc           = EXCLUDED.topic_desc,
                                 knowledge_class      = EXCLUDED.knowledge_class,
                                 topic_desc_basic     = EXCLUDED.topic_desc_basic,
@@ -239,7 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
 
                 $message .= "<p>$rowCount records inserted/updated successfully from the CSV file.</p>";
                 if ($skippedCount > 0) {
-                    $message .= "<p>$skippedCount row(s) skipped because topic or topic_desc was missing.</p>";
+                    $message .= "<p>$skippedCount row(s) skipped because the topic or both descriptions were missing.</p>";
                 }
             } else {
                 $message .= '<p>Error opening the CSV file.</p>';
@@ -323,7 +334,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_single') {
     // Sanitize and read posted fields - use htmlspecialchars_decode to convert HTML entities back
     $topic_original       = $_POST['topic_original'] ?? '';
-    $topic_new           = htmlspecialchars_decode($_POST['topic_new'] ?? '');
+    $topic_new           = worldknowledge_normalize_topic_key(htmlspecialchars_decode($_POST['topic_new'] ?? ''));
     $topic_desc_new      = htmlspecialchars_decode($_POST['topic_desc_new'] ?? '');
     $knowledge_class_new = htmlspecialchars_decode($_POST['knowledge_class_new'] ?? '');
     $topic_desc_basic_new = htmlspecialchars_decode($_POST['topic_desc_basic_new'] ?? '');
@@ -331,7 +342,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $tags_new            = htmlspecialchars_decode($_POST['tags_new'] ?? '');
     $category_new        = htmlspecialchars_decode($_POST['category_new'] ?? '');
 
-    if (!empty($topic_new) && !empty($topic_desc_new)) {
+    if (!empty($topic_new) && worldknowledge_has_description($topic_desc_new, $topic_desc_basic_new)) {
         // Perform the update
         $update_sql = "
             UPDATE $schema.worldknowledge
@@ -383,7 +394,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $message .= "<p>Error updating row: " . pg_last_error($conn) . "</p>";
         }
     } else {
-        $message .= '<p>Topic and Topic Description cannot be empty when saving.</p>';
+        $message .= '<p>A topic and at least one description are required when saving.</p>';
     }
 }
 
@@ -1504,7 +1515,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <input type="hidden" name="topic_original" id="edit_topic_original">
 
                 <label for="edit_topic">Topic:</label>
-                <small>Topic name for keyword searching.</small>
+                <small>Canonical topic followed by optional comma-separated aliases.</small>
                 <input type="text" name="topic_new" id="edit_topic" required>
                 
 
@@ -1554,7 +1565,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <input type="hidden" name="submit_individual" value="1">
 
                 <label for="topic">Topic (required):</label>
-                <small>Topic name for keyword searching.</small>
+                <small>Canonical topic followed by optional comma-separated aliases.</small>
                 <input type="text" name="topic" id="topic" required>
 
                 <label for="topic_desc">Topic Description (required):</label>

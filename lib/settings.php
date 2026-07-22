@@ -161,6 +161,7 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'SCENE_CLASSIFIER_ENABLED',
             'POWER_AWARENESS_ENABLED',
             'WORLDKNOWLEDGE_CUSTOM',
+            'LOCATION_WORLDKNOWLEDGE',
         ];
     }
 }
@@ -222,6 +223,7 @@ if (!function_exists('dialecticPrettySettingLabel')) {
             'CORE_CONNECTOR_PROFILES' => 'Dynamic Profile',
             'CORE_CONNECTOR_DIRECTOR' => 'Director Mode',
             'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 'Custom WorldKnowledge LLM',
+            'LOCATION_WORLDKNOWLEDGE' => 'Force Location World Knowledge',
             'RELLLM_CONNECTOR' => 'Relationship Management',
             'EMOTEMOODS' => 'Emote Moods',
             'RECHAT_H' => 'Rechat Rounds',
@@ -249,6 +251,10 @@ if (!function_exists('dialecticPrettySettingLabel')) {
 if (!function_exists('dialecticGetOverrideableGeneralSettingCategory')) {
     function dialecticGetOverrideableGeneralSettingCategory(string $flatId): string
     {
+        if (in_array($flatId, ['LOCATION_WORLDKNOWLEDGE', 'WORLDKNOWLEDGE_CUSTOM', 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'], true)) {
+            return 'World Knowledge';
+        }
+
         if (
             strpos($flatId, 'PROMPT_') === 0
             || in_array($flatId, ['EMOTEMOODS', 'LOCATION_BLACKLIST', 'ITEM_BLACKLIST', 'EVENT_TYPE_FILTER'], true)
@@ -279,7 +285,6 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingCategory')) {
                 'POWER_AWARENESS_ENABLED',
                 'SCENE_CLASSIFIER_ENABLED',
                 'RELATIONSHIP_SYSTEM_ENABLED',
-                'WORLDKNOWLEDGE_CUSTOM',
             ], true)
         ) {
             return 'Context';

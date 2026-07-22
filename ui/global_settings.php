@@ -43,12 +43,16 @@ $gsSections = [
  [ 'name' => 'SHORTER_NEARBY_ITEM_LIST', 'type' => 'boolean' ],
  [ 'name' => 'EVENT_TYPE_FILTER', 'type' => 'longstring' ],
  ],
+ 'World Knowledge' => [
+ [ 'name' => 'LOCATION_WORLDKNOWLEDGE', 'type' => 'boolean' ],
+ ],
  'Rechat' => [
  [ 'name' => 'RECHAT_MODE', 'type' => 'select', 'values' => ['tight', 'conversational', 'group', 'random'] ],
  [ 'name' => 'ENFORCE_STRICT_RECHAT_RESPONSE', 'type' => 'boolean' ],
  ],
  'Memory' => [
  [ 'name' => 'FEATURES@MEMORY_EMBEDDING@ENABLED', 'type' => 'boolean' ],
+ [ 'name' => 'FEATURES@MEMORY_EMBEDDING@TXTAI_URL', 'type' => 'url' ],
  [ 'name' => 'FEATURES@MEMORY_EMBEDDING@USE_TEXT2VEC', 'type' => 'boolean' ],
  [ 'name' => 'FEATURES@MEMORY_EMBEDDING@AUTO_CREATE_SUMMARY_INTERVAL', 'type' => 'integer' ],
  ],
@@ -81,9 +85,12 @@ $gsSections = [
 function pretty_label(string $flatName): string
 {
  if (strpos($flatName, 'FEATURES@MEMORY_EMBEDDING@') === 0) {
- $parts = explode('@', $flatName);
- $last = end($parts) ?: $flatName;
- return ucwords(str_replace('_', ' ', strtolower(trim($last))));
+  $parts = explode('@', $flatName);
+  $last = end($parts) ?: $flatName;
+  if (strtoupper(trim($last)) === 'TXTAI_URL') {
+   return 'MiniMe / TXT2VEC URL';
+  }
+  return ucwords(str_replace('_', ' ', strtolower(trim($last))));
  }
  $customLabels = [
  'CORE_CONNECTOR_PLAYER' => 'Player Respeech',
@@ -94,6 +101,7 @@ function pretty_label(string $flatName): string
  'CORE_CONNECTOR_PROFILES' => 'Dynamic Profile',
  'CORE_CONNECTOR_DIRECTOR' => 'Director Mode',
  'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 'Custom WorldKnowledge LLM',
+ 'LOCATION_WORLDKNOWLEDGE' => 'Force Location World Knowledge',
  'RELLLM_CONNECTOR' => 'Relationship Management',
  'EMOTEMOODS' => 'Emote Moods',
  'RECHAT_MODE' => 'Rechat Mode',
@@ -142,6 +150,7 @@ function icon_for_field(string $flatName): string
  if ($u === 'RELATIONSHIP_SYSTEM_ENABLED') return '&#128158;';
  if ($u === 'RELLLM_CONNECTOR') return '&#128279;';
  if ($u === 'POWER_AWARENESS_ENABLED') return '&#9876;&#65039;';
+ if ($u === 'LOCATION_WORLDKNOWLEDGE') return '&#9881;&#65039;';
  if (strpos($u, 'RESPEECH') !== false) return '&#127908;';
  if (strpos($u, 'SPEECH_STYLE') !== false) return '&#128483;&#65039;';
  if (strpos($u, 'SUMMARY_PROMPT') === 0) return '&#128221;';

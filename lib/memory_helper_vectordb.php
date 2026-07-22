@@ -1,5 +1,6 @@
 <?php
 
+require_once(__DIR__.DIRECTORY_SEPARATOR.'worldknowledge_topic.php');
 
 
 
@@ -113,8 +114,9 @@ function storeMemoryWorldKnowledge($embeddings, $text, $id)
 		return false;
 	}
 
-	$cleanedid = $GLOBALS["db"]->escape($id);
-	$GLOBALS["db"]->execQuery("update worldknowledge set vector384='[" . $embedding_str . "]' where topic='$cleanedid'");
+	$canonicalTopic = dialecticWorldKnowledgeCanonicalTopic($id);
+	$cleanedid = $GLOBALS["db"]->escape($canonicalTopic);
+	$GLOBALS["db"]->execQuery("update worldknowledge set vector384='[" . $embedding_str . "]' where lower(split_part(topic, ',', 1))=lower('$cleanedid')");
 	return true;
 }
 
