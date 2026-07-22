@@ -65,4 +65,26 @@ final class TtsStudioProviderDetectionTest extends TestCase
         $this->assertSame('xtts-fastapi', dialecticTtsStudioNormalizeProviderIdentity('xtts'));
         $this->assertSame('', dialecticTtsStudioNormalizeProviderIdentity('unknown'));
     }
+
+    public function testIdentifiesReleasedServicesFromOpenApiFingerprints(): void
+    {
+        $this->assertSame('chatterbox', dialecticTtsStudioProviderFromOpenApi([
+            'info' => ['title' => 'Chatterbox TTS API'],
+            'paths' => ['/speakers_list' => [], '/sample/{file_name}' => []],
+        ]));
+        $this->assertSame('pockettts', dialecticTtsStudioProviderFromOpenApi([
+            'info' => ['title' => 'FastAPI'],
+            'paths' => ['/speakers_list' => [], '/tts_to_audio_form' => []],
+        ]));
+        $this->assertSame('xtts-fastapi', dialecticTtsStudioProviderFromOpenApi([
+            'info' => ['title' => 'FastAPI'],
+            'paths' => [
+                '/speakers_list' => [],
+                '/speakers' => [],
+                '/sample/{file_name}' => [],
+                '/set_tts_settings' => [],
+                '/languages' => [],
+            ],
+        ]));
+    }
 }
