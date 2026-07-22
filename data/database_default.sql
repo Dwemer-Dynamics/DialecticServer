@@ -932,7 +932,7 @@ ALTER SEQUENCE public.moods_issued_rowid_seq OWNED BY public.moods_issued.rowid;
 
 CREATE TABLE public.worldknowledge (
     topic character varying NOT NULL,
-    topic_desc character varying NOT NULL,
+    topic_desc character varying,
     native_vector tsvector,
     knowledge_class text,
     topic_desc_basic text,
@@ -943,6 +943,15 @@ CREATE TABLE public.worldknowledge (
 
 
 ALTER TABLE public.worldknowledge OWNER TO dwemer;
+
+
+--
+-- Name: worldknowledge_topic_unique_idx; Type: INDEX; Schema: public; Owner: dwemer
+--
+
+CREATE UNIQUE INDEX worldknowledge_topic_unique_idx ON public.worldknowledge USING btree (topic);
+
+CREATE UNIQUE INDEX worldknowledge_canonical_topic_unique_idx ON public.worldknowledge USING btree ((lower(btrim(split_part(topic, ','::text, 1)))));
 
 --
 -- Name: quests; Type: TABLE; Schema: public; Owner: dwemer

@@ -43,6 +43,9 @@ $gsSections = [
  [ 'name' => 'SHORTER_NEARBY_ITEM_LIST', 'type' => 'boolean' ],
  [ 'name' => 'EVENT_TYPE_FILTER', 'type' => 'longstring' ],
  ],
+ 'World Knowledge' => [
+ [ 'name' => 'LOCATION_WORLDKNOWLEDGE', 'type' => 'boolean' ],
+ ],
  'Rechat' => [
  [ 'name' => 'RECHAT_MODE', 'type' => 'select', 'values' => ['tight', 'conversational', 'group', 'random'] ],
  [ 'name' => 'ENFORCE_STRICT_RECHAT_RESPONSE', 'type' => 'boolean' ],
@@ -98,6 +101,7 @@ function pretty_label(string $flatName): string
  'CORE_CONNECTOR_PROFILES' => 'Dynamic Profile',
  'CORE_CONNECTOR_DIRECTOR' => 'Director Mode',
  'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 'Custom WorldKnowledge LLM',
+ 'LOCATION_WORLDKNOWLEDGE' => 'Force Location World Knowledge',
  'RELLLM_CONNECTOR' => 'Relationship Management',
  'EMOTEMOODS' => 'Emote Moods',
  'RECHAT_MODE' => 'Rechat Mode',
@@ -146,6 +150,7 @@ function icon_for_field(string $flatName): string
  if ($u === 'RELATIONSHIP_SYSTEM_ENABLED') return '&#128158;';
  if ($u === 'RELLLM_CONNECTOR') return '&#128279;';
  if ($u === 'POWER_AWARENESS_ENABLED') return '&#9876;&#65039;';
+ if ($u === 'LOCATION_WORLDKNOWLEDGE') return '&#9881;&#65039;';
  if (strpos($u, 'RESPEECH') !== false) return '&#127908;';
  if (strpos($u, 'SPEECH_STYLE') !== false) return '&#128483;&#65039;';
  if (strpos($u, 'SUMMARY_PROMPT') === 0) return '&#128221;';

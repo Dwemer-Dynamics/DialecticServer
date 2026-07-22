@@ -2284,6 +2284,7 @@ if (!function_exists('isWorldKnowledgeSettingEnabled')) {
 $minimeEnabled = isMinimeT5Enabled();
 $worldknowledgeCustomEnabled = isWorldKnowledgeSettingEnabled($GLOBALS["WORLDKNOWLEDGE_CUSTOM"] ?? false);
 $worldknowledgeInfiniumEnabled = isWorldKnowledgeSettingEnabled($GLOBALS["WORLDKNOWLEDGE_INFINIUM"] ?? false);
+$locationWorldKnowledgeEnabled = isWorldKnowledgeSettingEnabled($GLOBALS["LOCATION_WORLDKNOWLEDGE"] ?? true);
 
 // Debug: Log the actual values being checked BEFORE the conditional
 error_log("[WORLDKNOWLEDGE CHECK] MINIME_T5(auto)=" . ($minimeEnabled ? 'Y' : 'N')
@@ -2292,7 +2293,7 @@ error_log("[WORLDKNOWLEDGE CHECK] MINIME_T5(auto)=" . ($minimeEnabled ? 'Y' : 'N
     . " | WORLDKNOWLEDGE_INFINIUM=" . var_export($GLOBALS["WORLDKNOWLEDGE_INFINIUM"] ?? null, true)
     . " (enabled=" . ($worldknowledgeInfiniumEnabled ? 'Y' : 'N') . ")");
 
-if (($minimeEnabled || $worldknowledgeCustomEnabled) && $worldknowledgeInfiniumEnabled) {
+if (($minimeEnabled || $worldknowledgeCustomEnabled || $locationWorldKnowledgeEnabled) && $worldknowledgeInfiniumEnabled) {
     Logger::phaseStart("worldknowledge_processor", [
         "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
     ]);
