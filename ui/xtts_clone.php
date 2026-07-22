@@ -1722,6 +1722,18 @@ function dialecticTtsStudioDetectEndpointProvider(string $endpoint): array
         ];
     }
 
+    $openApiProbe = dialecticTtsStudioProbeJson($endpoint . '/openapi.json');
+    $openApiIdentity = is_array($openApiProbe['decoded'] ?? null)
+        ? dialecticTtsStudioProviderFromOpenApi($openApiProbe['decoded'])
+        : '';
+    if (dialecticTtsStudioProbeSucceeded($openApiProbe) && $openApiIdentity !== '') {
+        return $cache[$endpoint] = [
+            'reachable' => true,
+            'provider' => $openApiIdentity,
+            'reason' => 'Legacy OpenAPI fingerprint matched ' . $openApiIdentity,
+        ];
+    }
+
     if (strpos($endpoint, ':8086') !== false || strpos($endpoint, '/v1/audio/speech') !== false) {
         $audioCppBase = dialecticTtsStudioAudioCppBaseEndpoint($endpoint);
         $healthProbe = dialecticTtsStudioProbeJson($audioCppBase . '/health');
