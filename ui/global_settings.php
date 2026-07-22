@@ -49,6 +49,7 @@ $gsSections = [
  ],
  'Memory' => [
  [ 'name' => 'FEATURES@MEMORY_EMBEDDING@ENABLED', 'type' => 'boolean' ],
+ [ 'name' => 'FEATURES@MEMORY_EMBEDDING@TXTAI_URL', 'type' => 'url' ],
  [ 'name' => 'FEATURES@MEMORY_EMBEDDING@USE_TEXT2VEC', 'type' => 'boolean' ],
  [ 'name' => 'FEATURES@MEMORY_EMBEDDING@AUTO_CREATE_SUMMARY_INTERVAL', 'type' => 'integer' ],
  ],
@@ -81,9 +82,12 @@ $gsSections = [
 function pretty_label(string $flatName): string
 {
  if (strpos($flatName, 'FEATURES@MEMORY_EMBEDDING@') === 0) {
- $parts = explode('@', $flatName);
- $last = end($parts) ?: $flatName;
- return ucwords(str_replace('_', ' ', strtolower(trim($last))));
+  $parts = explode('@', $flatName);
+  $last = end($parts) ?: $flatName;
+  if (strtoupper(trim($last)) === 'TXTAI_URL') {
+   return 'MiniMe / TXT2VEC URL';
+  }
+  return ucwords(str_replace('_', ' ', strtolower(trim($last))));
  }
  $customLabels = [
  'CORE_CONNECTOR_PLAYER' => 'Player Respeech',
