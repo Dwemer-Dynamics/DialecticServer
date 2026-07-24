@@ -988,7 +988,7 @@ function loadNarratorVoiceSettings() {
     $narrator = new Narrator();
     $profileId = $narrator->getProfileId();
     if ($profileId) {
-        $profileManager = new CoreProfiles();
+        $profileManager = new CoreProfile();
         $profileData = $profileManager->getById($profileId);
         if (is_array($profileData) && !empty($profileData)) {
             $ttsConnectorId = intval($profileData['tts_connector_id'] ?? 0);
@@ -1550,63 +1550,69 @@ function returnLines($lines,$writeOutput=true)
 
                 Logger::info("[INLINE_NARRATION] Saved NPC name: " . $savedDialecticName);
 
-                // Process each narration block with The Narrator's voice
-                foreach ($narrationParts['narrations'] as $narrationText) {
-                    if (empty(trim($narrationText))) {
-                        continue; // Skip empty narrations
-                    }
-
-                    Logger::info("[INLINE_NARRATION] Processing narration: " . $narrationText);
-
-                    // Switch to Narrator voice
-                    loadNarratorVoiceSettings();
-                    $GLOBALS["DIALECTIC_NAME"] = "The Narrator";
-
-                    Logger::info("[INLINE_NARRATION] Switched to Narrator, voice settings loaded");
-
-                    // Prepare narration for TTS (with asterisks for subtitle display)
-                    $narrationForTTS = $narrationText;
-                    $narrationForSubtitles = formatNarrationSubtitleText($narrationText);
-
-                    Logger::info("[INLINE_NARRATION] Generating TTS with function: " . $GLOBALS["TTSFUNCTION"]);
-
-                    // Generate TTS for narration using the configured TTS function
-                    $narratorTtsOutput = callConfiguredTts(
-                        $narrationForTTS,
-                        "default",
-                        dialecticTtsCacheKeyForLine("The Narrator", $narrationForSubtitles)
-                    );
-
-                    // Track narrator TTS output
-                    if ($narratorTtsOutput) {
-                        $GLOBALS["TRACK"]["FILES_GENERATED"][] = $narratorTtsOutput;
-                        Logger::info("[INLINE_NARRATION] Narrator TTS generated: " . $narratorTtsOutput);
-
-                        // Output narrator speech to game immediately
-                        if ($writeOutput) {
-                            // Use the same format as the main output at line 1093
-                            $narratorListener = isset($GLOBALS["SCRIPTLINE_LISTENER_ATOMIC"]) ? $GLOBALS["SCRIPTLINE_LISTENER_ATOMIC"] : "";
-                            $narratorExpression = ""; // No expression for narrator
-                            $narratorAnimation = ""; // No animation for narrator
-
-                            dialectic_buffer_speech_response_line(
-                                "The Narrator",
-                                $narrationForSubtitles,
-                                $narratorExpression,
-                                $narratorListener,
-                                $narratorAnimation,
-                                $narrationText
-                            );
-                            Logger::info("[INLINE_NARRATION] Narrator speech sent to game: " . $narrationForSubtitles);
+                try {
+                    // Process each narration block with The Narrator's voice
+                    foreach ($narrationParts['narrations'] as $narrationText) {
+                        if (empty(trim($narrationText))) {
+                            continue; // Skip empty narrations
                         }
-                    } else {
-                        Logger::warn("[INLINE_NARRATION] WARNING: Narrator TTS returned null/empty");
-                    }
-                }
 
-                // Restore NPC voice settings
-                restoreVoiceSettings($savedVoiceSettings);
-                $GLOBALS["DIALECTIC_NAME"] = $savedDialecticName;
+                        Logger::info("[INLINE_NARRATION] Processing narration: " . $narrationText);
+
+                        try {
+                            // Switch to Narrator voice
+                            loadNarratorVoiceSettings();
+                            $GLOBALS["DIALECTIC_NAME"] = "The Narrator";
+
+                            Logger::info("[INLINE_NARRATION] Switched to Narrator, voice settings loaded");
+
+                            // Prepare narration for TTS (with asterisks for subtitle display)
+                            $narrationForTTS = $narrationText;
+                            $narrationForSubtitles = formatNarrationSubtitleText($narrationText);
+
+                            Logger::info("[INLINE_NARRATION] Generating TTS with function: " . $GLOBALS["TTSFUNCTION"]);
+
+                            // Generate TTS for narration using the configured TTS function
+                            $narratorTtsOutput = callConfiguredTts(
+                                $narrationForTTS,
+                                "default",
+                                dialecticTtsCacheKeyForLine("The Narrator", $narrationForSubtitles)
+                            );
+
+                            // Track narrator TTS output
+                            if ($narratorTtsOutput) {
+                                $GLOBALS["TRACK"]["FILES_GENERATED"][] = $narratorTtsOutput;
+                                Logger::info("[INLINE_NARRATION] Narrator TTS generated: " . $narratorTtsOutput);
+
+                                // Output narrator speech to game immediately
+                                if ($writeOutput) {
+                                    // Use the same format as the main output at line 1093
+                                    $narratorListener = isset($GLOBALS["SCRIPTLINE_LISTENER_ATOMIC"]) ? $GLOBALS["SCRIPTLINE_LISTENER_ATOMIC"] : "";
+                                    $narratorExpression = ""; // No expression for narrator
+                                    $narratorAnimation = ""; // No animation for narrator
+
+                                    dialectic_buffer_speech_response_line(
+                                        "The Narrator",
+                                        $narrationForSubtitles,
+                                        $narratorExpression,
+                                        $narratorListener,
+                                        $narratorAnimation,
+                                        $narrationText
+                                    );
+                                    Logger::info("[INLINE_NARRATION] Narrator speech sent to game: " . $narrationForSubtitles);
+                                }
+                            } else {
+                                Logger::warn("[INLINE_NARRATION] WARNING: Narrator TTS returned null/empty");
+                            }
+                        } catch (Throwable $e) {
+                            Logger::error("[INLINE_NARRATION] Narrator routing failed; continuing with NPC dialogue: " . $e->getMessage());
+                        }
+                    }
+                } finally {
+                    // Always restore the NPC voice, including after narrator connector failures.
+                    restoreVoiceSettings($savedVoiceSettings);
+                    $GLOBALS["DIALECTIC_NAME"] = $savedDialecticName;
+                }
 
                 // Now generate TTS for the NPC's dialogue (if any)
                 if (!empty($narrationParts['dialogue'])) {
