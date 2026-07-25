@@ -47,6 +47,7 @@ dialecticRuntimeBootstrap($path, [
     'load_narrator' => true,
     'run_db_updates' => false,
 ]);
+require_once($path . "lib/player2_health.php");
 require_once($path . "lib/auditing.php");
 require_once($path . "lib/model_dynmodel.php");
 require_once($path . "lib/minimet5_service.php");
@@ -231,6 +232,9 @@ $GLOBALS["DIALECTIC_TURN_START_TIME"] = $startTime;
 $GLOBALS["AUDIT_RUNID_REQUEST"]=$gameRequest[0];
 
 $gameRequest[0] = strtolower($gameRequest[0]); // Who put 'diary' uppercase?
+if (PHP_SAPI !== 'cli' && !getenv('PHPUNIT_TEST') && $gameRequest[0] !== 'request') {
+    dialecticPlayer2HealthMarkGameActivity();
+}
 Logger::phaseStart("turn", [
     "type" => $gameRequest[0],
     "gamets" => $gameRequest[2] ?? "",
