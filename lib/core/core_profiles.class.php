@@ -25,6 +25,7 @@ class CoreProfile
             'CONTEXT_HISTORY_DIARY' => 100,
             'AUTO_DIARY_ENABLED' => false,
             'AUTO_DIARY_WAIT_ENABLED' => true,
+            'LATEST_DIARY_CONTEXT_ENABLED' => false,
             'SALUTATION_AFTER_A_WHILE' => false,
         ];
     }

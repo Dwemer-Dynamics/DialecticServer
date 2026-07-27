@@ -2459,6 +2459,14 @@ $promptInjectionContext = [
 $characterBottomInjections = function_exists('dialecticRenderPromptInjections')
     ? dialecticRenderPromptInjections("character_bottom", $promptInjectionContext)
     : "";
+$latestDiaryContext = function_exists('dialecticBuildLatestDiaryContextBlock')
+    ? dialecticBuildLatestDiaryContextBlock(
+        strval($GLOBALS["DIALECTIC_NAME"] ?? ''),
+        is_array($GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"] ?? null)
+            ? $GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"]
+            : []
+    )
+    : "";
 $promptBottomInjections = function_exists('dialecticRenderPromptInjections')
     ? dialecticRenderPromptInjections("prompt_bottom", $promptInjectionContext)
     : "";
@@ -2470,7 +2478,7 @@ if (!empty($GLOBALS["WORLDKNOWLEDGE_HINT"])) {
 
 $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
     "\n</roleplay_instructions>" . $worldPrompt .
-    "\n\n<character>\n" . $GLOBALS["DIALECTIC_PERS"] . $dynamicBiography . $characterBottomInjections .
+    "\n\n<character>\n" . $GLOBALS["DIALECTIC_PERS"] . $dynamicBiography . $latestDiaryContext . $characterBottomInjections .
     "\n</character>" . $knowledgeSection .
     "\n\n<general_instructions>\n" . $GLOBALS["COMMAND_PROMPT"] .
     "\n</general_instructions>" . $actionsList . $nearbySections . $promptBottomInjections . $paralinguisticTagsPrompt . "\n";

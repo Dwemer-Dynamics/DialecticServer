@@ -10,6 +10,54 @@ require_once(__DIR__."/utils_game_timestamp.php");
 require_once(__DIR__."/emote_moods.php");
 require_once(__DIR__."/npc_tts_status.php");
 
+function dialecticBuildLatestDiaryContextBlock(string $npcName, array $profileData): string
+{
+    $safeNpcName = trim($npcName);
+    if ($safeNpcName === '' || strcasecmp($safeNpcName, 'The Narrator') === 0) {
+        return '';
+    }
+
+    $metadata = json_decode(strval($profileData['metadata'] ?? '{}'), true);
+    if (!is_array($metadata)
+        || !filter_var($metadata['LATEST_DIARY_CONTEXT_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        return '';
+    }
+
+    $db = $GLOBALS['db'] ?? null;
+    if (!is_object($db) || !method_exists($db, 'fetchOne') || !method_exists($db, 'escape')) {
+        return '';
+    }
+
+    try {
+        $escapedName = $db->escape($safeNpcName);
+        $entry = $db->fetchOne(
+            "SELECT topic, content
+             FROM diarylog
+             WHERE lower(trim(people)) = lower('{$escapedName}')
+             ORDER BY gamets DESC, localts DESC, rowid DESC
+             LIMIT 1"
+        );
+    } catch (Throwable $e) {
+        Logger::warn("[LATEST_DIARY_CONTEXT] Unable to load diary context for {$safeNpcName}: " . $e->getMessage());
+        return '';
+    }
+
+    $content = trim(strval($entry['content'] ?? ''));
+    if ($content === '') {
+        return '';
+    }
+
+    $topic = trim(strval($entry['topic'] ?? ''));
+    $diaryText = $topic !== '' ? "Date: {$topic}\n{$content}" : $content;
+    $escapedText = htmlspecialchars(
+        $diaryText,
+        ENT_QUOTES | ENT_XML1 | ENT_SUBSTITUTE,
+        'UTF-8'
+    );
+
+    return "\n<latest_diary_entry>\n{$escapedText}\n</latest_diary_entry>\n";
+}
+
 function callConfiguredTts($textString, $mood, $stringforhash)
 {
     $ttsFunction = strval($GLOBALS["TTSFUNCTION"] ?? '');
