@@ -38,14 +38,12 @@ $gsSections = [
  'Prompt & Rechat' => [
  [ 'name' => 'PROMPT_HEAD', 'type' => 'longstring' ],
  [ 'name' => 'EMOTEMOODS', 'type' => 'longstring' ],
- [ 'name' => 'LOCATION_BLACKLIST', 'type' => 'longstring' ],
- [ 'name' => 'ITEM_BLACKLIST', 'type' => 'longstring' ],
- [ 'name' => 'SHORTER_NEARBY_ITEM_LIST', 'type' => 'boolean' ],
- [ 'name' => 'EVENT_TYPE_FILTER', 'type' => 'longstring' ],
  [ 'name' => 'RECHAT_MODE', 'type' => 'select', 'values' => ['tight', 'conversational', 'group', 'random'] ],
  [ 'name' => 'ENFORCE_STRICT_RECHAT_RESPONSE', 'type' => 'boolean' ],
  ],
  'World Knowledge' => [
+ [ 'name' => 'WORLDKNOWLEDGE_INFINIUM', 'type' => 'boolean' ],
+ [ 'name' => 'WORLDKNOWLEDGE_AMOUNT', 'type' => 'select', 'values' => ['1', '2', '3'] ],
  [ 'name' => 'LOCATION_WORLDKNOWLEDGE', 'type' => 'boolean' ],
  ],
  'Memory' => [
@@ -71,6 +69,12 @@ $gsSections = [
  [ 'name' => 'POWER_AWARENESS_ENABLED', 'type' => 'boolean' ],
  [ 'name' => 'PROMPT_TIMESTAMP', 'type' => 'boolean' ],
  ],
+ 'Filters & Blacklists' => [
+ [ 'name' => 'LOCATION_BLACKLIST', 'type' => 'longstring' ],
+ [ 'name' => 'ITEM_BLACKLIST', 'type' => 'longstring' ],
+ [ 'name' => 'SHORTER_NEARBY_ITEM_LIST', 'type' => 'boolean' ],
+ [ 'name' => 'EVENT_TYPE_FILTER', 'type' => 'longstring' ],
+ ],
  $promptContextSectionTitle => [],
  'Misc' => [
  [ 'name' => 'AUTO_LOCK_PROFILE', 'type' => 'boolean' ],
@@ -82,28 +86,27 @@ $gsSections = [
 
 $settingsTabs = [
  'prompt-rechat' => '💬 Prompt & Rechat',
- 'global-connectors' => '🔌 Global Connectors',
- 'ai-memory' => '🧠 AI & Memory',
+ 'ai-memory' => '🧠 Memory & Others',
  'context-knowledge' => '📚 Context & Knowledge',
- 'general' => '⚙️ General',
+ 'global-connectors' => '🔌 Global Connectors',
 ];
 
 $sectionTabs = [
  'Prompt & Rechat' => 'prompt-rechat',
  'Memory' => 'ai-memory',
- 'Global Connectors' => 'global-connectors',
+ 'Misc' => 'ai-memory',
  'World Knowledge' => 'context-knowledge',
  'Context' => 'context-knowledge',
+ 'Filters & Blacklists' => 'context-knowledge',
  $promptContextSectionTitle => 'context-knowledge',
- 'Misc' => 'general',
+ 'Global Connectors' => 'global-connectors',
 ];
 
 $tabControlPanels = [
  'prompt-rechat' => 'settings-panel-prompt-rechat-prompt-rechat',
- 'global-connectors' => 'settings-panel-global-connectors-global-connectors',
  'ai-memory' => 'settings-panel-ai-memory-memory',
  'context-knowledge' => 'settings-panel-context-knowledge-world-knowledge',
- 'general' => 'settings-panel-general-misc',
+ 'global-connectors' => 'settings-panel-global-connectors-global-connectors',
 ];
 
 function pretty_label(string $flatName): string
@@ -125,6 +128,8 @@ function pretty_label(string $flatName): string
  'CORE_CONNECTOR_PROFILES' => 'Dynamic Profile',
  'CORE_CONNECTOR_DIRECTOR' => 'Director Mode',
  'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 'Custom WorldKnowledge LLM',
+ 'WORLDKNOWLEDGE_INFINIUM' => 'World Knowledge Enabled',
+ 'WORLDKNOWLEDGE_AMOUNT' => 'World Knowledge Amount',
  'LOCATION_WORLDKNOWLEDGE' => 'Force Location World Knowledge',
  'RELLLM_CONNECTOR' => 'Relationship Management',
  'EMOTEMOODS' => 'Emote Moods',

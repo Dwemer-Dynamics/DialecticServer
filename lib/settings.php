@@ -161,6 +161,8 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'SCENE_CLASSIFIER_ENABLED',
             'POWER_AWARENESS_ENABLED',
             'WORLDKNOWLEDGE_CUSTOM',
+            'WORLDKNOWLEDGE_INFINIUM',
+            'WORLDKNOWLEDGE_AMOUNT',
             'LOCATION_WORLDKNOWLEDGE',
         ];
     }
@@ -223,6 +225,8 @@ if (!function_exists('dialecticPrettySettingLabel')) {
             'CORE_CONNECTOR_PROFILES' => 'Dynamic Profile',
             'CORE_CONNECTOR_DIRECTOR' => 'Director Mode',
             'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 'Custom WorldKnowledge LLM',
+            'WORLDKNOWLEDGE_INFINIUM' => 'World Knowledge Enabled',
+            'WORLDKNOWLEDGE_AMOUNT' => 'World Knowledge Amount',
             'LOCATION_WORLDKNOWLEDGE' => 'Force Location World Knowledge',
             'RELLLM_CONNECTOR' => 'Relationship Management',
             'EMOTEMOODS' => 'Emote Moods',
@@ -251,7 +255,7 @@ if (!function_exists('dialecticPrettySettingLabel')) {
 if (!function_exists('dialecticGetOverrideableGeneralSettingCategory')) {
     function dialecticGetOverrideableGeneralSettingCategory(string $flatId): string
     {
-        if (in_array($flatId, ['LOCATION_WORLDKNOWLEDGE', 'WORLDKNOWLEDGE_CUSTOM', 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'], true)) {
+        if (in_array($flatId, ['WORLDKNOWLEDGE_INFINIUM', 'WORLDKNOWLEDGE_AMOUNT', 'LOCATION_WORLDKNOWLEDGE', 'WORLDKNOWLEDGE_CUSTOM', 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'], true)) {
             return 'World Knowledge';
         }
 
