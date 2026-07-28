@@ -642,7 +642,6 @@ function getTimeColor($time) {
  'data' => 'Events',
  'gamets' => '<a href="https://fallout.fandom.com/wiki/Timeline" target="_blank" style="color: yellow;">Fallout Time</a>',
  'localts' => 'Time (UTC)',
- 'ts' => 'TS',
  ];
  
  $mappedResults = array_map(function ($row) use ($columnHeaders) {
@@ -694,7 +693,7 @@ function getTimeColor($time) {
  $peoplePresent = dialecticRenderNarratorRoleplayText($peoplePresent);
  }
  $mappedRow['People Present'] = htmlspecialchars($peoplePresent);
- } else if ($key === 'people') {
+ } else if ($key === 'people' || $key === 'ts') {
  // Skip rendering raw people column; we show only 'People Present'
  continue;
  } else {
@@ -937,12 +936,9 @@ function getTimeColor($time) {
  newRow.appendChild(td5);
  
  const td6 = document.createElement('td');
- td6.innerHTML = row['TS'] || '';
+ const rowId = row['ROWID'] || '';
+ td6.innerHTML = '<a class=\"icon-link\" href=\"#\" style=\"color: red !important;\" onclick=\"deleteRowAndRefresh(\'eventlog\', ' + JSON.stringify(rowId) + '); return false;\">' + rowId + ' <i class=\"bi-trash\" style=\"color: red !important;\"></i></a>';
  newRow.appendChild(td6);
- 
- const td7 = document.createElement('td');
- td7.textContent = row['ROWID'] || '';
- newRow.appendChild(td7);
  
  if (headerRow && headerRow.nextSibling) {
  tbody.insertBefore(newRow, headerRow.nextSibling);
