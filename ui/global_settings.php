@@ -81,16 +81,17 @@ $gsSections = [
 ];
 
 $settingsTabs = [
- 'prompt-rechat' => 'Prompt & Rechat',
- 'ai-memory' => 'AI & Memory',
- 'context-knowledge' => 'Context & Knowledge',
- 'general' => 'General',
+ 'prompt-rechat' => '💬 Prompt & Rechat',
+ 'global-connectors' => '🔌 Global Connectors',
+ 'ai-memory' => '🧠 AI & Memory',
+ 'context-knowledge' => '📚 Context & Knowledge',
+ 'general' => '⚙️ General',
 ];
 
 $sectionTabs = [
  'Prompt & Rechat' => 'prompt-rechat',
  'Memory' => 'ai-memory',
- 'Global Connectors' => 'ai-memory',
+ 'Global Connectors' => 'global-connectors',
  'World Knowledge' => 'context-knowledge',
  'Context' => 'context-knowledge',
  $promptContextSectionTitle => 'context-knowledge',
@@ -99,6 +100,7 @@ $sectionTabs = [
 
 $tabControlPanels = [
  'prompt-rechat' => 'settings-panel-prompt-rechat-prompt-rechat',
+ 'global-connectors' => 'settings-panel-global-connectors-global-connectors',
  'ai-memory' => 'settings-panel-ai-memory-memory',
  'context-knowledge' => 'settings-panel-context-knowledge-world-knowledge',
  'general' => 'settings-panel-general-misc',
@@ -449,7 +451,7 @@ h1.gs-title {
 
 .settings-tabs {
  display: grid;
- grid-template-columns: repeat(4, minmax(0, 1fr));
+ grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
  gap: 8px;
  margin-bottom: 14px;
  padding: 8px;
@@ -459,6 +461,7 @@ h1.gs-title {
 }
 
 .settings-tab {
+ position: relative;
  min-height: 40px;
  padding: 8px 12px;
  border: 1px solid #444;
@@ -467,6 +470,7 @@ h1.gs-title {
  color: #ddd;
  font-weight: 700;
  cursor: pointer;
+ transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
 .settings-tab:hover {
@@ -474,11 +478,12 @@ h1.gs-title {
  background: #383838;
 }
 
-.settings-tab.is-active {
- border-color: rgb(255, 182, 65);
- color: #fff;
- background: #3d3425;
- box-shadow: inset 0 0 0 1px rgba(255, 182, 65, 0.18);
+body .settings-tabs .settings-tab.is-active {
+ border-color: rgb(255, 182, 65) !important;
+ color: #fff !important;
+ background: rgba(88, 65, 29, 0.95) !important;
+ box-shadow: inset 0 0 0 1px rgba(255, 182, 65, 0.28), 0 0 12px rgba(255, 182, 65, 0.24) !important;
+ transform: translateY(-1px) !important;
 }
 
 .settings-tab:focus-visible {
