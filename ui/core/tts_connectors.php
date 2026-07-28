@@ -580,7 +580,7 @@ include(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "tmpl" . DI
 if (!$isEmbed) {
  include(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.php");
 }
-?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><style>
+?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css?v=<?php echo (int) @filemtime(dirname(__DIR__) . '/css/main.css'); ?>"><style>
 @font-face {
  font-family: 'Gothic821';
  src: url('<?php echo $webRoot; ?>/ui/css/font/Gothic821CondensedRegular.otf') format('opentype');
@@ -635,7 +635,7 @@ h1.api-title { margin: 0 0 20px 0; font-family: 'Gothic821', serif; word-spacing
  .list-wrap { max-height: 420px; }
  .editor-grid, .inline-two { grid-template-columns: 1fr; }
 }
-</style><main><div class="page-shell"><div class="page-header"><h1 class="api-title">TTS Connectors</h1><p class="page-subtitle">Text-to-Speech Setup Options.</p></div><?php if (!empty($_GET['notice'])): ?><div class="notice"><?php echo h($_GET['notice']); ?></div><?php endif; ?><div class="layout"><div class="left-col"><div class="btn-row"><a class="btn-save" href="<?php echo h(ttsPageUrl(['create_blank' => 1])); ?>">New Connector</a><form method="post" action="<?php echo h(ttsPageUrl()); ?>" enctype="multipart/form-data" id="tts_import_form" style="display:inline;"><input type="hidden" name="import" value="1"><input type="file" name="import_file[]" id="tts_import_file" accept=".csv" multiple style="display:none;"><button type="button" class="btn-primary" id="tts_import_btn">Import</button></form></div><div class="list-wrap" id="tts_connector_list"><?php foreach ($rows as $row): ?><?php
+</style><main><div class="page-shell"><div class="page-header"><h1 class="api-title">TTS Connectors</h1><p class="page-subtitle">Text-to-Speech Setup Options.</p></div><?php if (!empty($_GET['notice'])): ?><div class="notice"><?php echo h($_GET['notice']); ?></div><?php endif; ?><div class="layout"><div class="left-col"><div class="btn-row sidebar-action-grid"><a class="btn-save" href="<?php echo h(ttsPageUrl(['create_blank' => 1])); ?>">New</a><form method="post" action="<?php echo h(ttsPageUrl()); ?>" enctype="multipart/form-data" id="tts_import_form"><input type="hidden" name="import" value="1"><input type="file" name="import_file[]" id="tts_import_file" accept=".csv" multiple style="display:none;"><button type="button" class="btn-primary" id="tts_import_btn">Import</button></form></div><div class="list-wrap" id="tts_connector_list"><?php foreach ($rows as $row): ?><?php
  $rowId = intval($row['id'] ?? 0);
  $rowDriver = $ttsConnector->normalizeDriverValue($row['driver'] ?? 'none');
  $rowActive = ($editItem && intval($editItem['id'] ?? 0) === $rowId) ? ' active' : '';

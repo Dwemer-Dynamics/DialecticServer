@@ -209,7 +209,7 @@ if (isset($_GET["export"])) {
 $TITLE = " DIALECTIC - LLM Connectors";
 ob_start();
 include(__DIR__.DIRECTORY_SEPARATOR."../tmpl/head.html");
-?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><style>
+?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css?v=<?php echo (int) @filemtime(dirname(__DIR__) . '/css/main.css'); ?>"><style>
 /* Match WorldKnowledge page spacing and title styling */
 @font-face {
  font-family: 'Gothic821';
@@ -1339,7 +1339,7 @@ $editItem = null;
 if (isset($_GET["edit"])) {
  $editItem = $llm->getById($_GET["edit"]);
 }
-?><div class="page-header"><h1 class="api-title">LLM Connectors</h1><p class="page-subtitle">Configure Language Model connectors for AI dialogue generation</p></div><div id="toast" class="toast-notification" style="position:static; margin: 8px auto 12px; display:block; opacity:0; transform:none; max-width:960px; width: calc(100% - 20px);"><span class="message"></span></div><div class="llm-layout"><div class="llm-left position-sticky"><div style="margin: 6px 0 10px 4px; display:flex; gap:8px; flex-wrap:wrap;"><form method="get" style="display:inline" action="llm_connectors.php"><input type="hidden" name="create_blank" value="1"><button type="submit" class="btn-save">New Connector</button></form><form method="post" style="display:inline" action="llm_connectors.php" enctype="multipart/form-data" id="llm_import_form"><input type="hidden" name="import" value="1"><input type="file" name="import_file[]" id="llm_import_file" accept=".csv" multiple style="display:none"><button type="button" class="btn-primary" id="llm_import_btn">Import</button></form></div><div id="llm_list" class="conn-list"></div><script>
+?><div class="page-header"><h1 class="api-title">LLM Connectors</h1><p class="page-subtitle">Configure Language Model connectors for AI dialogue generation</p></div><div id="toast" class="toast-notification" style="position:static; margin: 8px auto 12px; display:block; opacity:0; transform:none; max-width:960px; width: calc(100% - 20px);"><span class="message"></span></div><div class="llm-layout"><div class="llm-left position-sticky"><div class="sidebar-action-grid"><form method="get" action="llm_connectors.php"><input type="hidden" name="create_blank" value="1"><button type="submit" class="btn-save">New</button></form><form method="post" action="llm_connectors.php" enctype="multipart/form-data" id="llm_import_form"><input type="hidden" name="import" value="1"><input type="file" name="import_file[]" id="llm_import_file" accept=".csv" multiple style="display:none"><button type="button" class="btn-primary" id="llm_import_btn">Import</button></form></div><div id="llm_list" class="conn-list"></div><script>
  (function(){
  const RAW = <?= json_encode($data ?? [], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
  const ACTIVE_ID = <?= json_encode($_GET['edit'] ?? '') ?>;
