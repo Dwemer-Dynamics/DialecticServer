@@ -583,7 +583,8 @@ body .settings-tabs .settings-tab.is-active {
  gap: 10px;
  color: #e0e0e0;
  min-width: 0;
- flex-wrap: wrap;
+ width: 100%;
+ flex-wrap: nowrap;
 }
 
 .provider-icon {
@@ -610,6 +611,14 @@ body .settings-tabs .settings-tab.is-active {
  gap: 10px;
  width: 100%;
  min-width: 0;
+}
+
+.filter-setting-card {
+ grid-template-columns: minmax(180px, 0.65fr) minmax(420px, 1.7fr) minmax(180px, 0.65fr);
+}
+
+.filter-setting-card .provider-body {
+ width: 100%;
 }
 
 .btn-filter-browse {
@@ -667,9 +676,10 @@ body .settings-tabs .settings-tab.is-active {
 }
 
 .provider-toggle {
- margin-left: 10px;
+ margin-left: auto;
  display: flex;
  align-items: center;
+ flex: 0 0 auto;
 }
 
 .provider-toggle input[type="checkbox"] {
@@ -1253,7 +1263,7 @@ body .settings-tabs .settings-tab.is-active {
  $schemaDefinition = dialecticGetSchemaDefinition($fieldName);
  $isReadonly = isset($schemaDefinition['readonly']) && $schemaDefinition['readonly'] === true;
  $readonlyAttr = $isReadonly ? 'readonly' : '';
- ?><div class="provider-card"><div class="provider-head"><div class="provider-title"><div class="provider-icon"><?php echo icon_for_field($fieldName); ?></div><div><?php echo htmlspecialchars($label); ?></div><?php if ($fieldType === 'boolean'): ?><div class="provider-toggle"><input type="hidden" name="<?php echo htmlspecialchars($fieldName); ?>" value="false"><input type="checkbox" name="<?php echo htmlspecialchars($fieldName); ?>" value="true" <?php echo ($current ? 'checked' : ''); ?><?php echo $isReadonly ? 'disabled' : ''; ?>></div><?php endif; ?><?php if ($fieldName === 'RELLLM_CONNECTOR'): ?><div class="provider-toggle"><input type="hidden" name="RELATIONSHIP_SYSTEM_ENABLED" value="false"><input type="checkbox" name="RELATIONSHIP_SYSTEM_ENABLED" value="true" <?php echo (current_value('RELATIONSHIP_SYSTEM_ENABLED') ? 'checked' : ''); ?> title="Enable/Disable Relationship System"></div><?php endif; ?><?php if ($fieldName === 'CORE_CONNECTOR_SCENECLASSIFIER'): ?><div class="provider-toggle"><input type="hidden" name="SCENE_CLASSIFIER_ENABLED" value="false"><input type="checkbox" name="SCENE_CLASSIFIER_ENABLED" value="true" <?php echo (current_value('SCENE_CLASSIFIER_ENABLED') ? 'checked' : ''); ?> title="Enable/Disable Scene Classifier"></div><?php endif; ?><?php if ($fieldName === 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'): ?><div class="provider-toggle"><input type="hidden" name="WORLDKNOWLEDGE_CUSTOM" value="false"><input type="checkbox" name="WORLDKNOWLEDGE_CUSTOM" value="true" <?php echo (current_value('WORLDKNOWLEDGE_CUSTOM') ? 'checked' : ''); ?> title="Enable/Disable Custom WorldKnowledge LLM"></div><?php endif; ?></div></div><div class="provider-body"><?php if ($fieldType === 'boolean'): ?><?php elseif ($fieldType === 'integer'): ?><?php $min = isset($field['min']) ? intval($field['min']) : null; $max = isset($field['max']) ? intval($field['max']) : null; ?><input type="number" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" <?php echo ($min !== null ? 'min="' . $min . '"' : ''); ?><?php echo ($max !== null ? 'max="' . $max . '"' : ''); ?> step="1" <?php echo $readonlyAttr; ?>><?php elseif ($fieldType === 'number'): ?><input type="number" step="0.01" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" <?php echo $readonlyAttr; ?>><?php elseif ($fieldType === 'longstring'): ?><?php if (isset($filterBrowseFieldConfigs[$fieldName])): ?><?php $browseConfig = $filterBrowseFieldConfigs[$fieldName]; ?><div class="filter-browse-wrap"><textarea name="<?php echo htmlspecialchars($fieldName); ?>" rows="4" <?php echo $readonlyAttr; ?>><?php echo htmlspecialchars(strval($current)); ?></textarea><?php if (!$isReadonly): ?><button
+ ?><div class="provider-card<?php echo isset($filterBrowseFieldConfigs[$fieldName]) ? ' filter-setting-card' : ''; ?>"><div class="provider-head"><div class="provider-title"><div class="provider-icon"><?php echo icon_for_field($fieldName); ?></div><div><?php echo htmlspecialchars($label); ?></div><?php if ($fieldType === 'boolean'): ?><div class="provider-toggle"><input type="hidden" name="<?php echo htmlspecialchars($fieldName); ?>" value="false"><input type="checkbox" name="<?php echo htmlspecialchars($fieldName); ?>" value="true" <?php echo ($current ? 'checked' : ''); ?><?php echo $isReadonly ? 'disabled' : ''; ?>></div><?php endif; ?><?php if ($fieldName === 'RELLLM_CONNECTOR'): ?><div class="provider-toggle"><input type="hidden" name="RELATIONSHIP_SYSTEM_ENABLED" value="false"><input type="checkbox" name="RELATIONSHIP_SYSTEM_ENABLED" value="true" <?php echo (current_value('RELATIONSHIP_SYSTEM_ENABLED') ? 'checked' : ''); ?> title="Enable/Disable Relationship System"></div><?php endif; ?><?php if ($fieldName === 'CORE_CONNECTOR_SCENECLASSIFIER'): ?><div class="provider-toggle"><input type="hidden" name="SCENE_CLASSIFIER_ENABLED" value="false"><input type="checkbox" name="SCENE_CLASSIFIER_ENABLED" value="true" <?php echo (current_value('SCENE_CLASSIFIER_ENABLED') ? 'checked' : ''); ?> title="Enable/Disable Scene Classifier"></div><?php endif; ?><?php if ($fieldName === 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'): ?><div class="provider-toggle"><input type="hidden" name="WORLDKNOWLEDGE_CUSTOM" value="false"><input type="checkbox" name="WORLDKNOWLEDGE_CUSTOM" value="true" <?php echo (current_value('WORLDKNOWLEDGE_CUSTOM') ? 'checked' : ''); ?> title="Enable/Disable Custom WorldKnowledge LLM"></div><?php endif; ?></div></div><div class="provider-body"><?php if ($fieldType === 'boolean'): ?><?php elseif ($fieldType === 'integer'): ?><?php $min = isset($field['min']) ? intval($field['min']) : null; $max = isset($field['max']) ? intval($field['max']) : null; ?><input type="number" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" <?php echo ($min !== null ? 'min="' . $min . '"' : ''); ?><?php echo ($max !== null ? 'max="' . $max . '"' : ''); ?> step="1" <?php echo $readonlyAttr; ?>><?php elseif ($fieldType === 'number'): ?><input type="number" step="0.01" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" <?php echo $readonlyAttr; ?>><?php elseif ($fieldType === 'longstring'): ?><?php if (isset($filterBrowseFieldConfigs[$fieldName])): ?><?php $browseConfig = $filterBrowseFieldConfigs[$fieldName]; ?><div class="filter-browse-wrap"><textarea name="<?php echo htmlspecialchars($fieldName); ?>" rows="4" <?php echo $readonlyAttr; ?>><?php echo htmlspecialchars(strval($current)); ?></textarea><?php if (!$isReadonly): ?><button
  type="button"
  class="btn-filter-browse js-filter-browse"
  data-field="<?php echo htmlspecialchars($fieldName); ?>"
