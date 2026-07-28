@@ -160,11 +160,37 @@ function dialectic_ui_ascii_text(string $text): string
 function icon_for_field(string $flatName): string
 {
  $u = strtoupper($flatName);
- if (strpos($u, 'FEATURES@MEMORY_EMBEDDING@') === 0 || strpos($u, 'MEMORY_') !== false) return '&#128172;';
- if ($u === 'PLAYER_NAME') return '&#127991;&#65039;';
- if ($u === 'PROMPT_HEAD') return '&#128285;';
- if ($u === 'EMOTEMOODS') return '&#127917;';
- if ($u === 'PROMPT_TIMESTAMP') return '&#128336;';
+ $icons = [
+ 'PLAYER_NAME' => '&#127991;&#65039;',
+ 'PROMPT_HEAD' => '&#128285;',
+ 'EMOTEMOODS' => '&#127917;',
+ 'RECHAT_MODE' => '&#128257;',
+ 'ENFORCE_STRICT_RECHAT_RESPONSE' => '&#127919;',
+ 'WORLDKNOWLEDGE_INFINIUM' => '&#128218;',
+ 'WORLDKNOWLEDGE_AMOUNT' => '&#128290;',
+ 'LOCATION_WORLDKNOWLEDGE' => '&#128205;',
+ 'FEATURES@MEMORY_EMBEDDING@ENABLED' => '&#129504;',
+ 'FEATURES@MEMORY_EMBEDDING@TXTAI_URL' => '&#128279;',
+ 'FEATURES@MEMORY_EMBEDDING@USE_TEXT2VEC' => '&#128292;',
+ 'FEATURES@MEMORY_EMBEDDING@AUTO_CREATE_SUMMARY_INTERVAL' => '&#9201;&#65039;',
+ 'SCENE_CLASSIFIER_ENABLED' => '&#127917;',
+ 'RELATIONSHIP_SYSTEM_ENABLED' => '&#128158;',
+ 'RELLLM_CONNECTOR' => '&#128279;',
+ 'GROUND_ITEMS_DESCRIPTIONS_ONLY' => '&#129704;',
+ 'INVENTORY_ITEMS_DESCRIPTIONS_ONLY' => '&#127890;',
+ 'HIDE_AMBIENT_COMBAT' => '&#128330;&#65039;',
+ 'POWER_AWARENESS_ENABLED' => '&#9876;&#65039;',
+ 'PROMPT_TIMESTAMP' => '&#128336;',
+ 'LOCATION_BLACKLIST' => '&#128205;',
+ 'ITEM_BLACKLIST' => '&#128230;',
+ 'SHORTER_NEARBY_ITEM_LIST' => '&#128220;',
+ 'EVENT_TYPE_FILTER' => '&#128269;',
+ 'AUTO_LOCK_PROFILE' => '&#128274;',
+ 'AUTOFILL_CUSTOM_PROFILES' => '&#10024;',
+ 'AUTOFILL_CUSTOM_PROFILES_TRIGGER' => '&#127919;',
+ 'CLEAN_CONTEXT_FOCUS_CHAT_HISTORY' => '&#129504;',
+ ];
+ if (isset($icons[$u])) return $icons[$u];
  if (strpos($u, 'CORE_CONNECTOR_') === 0) {
  if ($u === 'CORE_CONNECTOR_PLAYER') return '&#127918;';
  if ($u === 'CORE_CONNECTOR_SUMMARY') return '&#128221;';
@@ -175,11 +201,6 @@ function icon_for_field(string $flatName): string
  if ($u === 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM') return '&#128218;';
  return '&#128268;';
  }
- if ($u === 'SCENE_CLASSIFIER_ENABLED') return '&#127917;';
- if ($u === 'RELATIONSHIP_SYSTEM_ENABLED') return '&#128158;';
- if ($u === 'RELLLM_CONNECTOR') return '&#128279;';
- if ($u === 'POWER_AWARENESS_ENABLED') return '&#9876;&#65039;';
- if ($u === 'LOCATION_WORLDKNOWLEDGE') return '&#9881;&#65039;';
  if (strpos($u, 'RESPEECH') !== false) return '&#127908;';
  if (strpos($u, 'SPEECH_STYLE') !== false) return '&#128483;&#65039;';
  if (strpos($u, 'SUMMARY_PROMPT') === 0) return '&#128221;';
@@ -191,7 +212,9 @@ function icon_for_field(string $flatName): string
  if (strpos($u, 'RECHAT') !== false) return '&#128257;';
  if (strpos($u, 'CONTEXT') !== false) return '&#129504;';
  if (strpos($u, 'COMBAT') !== false) return '&#9876;&#65039;';
- return '&#9881;&#65039;';
+ if (strpos($u, 'MEMORY') !== false) return '&#129504;';
+ if (strpos($u, 'COOLDOWN') !== false || strpos($u, 'INTERVAL') !== false) return '&#9201;&#65039;';
+ return '&#129513;';
 }
 
 function select_option_label(string $fieldName, string $optionValue): string
