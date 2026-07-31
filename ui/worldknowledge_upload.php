@@ -27,6 +27,7 @@ $configFilepath = $rootPath . "conf" . DIRECTORY_SEPARATOR;
 require_once($configFilepath . "conf.php");
 require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "db_connection_settings.php");
 require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "worldknowledge_topic.php");
+require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "worldknowledge_context_rule_admin.php");
 
 $dbSettings = dialecticDbConnectionSettings('dialectic');
 $host = $dbSettings['host'];
@@ -54,6 +55,13 @@ if (!$conn) {
     echo "<div class='message'>Failed to connect to database: " . pg_last_error() . "</div>";
     exit;
 }
+
+$message .= worldknowledge_context_rule_handle_post(
+    $conn,
+    $schema,
+    $_POST,
+    $_SERVER['REQUEST_METHOD'] ?? 'GET'
+);
 
 /********************************************************************
  *  1) SINGLE TOPIC UPLOAD
@@ -1207,8 +1215,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     <!-- Tab Navigation -->
     <div class="tab-navigation">
-        <button class="tab-button active" onclick="switchTab('worldknowledge-tab')">
+        <button class="tab-button active" onclick="switchTab('worldknowledge-tab', this)">
             &#x1F4DA; World Knowledge
+        </button>
+        <button class="tab-button" onclick="switchTab('rules-tab', this)">
+            &#127919; Context Rules
         </button>
     </div>
 
@@ -1504,6 +1515,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         </div>
     </div>
 
+    <?php include __DIR__ . DIRECTORY_SEPARATOR . 'tmpl' . DIRECTORY_SEPARATOR . 'worldknowledge_context_rules_panel.php'; ?>
+
 <div id="editModal" class="modal-backdrop">
     <div class="modal-container">
         <div class="modal-header">
@@ -1606,7 +1619,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 var webRoot = '<?php echo $webRoot; ?>';
 
 // Tab switching functionality
-function switchTab(tabId) {
+function switchTab(tabId, clickedButton) {
     // Hide all tab contents
     const tabContents = document.querySelectorAll('.tab-content');
     tabContents.forEach(tab => {
@@ -1626,8 +1639,9 @@ function switchTab(tabId) {
     }
     
     // Add active class to clicked button
-    const clickedButton = event.target;
-    clickedButton.classList.add('active');
+    if (clickedButton) {
+        clickedButton.classList.add('active');
+    }
     
     // Update header content based on active tab
     updateHeaderContent(tabId);
@@ -1656,7 +1670,7 @@ function updateHeaderContent(tabId) {
 // Restore active tab on page load
 document.addEventListener('DOMContentLoaded', function() {
     const savedTab = localStorage.getItem('activeWorldKnowledgeTab');
-    if (savedTab === 'worldknowledge-tab') {
+    if (savedTab === 'worldknowledge-tab' || savedTab === 'rules-tab') {
         // Manually switch to saved tab
         switchTabDirectly(savedTab);
     } else {
@@ -1667,7 +1681,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Function to switch tab without event dependency
 function switchTabDirectly(tabId) {
-    if (tabId !== 'worldknowledge-tab') {
+    if (tabId !== 'worldknowledge-tab' && tabId !== 'rules-tab') {
         tabId = 'worldknowledge-tab';
     }
     // Hide all tab contents

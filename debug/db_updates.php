@@ -148,8 +148,19 @@ try {
         $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/core_narrator.sql"));
         $db->execQuery("SET search_path TO public");
     }
+    if ($checkTableExists("worldknowledge_context_rule") == -1) {
+        $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/worldknowledge_context_rule.sql"));
+        $db->execQuery("SET search_path TO public");
+    }
 } catch (Exception $e) {
     Logger::warn("Bootstrap core tables: " . $e->getMessage());
+}
+
+if ($checkVersion("worldknowledge_context_rule") < 20260730001) {
+    Logger::debug("Applying worldknowledge_context_rule 20260730001 - add deterministic World Knowledge context rules");
+    $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/worldknowledge_context_rule.sql"));
+    $updateVersion("worldknowledge_context_rule", 20260730001);
+    Logger::info("Applied patch worldknowledge_context_rule 20260730001");
 }
 
 if ($checkVersion("conf_opts") < 20260626001) {

@@ -54,6 +54,11 @@ error_log("[WORLDKNOWLEDGE DEBUG] MINIME_T5(auto)=" . ($minimeEnabled ? 'Y' : 'N
 if ($worldknowledgeInfiniumEnabled && $worldknowledgeRequestEligible) {
     require_once(__DIR__.DIRECTORY_SEPARATOR.'..'.DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'worldknowledge_forced_context.php');
     dialecticWorldKnowledgeInjectForcedLocationContext($GLOBALS['db'] ?? null);
+    require_once(__DIR__.DIRECTORY_SEPARATOR.'..'.DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'worldknowledge_context_rules.php');
+    dialecticWorldKnowledgeInjectContextRules(
+        $GLOBALS['db'] ?? null,
+        $npcMaster ?? null
+    );
 }
 
 if ($minimeEnabled || $worldknowledgeCustomEnabled) {

@@ -954,6 +954,30 @@ CREATE UNIQUE INDEX worldknowledge_topic_unique_idx ON public.worldknowledge USI
 CREATE UNIQUE INDEX worldknowledge_canonical_topic_unique_idx ON public.worldknowledge USING btree ((lower(btrim(split_part(topic, ','::text, 1)))));
 
 --
+-- Name: worldknowledge_context_rule; Type: TABLE; Schema: public; Owner: dwemer
+--
+
+CREATE TABLE public.worldknowledge_context_rule (
+    id BIGSERIAL PRIMARY KEY,
+    label text NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    priority integer DEFAULT 100 NOT NULL,
+    selector_type text DEFAULT 'topic'::text NOT NULL,
+    selector_value text NOT NULL,
+    conditions jsonb DEFAULT '{}'::jsonb NOT NULL,
+    max_articles smallint DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT worldknowledge_context_rule_selector_type_check CHECK ((selector_type = ANY (ARRAY['topic'::text, 'tag'::text, 'category'::text]))),
+    CONSTRAINT worldknowledge_context_rule_max_articles_check CHECK (((max_articles >= 1) AND (max_articles <= 5)))
+);
+
+ALTER TABLE public.worldknowledge_context_rule OWNER TO dwemer;
+
+CREATE INDEX idx_worldknowledge_context_rule_active
+    ON public.worldknowledge_context_rule USING btree (enabled, priority, id);
+
+--
 -- Name: quests; Type: TABLE; Schema: public; Owner: dwemer
 --
 
@@ -1188,6 +1212,7 @@ INSERT INTO public.database_versioning VALUES ('moods_issued_sequence', 20260626
 INSERT INTO public.database_versioning VALUES ('core_tts_connector_metadata', 20260626001);
 INSERT INTO public.database_versioning VALUES ('core_tts_connector_removed_drivers', 20260712001);
 INSERT INTO public.database_versioning VALUES ('worldknowledge', 20250903001);
+INSERT INTO public.database_versioning VALUES ('worldknowledge_context_rule', 20260730001);
 INSERT INTO public.database_versioning VALUES ('locations', 20250526001);
 INSERT INTO public.database_versioning VALUES ('rolemaster', 20250528001);
 INSERT INTO public.database_versioning VALUES ('db_maintenance', 20250528002);
