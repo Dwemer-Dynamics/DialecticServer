@@ -172,6 +172,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'core_action' => 20260716002,
             'core_player' => 20260707001,
             'general_settings' => 20260722001,
+            'import_rules' => 20260730001,
             'core_stt_connector' => 20260502002,
             'descriptions_defaults' => 20260626004,
             'prompts' => 20260627001,

@@ -1686,6 +1686,18 @@ if ($checkTableExists("import_rules") == -1) {
 } else
     Logger::info(__FILE__." import_rules exists");
 
+if ($checkVersion("import_rules") < 20260730001) {
+    try {
+        if ($db->execQuery("ALTER TABLE public.import_rules ADD COLUMN IF NOT EXISTS match_faction text") === false) {
+            throw new RuntimeException("Could not add import_rules.match_faction");
+        }
+        $updateVersion("import_rules", 20260730001);
+        Logger::info("Applied patch import_rules 20260730001 - add faction matching");
+    } catch (Throwable $e) {
+        Logger::error("Failed to apply patch import_rules 20260730001: " . $e->getMessage());
+    }
+}
+
 // Usage column
 $db->execQuery("ALTER TABLE public.audit_request ADD COLUMN IF NOT EXISTS usage jsonb");
 
