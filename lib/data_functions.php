@@ -12,6 +12,7 @@ require_once(__DIR__."/core/game_plugins.php");
 require_once(__DIR__."/core/npc_master.class.php");
 require_once(__DIR__."/core/core_profiles.class.php");
 require_once(__DIR__."/prompt_injections.php");
+require_once(__DIR__."/memory_ranking.php");
 
 
 function ChangeDialecticName($new_name="") {
@@ -5174,8 +5175,7 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
                         embedding <-> $vectorString as distance,
                          ts_rank(native_vec, to_tsquery('$kwStringAny')) AS rank_any_fts_raw,
                          ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_all_fts_raw,
-                         ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_any_fts,
-                         ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_all_fts,
+                         ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_fts,
                          (embedding <-> $vectorString) - (ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll')) ) AS mixed_distance,
                          summary
                     FROM public.memory_summary 
@@ -5191,23 +5191,16 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
                 ";    
             $memory=$GLOBALS["db"]->fetchAll($finalQuery);
             //error_log($finalQuery);
-            $singleMemory = null;
-            $maxRankAny = -INF;
-
-            foreach ($memory as $entry) {
-                if (isset($entry['rank_any_fts']) && $entry['rank_any_fts'] > $maxRankAny) {
-                    $maxRankAny = $entry['rank_any_fts'];
-                    $singleMemory = $entry;
-                }
-            }
+            $singleMemory = dialecticSelectBestHybridMemoryCandidate($memory);
          
             if (!isset($singleMemory)) {
-                $singleMemory=["rank_any"=>null,"rank_all"=>null,"summary"=>null];
-                $singleMemory["distance"]=1.4;
-            }
-            else {
-                 $singleMemory['rank_any']=(($singleMemory["rank_any_fts"])+($singleMemory["rank_all_fts"])/2);
-                 $singleMemory['rank_all']=($singleMemory["rank_all_fts"]);
+                $singleMemory = [
+                    "rank_any" => null,
+                    "rank_all" => null,
+                    "summary" => null,
+                    "distance" => 1.4,
+                    "mixed_distance" => 1.4,
+                ];
             }
             
             /*error_log("
