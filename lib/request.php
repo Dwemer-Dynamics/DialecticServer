@@ -364,6 +364,50 @@ function dialectic_adapt_json_input_payload_for_pipeline(array &$gameRequest): a
     return $result;
 }
 
+function dialectic_adapt_json_vision_payload_for_pipeline(array &$gameRequest): array
+{
+    $result = [
+        "changed" => false,
+        "target" => "",
+        "description" => "",
+    ];
+    if (strtolower(trim(strval($gameRequest[0] ?? ""))) !== "vision") {
+        return $result;
+    }
+
+    $rawPayload = strval($gameRequest[3] ?? "");
+    $fields = json_decode($rawPayload, true);
+    if (!is_array($fields)) {
+        return $result;
+    }
+
+    $description = "";
+    foreach (["text", "description", "visual_context", "scene"] as $key) {
+        if (isset($fields[$key]) && is_scalar($fields[$key]) && trim(strval($fields[$key])) !== "") {
+            $description = dialectic_sanitize_pipeline_input_fragment(trim(strval($fields[$key])));
+            break;
+        }
+    }
+    if ($description === "") {
+        return $result;
+    }
+
+    $target = dialectic_extract_conversation_target($rawPayload);
+    if (strcasecmp($target, "The Narrator") === 0) {
+        $target = "";
+    }
+    $target = dialectic_sanitize_pipeline_input_fragment($target);
+    if ($target !== "") {
+        $GLOBALS["DIALECTIC_INPUT_TARGET"] = $target;
+    }
+
+    $gameRequest[3] = "PipVision visual observation: " . $description;
+    $result["changed"] = true;
+    $result["target"] = $target;
+    $result["description"] = $description;
+    return $result;
+}
+
 function dialectic_extract_funcret_actor(string $payload): string
 {
     $decoded = json_decode($payload, true);
