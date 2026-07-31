@@ -485,9 +485,6 @@ if ($gameRequest[0] == "wipe") { // Reset reponses if init sent (Think about thi
         $isNpcReplyToPlayer = (!$isPlayerSpeech && $normalizedPlayerName !== "" &&
                                $normalizedSpeechListener === $normalizedPlayerName);
         $speechGamets = intval($gameRequest[2]);
-        $dialecticModeRow = $db->fetchOne("SELECT value FROM conf_opts WHERE id='dialectic_mode'");
-        $dialecticMode = isset($dialecticModeRow["value"]) ? strtoupper(trim((string)$dialecticModeRow["value"])) : "STANDARD";
-        $isWhisperMode = ($dialecticMode === "WHISPER");
         $payloadCompanionCount = (isset($speech["companions"]) && is_array($speech["companions"])) ? count($speech["companions"]) : 0;
         $hasSpatialReason = isset($speech["spatial_reason"]) && trim((string)$speech["spatial_reason"]) !== "";
         $hasSpatialVolume = array_key_exists("spatial_volume", $speech);
@@ -501,33 +498,6 @@ if ($gameRequest[0] == "wipe") { // Reset reponses if init sent (Think about thi
         }
 
         if ($audiblePeoplePipe !== "") {
-            if ($isWhisperMode && $isPlayerSpeech) {
-                $db->upsertRow(
-                    'conf_opts',
-                    array(
-                        'id' => 'dialectic_whisper_people',
-                        'value' => $audiblePeoplePipe
-                    ),
-                    "id='dialectic_whisper_people'"
-                );
-                $db->upsertRow(
-                    'conf_opts',
-                    array(
-                        'id' => 'dialectic_whisper_target',
-                        'value' => $speechListener
-                    ),
-                    "id='dialectic_whisper_target'"
-                );
-                $db->upsertRow(
-                    'conf_opts',
-                    array(
-                        'id' => 'dialectic_whisper_updated',
-                        'value' => (string)time()
-                    ),
-                    "id='dialectic_whisper_updated'"
-                );
-            }
-
             // _speech no longer mutates eventlog.people. It only marks matching rows as spoken.
             if (!$isPlayerSpeech && $speechSpeaker !== "") {
                 $chatRowId = 0;
@@ -929,6 +899,7 @@ if ($gameRequest[0] == "wipe") { // Reset reponses if init sent (Think about thi
         $modeLabels = [
             "STANDARD" => "Standard",
             "WHISPER" => "Whisper",
+            "CLOSE" => "Close",
             "SHOUT" => "Shout",
             "NARRATOR" => "Narrator",
             "DIRECTOR" => "Director",

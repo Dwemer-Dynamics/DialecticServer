@@ -38,7 +38,7 @@ if (!function_exists('dialecticRelParticipants')) {
         if (preg_match('/^\s*(?:\*\s*)?(?:\([^)]*\)\s*)?([^:]+):/u', $data, $match)) {
             $add($match[1]);
         }
-        if (preg_match('/\((?:talking|shouting|whispering)\s+to\s+([^)]+)\)/iu', $data, $match)) {
+        if (preg_match('/\((?:talking|shouting|whispering|speaking privately)\s+to\s+([^)]+)\)/iu', $data, $match)) {
             $add($match[1]);
         }
         return array_values($names);
