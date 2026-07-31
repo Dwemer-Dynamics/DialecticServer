@@ -80,9 +80,9 @@ class CoreProfile
         }
 
         $filtered = array_intersect_key($data, array_flip($fields));
-        $created = $GLOBALS["db"]->insert($this->table, $filtered);
-        $this->repairDefaultFlags($created ? intval($created) : null, $filtered);
-        return $created;
+        $createdId = $GLOBALS["db"]->insertReturningId($this->table, $filtered);
+        $this->repairDefaultFlags($createdId ?: null, $filtered);
+        return $createdId;
     }
 
     public function readAll()
