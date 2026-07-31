@@ -2598,6 +2598,17 @@ function getGametsLimitFor($actor) {
 
 
 
+function dialecticMemorySearchInputFromRequest(array $gameRequest): string
+{
+    $rawInput = trim((string)($gameRequest[3] ?? ''));
+    if (($gameRequest[0] ?? '') !== 'rechat') {
+        return $rawInput;
+    }
+
+    $payload = dialecticParseServerSideRechatPayload($rawInput);
+    return trim((string)($payload['origin_line'] ?? ''));
+}
+
 function offerMemory($gameRequest)
 {
     global $db;
@@ -2619,6 +2630,7 @@ function offerMemory($gameRequest)
     }
 
     $timeThreshold=round($gameRequest[2]-(getGametsLimitFor($npc)/0.0000024),0)-1;
+    $memorySearchInput = dialecticMemorySearchInputFromRequest($gameRequest);
 
     error_log("[DataSearchMemoryByVector] Using timeThreshold $timeThreshold");
     $contextKeywords  = implode(" ", lastKeyWordsContext(5,$npc));
@@ -2626,9 +2638,9 @@ function offerMemory($gameRequest)
     if ($GLOBALS["FEATURES"]["MEMORY_EMBEDDING"]["USE_TEXT2VEC"]) {
         $localStartTime = microtime(true);
         error_log("[DataSearchMemoryByVector calling]  : " . (microtime(true) - $localStartTime) . " seconds");
-        $res = DataSearchMemoryByVector($gameRequest[3], $npc, true,$timeThreshold);
+        $res = DataSearchMemoryByVector($memorySearchInput, $npc, true,$timeThreshold);
         error_log("[DataSearchMemoryByVector called 1]  : " . (microtime(true) - $localStartTime) . " seconds");
-        $res2 = DataSearchMemoryByVector($gameRequest[3], $npc,false,$timeThreshold);
+        $res2 = DataSearchMemoryByVector($memorySearchInput, $npc,false,$timeThreshold);
         error_log("[DataSearchMemoryByVector called 2]  : " . (microtime(true) - $localStartTime) . " seconds");
 
         if (isset($res[0]) && isset($res2[0])) {
@@ -2639,7 +2651,7 @@ function offerMemory($gameRequest)
         $memories = $resFinal;
         
     } else {
-        $memories=DataSearchMemory($gameRequest[3],$npc);
+        $memories=DataSearchMemory($memorySearchInput,$npc);
     }
    
     
