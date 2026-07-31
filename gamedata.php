@@ -1403,6 +1403,9 @@ function buildInventoryMetadataValue(array $items): array
             if (array_key_exists('type', $item) && $item['type'] !== null && $item['type'] !== '') {
                 $inventoryItem['type'] = intval($item['type']);
             }
+            if (array_key_exists('value', $item) && is_numeric($item['value'])) {
+                $inventoryItem['value'] = max(0, intval($item['value']));
+            }
             if (array_key_exists('ammo', $item) && $item['ammo'] !== null && $item['ammo'] !== '') {
                 $inventoryItem['ammo'] = (string)$item['ammo'];
             }
