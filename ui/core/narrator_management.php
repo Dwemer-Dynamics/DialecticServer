@@ -218,6 +218,7 @@ $narrator->set('hide_from_context', isset($_POST['hide_from_context']) && $_POST
  $narrator->set('remove_player_autochat_asterisks', isset($_POST['remove_player_autochat_asterisks']) && $_POST['remove_player_autochat_asterisks'] === '1' ? '1' : '0');
  $narrator->set('diary_enabled', isset($_POST['diary_enabled']) && $_POST['diary_enabled'] === '1' ? '1' : '0');
  $narrator->set('auto_diary_enabled', isset($_POST['auto_diary_enabled']) && $_POST['auto_diary_enabled'] === '1' ? '1' : '0');
+ $narrator->set('only_diary_access', isset($_POST['only_diary_access']) && $_POST['only_diary_access'] === '1' ? '1' : '0');
  
  // Save integer settings
  if (isset($_POST['random_chance'])) {
@@ -363,6 +364,7 @@ $removeAsterisksFromNpcOutput = $narrator->getBool(
 );
 $diaryEnabled = $narrator->getBool('diary_enabled', false);
 $autoDiaryEnabled = $narrator->getBool('auto_diary_enabled', false);
+$onlyDiaryAccess = $narrator->getBool('only_diary_access', false);
 $dynamicProfileEnabled = $narrator->getBool('dynamic_profile', false);
 $dynamicProfileFields = $narrator->getDynamicProfileFields();
 
@@ -1681,6 +1683,26 @@ function clearNarratorPrompt(promptKey) {
  showNarratorToast(error.message || 'Failed to clear prompt.', true);
  });
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+ const autoDiaryInput = document.getElementById('auto_diary_enabled');
+ const autoDiaryLabel = autoDiaryInput ? autoDiaryInput.closest('.toggle-row') : null;
+ const autoDiaryHint = autoDiaryLabel ? autoDiaryLabel.nextElementSibling : null;
+ if (!autoDiaryHint || document.getElementById('only_diary_access')) {
+ return;
+ }
+
+ autoDiaryHint.insertAdjacentHTML('afterend', `
+ <label class="toggle-row">
+ <div class="toggle-switch">
+ <input type="checkbox" id="only_diary_access" name="only_diary_access" value="1" <?php echo $onlyDiaryAccess ? 'checked' : ''; ?>>
+ <span class="toggle-slider"></span>
+ </div>
+ <span class="toggle-label">Narrator Only Diary Access</span>
+ </label>
+ <span class="hint">Restrict the Narrator to diary entries written by The Narrator. When disabled, the Narrator may recall relevant diary entries from all NPCs.</span>
+ `);
+});
 
 window.addEventListener('click', function(event) {
  const modal = document.getElementById('narratorAdvancedPromptModal');
