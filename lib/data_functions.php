@@ -284,6 +284,10 @@ function dialecticInventoryMetadataLabels(array $item): array
             : rtrim(rtrim(number_format($condition, 2, '.', ''), '0'), '.'));
     }
 
+    if (isset($item['value']) && is_numeric($item['value']) && (int)$item['value'] >= 0) {
+        $labels[] = 'value ' . (int)$item['value'] . ' caps';
+    }
+
     $ammo = trim((string)($item['ammo'] ?? ''));
     if ($ammo !== '') {
         $labels[] = 'ammo ' . dialecticEscapePromptItemText($ammo);
@@ -1305,7 +1309,10 @@ function DataLastInfoFor($actorBeingCalled, $lastNelements = -2,$includeActorDes
     }
         
     // Compact CHIM-style nearby actor list from the latest structured game snapshot.
-    $nearbyActorsList = dialecticNearbyActorNamesFromPayload(false, false);
+    $nearbyActorsList = !empty($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"]) &&
+        is_array($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"])
+        ? array_values($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"])
+        : dialecticNearbyActorNamesFromPayload(false, false);
     if (!empty($nearbyActorsList)) {
         if (!isset($GLOBALS["PROMPT_NEARBY_SECTIONS"])) {
             $GLOBALS["PROMPT_NEARBY_SECTIONS"] = "";
@@ -4475,6 +4482,11 @@ function dialecticNearbyActorNamesFromPayload($excludeFarAway = false, $includeP
 
 function DataBeingsInCloseRange($excludeFarAway=false)
 {
+    if (!empty($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"]) &&
+        is_array($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"])) {
+        return "|" . implode("|", array_values($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"])) . "|";
+    }
+
     $structuredPeople = dialecticPeoplePipeFromNearbyActorsPayload($excludeFarAway);
     if ($structuredPeople !== "") {
         return $structuredPeople;

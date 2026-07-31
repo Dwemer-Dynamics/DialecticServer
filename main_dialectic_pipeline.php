@@ -977,8 +977,33 @@ if (in_array($gameRequest[0],["bored"])) {
     if (!empty($GLOBALS["NARRATOR_BORED_EVENT_ACTIVE"])) {
         Logger::info("[NARRATOR_BORED] Using narrator bored flow");
     } elseif ((isset($GLOBALS["BORED_EVENT_SERVERSIDE"])&&($GLOBALS["BORED_EVENT_SERVERSIDE"]))) {
-        Logger::info("Redirecting bored event to rolemaster");
-        `php service/manager.php rolemaster instruction ""`;
+        $boredPayload = json_decode((string)($gameRequest[3] ?? ''), true);
+        $boredPayload = is_array($boredPayload) ? $boredPayload : [];
+        $boredSeedActor = trim((string)($boredPayload['actor_name'] ?? $boredPayload['speaker'] ?? ''));
+        $boredEligibleActors = is_array($boredPayload['eligible_actors'] ?? null)
+            ? array_values($boredPayload['eligible_actors'])
+            : [];
+        Logger::info(
+            "Redirecting bored event to rolemaster with seed actor '{$boredSeedActor}' and "
+            . count($boredEligibleActors) . " eligible actor(s)"
+        );
+        $phpCli = PHP_BINDIR . DIRECTORY_SEPARATOR . "php";
+        if (!is_file($phpCli) && !is_file($phpCli . ".exe")) {
+            $binaryName = strtolower((string)pathinfo(PHP_BINARY, PATHINFO_FILENAME));
+            $phpCli = (strpos($binaryName, "php") === 0 && is_file(PHP_BINARY))
+                ? PHP_BINARY
+                : "php";
+        }
+        $managerPath = __DIR__ . DIRECTORY_SEPARATOR . "service" . DIRECTORY_SEPARATOR . "manager.php";
+        $command = escapeshellarg($phpCli)
+            . " " . escapeshellarg($managerPath)
+            . " rolemaster instruction " . escapeshellarg("")
+            . " bored " . escapeshellarg($boredSeedActor)
+            . " " . escapeshellarg(json_encode($boredEligibleActors, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        exec($command, $output, $returnCode);
+        if ($returnCode !== 0) {
+            Logger::warn("Failed to start bored rolemaster request (exit code {$returnCode})");
+        }
         terminate();
 
     }

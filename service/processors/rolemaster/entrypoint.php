@@ -22,6 +22,7 @@ $GLOBALS["TASKS"]["rolemaster"]["fn"]=function() {
     require_once($enginePath . "prompts/command_prompt.php");
     require_once($enginePath . "lib/chat_helper_functions.php");
     require_once($enginePath . "lib/data_functions.php");
+    require_once($enginePath . "lib/rolemaster_bored.php");
 
     
     SaveOriginalDialecticName(); 
