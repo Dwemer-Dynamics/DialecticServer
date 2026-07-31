@@ -310,6 +310,16 @@ if (function_exists("dialectic_adapt_json_input_payload_for_pipeline")) {
     }
 }
 
+if (function_exists("dialectic_adapt_json_vision_payload_for_pipeline")) {
+    $normalizedVisionPayload = dialectic_adapt_json_vision_payload_for_pipeline($gameRequest);
+    if (!empty($normalizedVisionPayload["changed"])) {
+        Logger::info("[main] Adapted structured PipVision payload for vision pipeline" . Logger::formatContext([
+            "target" => $normalizedVisionPayload["target"] ?? "",
+            "chars" => strlen((string)($normalizedVisionPayload["description"] ?? "")),
+        ]));
+    }
+}
+
 // In directed DIALECTIC modes, normalize incoming dialogue tags so logs/prompts stay aligned
 // with the active speaking style.
 $dialecticExecutionMode = strtoupper((string)($GLOBALS["DIALECTIC_EXECUTION_MODE"] ?? ""));
@@ -457,7 +467,7 @@ if (in_array(($gameRequest[0] ?? ''), ['rpg_lvlup', 'combatend', 'combatendmight
 }
 
 $inputRequestType = $gameRequest[0] ?? '';
-if (in_array($inputRequestType, ["inputtext", "inputtext_s", "cheatmode"], true)) {
+if (in_array($inputRequestType, ["inputtext", "inputtext_s", "cheatmode", "vision"], true)) {
     Logger::phaseStart("input_profile_bind", [
         "type" => $inputRequestType,
     ]);
@@ -1419,7 +1429,7 @@ Logger::phaseStart("post_rechat_runtime_prepare", [
 ]);
 
 if (
-    in_array($gameRequest[0], ["inputtext", "inputtext_s"], true) &&
+    in_array($gameRequest[0], ["inputtext", "inputtext_s", "vision"], true) &&
     empty($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"])
 ) {
     $jsonSpeaker = function_exists('dialectic_extract_conversation_target')
@@ -1899,8 +1909,8 @@ Logger::phaseStart("pre_llm_audience_scope", [
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
 ]);
 $playerInputEventTypes = ["inputtext", "inputtext_s", "narrator_inputtext", "cheatmode"];
-$authoritativeAudienceEventTypes = array_merge($playerInputEventTypes, ["player_consumed"]);
-$turnPeopleSnapshotEventTypes = array_merge($playerInputEventTypes, ["rechat"]);
+$authoritativeAudienceEventTypes = array_merge($playerInputEventTypes, ["player_consumed", "vision"]);
+$turnPeopleSnapshotEventTypes = array_merge($playerInputEventTypes, ["rechat", "vision"]);
 $requestAudienceSnapshot = dialecticDecodeAudienceSnapshotField($gameRequest[4] ?? "");
 $hasAuthoritativeRequestAudience = (
     in_array($gameRequest[0] ?? "", $authoritativeAudienceEventTypes, true) &&
@@ -2392,6 +2402,12 @@ Logger::phaseStart("prompt_dynamic_context_build", [
 ]);
 $dynamicBiography = buildDynamicBiography($GLOBALS);
 $worldPrompt = buildWorldPrompt($gameRequest[2] ?? 0);
+require_once(__DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'visual_context.php');
+$visualContextPrompt = dialecticBuildVisualContextPrompt(
+    function_exists('dialecticLatestWorldContextPayload')
+        ? (dialecticLatestWorldContextPayload() ?: [])
+        : []
+);
 
 $playerBioSection = "";
 try {
@@ -2523,7 +2539,7 @@ if (!empty($GLOBALS["WORLDKNOWLEDGE_HINT"])) {
 }
 
 $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
-    "\n</roleplay_instructions>" . $worldPrompt .
+    "\n</roleplay_instructions>" . $worldPrompt . ($visualContextPrompt !== '' ? "\n\n" . $visualContextPrompt : '') .
     "\n\n<character>\n" . $GLOBALS["DIALECTIC_PERS"] . $dynamicBiography . $latestDiaryContext . $characterBottomInjections .
     "\n</character>" . $knowledgeSection .
     "\n\n<general_instructions>\n" . $GLOBALS["COMMAND_PROMPT"] .

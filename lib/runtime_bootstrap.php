@@ -64,6 +64,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'public.core_player',
             'public.core_profiles',
             'public.core_stt_connector',
+            'public.core_itt_connector',
             'public.core_tts_connector',
             'public.database_versioning',
             'public.descriptions',
@@ -87,6 +88,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'public.rolemaster',
             'public.speech',
             'public.worldknowledge',
+            'public.visual_context',
             'public.combined_bio_templates',
             'public.combined_core_action',
             'public.combined_descriptions',
@@ -174,6 +176,10 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'general_settings' => 20260722001,
             'import_rules' => 20260730001,
             'core_stt_connector' => 20260502002,
+            'core_itt_connector' => 20260731001,
+            'visual_context' => 20260731001,
+            'pipvision_general_settings' => 20260731001,
+            'itt_connector_defaults' => 20260731002,
             'descriptions_defaults' => 20260626004,
             'prompts' => 20260627001,
             'core_profiles' => 20260717001,
@@ -274,6 +280,7 @@ if (!function_exists('dialecticRuntimeApplyBootstrapOptions')) {
         $runDbUpdates = !empty($options['run_db_updates']);
         $loadGeneralSettings = !array_key_exists('load_general_settings', $options) || (bool)$options['load_general_settings'];
         $loadSttConnector = !array_key_exists('load_stt_connector', $options) || (bool)$options['load_stt_connector'];
+        $loadIttConnector = !empty($options['load_itt_connector']);
         $loadTtsConnector = $options['load_tts_connector'] ?? false;
         $loadPlayerName = !empty($options['load_player_name']);
         $loadNarrator = !empty($options['load_narrator']);
@@ -286,6 +293,9 @@ if (!function_exists('dialecticRuntimeApplyBootstrapOptions')) {
         }
         if ($loadSttConnector) {
             dialecticLoadActiveSttConnectorIntoGlobals();
+        }
+        if ($loadIttConnector) {
+            dialecticLoadActiveIttConnectorIntoGlobals();
         }
         if (is_string($loadTtsConnector) && trim($loadTtsConnector) !== '') {
             dialecticLoadPreferredTtsConnectorIntoGlobals(trim($loadTtsConnector));

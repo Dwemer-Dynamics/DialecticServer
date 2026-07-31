@@ -237,7 +237,7 @@ $roleplayPages = [
 ];
 $configurationPages = [
  'config_hub.php', 'npc_master.php', 'player_management.php', 'narrator_management.php',
- 'core_profiles.php', 'llm_connectors.php', 'tts_connectors.php', 'stt_connectors.php',
+ 'core_profiles.php', 'llm_connectors.php', 'tts_connectors.php', 'stt_connectors.php', 'itt_connectors.php',
  'api_badge.php', 'global_settings.php', 'description_upload.php', 'npc_upload.php',
  'worldknowledge_upload.php', 'function_editor.php', 'xtts_clone.php', 'prompts_manager.php',
  'dialectic_setup.php', 'quickstart.php',

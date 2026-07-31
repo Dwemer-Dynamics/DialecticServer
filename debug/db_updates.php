@@ -115,6 +115,10 @@ try {
         $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/core_stt_connector.sql"));
         $db->execQuery("SET search_path TO public");
     }
+    if ($checkTableExists("core_itt_connector") == -1) {
+        $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/core_itt_connector.sql"));
+        $db->execQuery("SET search_path TO public");
+    }
     if ($checkTableExists("core_tts_connector") == -1) {
         $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/core_tts_connector.sql"));
         $db->execQuery("SET search_path TO public");
@@ -1436,6 +1440,7 @@ try {
         ["name"=>"core_llm_connector","file"=>__DIR__."/../lib/core/database_schema/core_llm_connector.sql"],
         ["name"=>"core_tts_connector","file"=>__DIR__."/../lib/core/database_schema/core_tts_connector.sql"],
         ["name"=>"core_stt_connector","file"=>__DIR__."/../lib/core/database_schema/core_stt_connector.sql"],
+        ["name"=>"core_itt_connector","file"=>__DIR__."/../lib/core/database_schema/core_itt_connector.sql"],
         ["name"=>"core_profiles",     "file"=>__DIR__."/../lib/core/database_schema/core_profiles.sql"],
         ["name"=>"core_npc_master",   "file"=>__DIR__."/../lib/core/database_schema/core_npc_master.sql"]
     ];
@@ -4445,6 +4450,114 @@ if ($checkVersion("latest_diary_context") < 20260727001) {
         Logger::info("Applied patch latest_diary_context 20260727001");
     } else {
         Logger::error("Failed to apply patch latest_diary_context 20260727001");
+    }
+}
+
+if ($checkVersion('core_itt_connector') < 20260731001) {
+    Logger::debug('Applying core_itt_connector 20260731001 - add PipVision connector storage');
+    $migrationOk = $db->execQuery(
+        file_get_contents(__DIR__ . '/../lib/core/database_schema/core_itt_connector.sql')
+    ) !== false;
+    if ($migrationOk) {
+        $updateVersion('core_itt_connector', 20260731001);
+        Logger::info('Applied patch core_itt_connector 20260731001');
+    } else {
+        Logger::error('Failed to apply patch core_itt_connector 20260731001');
+    }
+}
+
+if ($checkVersion('visual_context') < 20260731001) {
+    Logger::debug('Applying visual_context 20260731001 - add PipVision persistence');
+    $migrationOk = $db->execQuery(
+        file_get_contents(__DIR__ . '/../lib/core/database_schema/visual_context.sql')
+    ) !== false;
+    if ($migrationOk) {
+        $updateVersion('visual_context', 20260731001);
+        Logger::info('Applied patch visual_context 20260731001');
+    } else {
+        Logger::error('Failed to apply patch visual_context 20260731001');
+    }
+}
+
+if ($checkVersion('pipvision_general_settings') < 20260731001) {
+    Logger::debug('Applying pipvision_general_settings 20260731001 - seed PipVision defaults');
+    $migrationOk = true;
+    foreach ([
+        'GLOBAL_ITT_CONNECTOR_ID',
+        'VISUAL_CONTEXT_SCENE_TTL_MINUTES',
+        'VISUAL_CONTEXT_PROMPT_MAX_CHARS',
+        'PIPVISION_IMAGE_QUALITY',
+        'PIPVISION_REQUEST_TIMEOUT_SECONDS',
+    ] as $settingId) {
+        try {
+            $existing = $db->fetchOne(
+                'SELECT id FROM public.general_settings WHERE id=' . $db->escapeLiteral($settingId) . ' LIMIT 1'
+            );
+            if ($existing) {
+                continue;
+            }
+            $definition = dialecticGetSchemaDefinition($settingId);
+            if (!dialecticSetGeneralSetting(
+                $settingId,
+                $definition['default'] ?? '',
+                dialecticGetSchemaDescription($settingId)
+            )) {
+                throw new RuntimeException("Failed writing {$settingId}");
+            }
+        } catch (Throwable $e) {
+            $migrationOk = false;
+            Logger::error('Failed seeding PipVision setting ' . $settingId . ': ' . $e->getMessage());
+            break;
+        }
+    }
+    if ($migrationOk) {
+        $updateVersion('pipvision_general_settings', 20260731001);
+        Logger::info('Applied patch pipvision_general_settings 20260731001');
+    }
+}
+
+if ($checkVersion('itt_connector_defaults') < 20260731002) {
+    Logger::debug('Applying itt_connector_defaults 20260731002 - seed CHIM-compatible ITT defaults');
+    $migrationOk = true;
+    try {
+        require_once(__DIR__ . '/../lib/core/itt_connector.class.php');
+        $ittConnector = new ITTConnector();
+        $connectors = $ittConnector->readAll();
+        $activeId = dialecticGetGeneralSettingInt('GLOBAL_ITT_CONNECTOR_ID', 0);
+        $activeRow = $activeId > 0 ? $ittConnector->getById($activeId) : null;
+
+        if (!$connectors) {
+            $activeId = $ittConnector->create([
+                'driver' => 'openrouter',
+                'label' => 'Global ITT Connector',
+                'metadata' => $ittConnector->getDefaultMetadataForDriver('openrouter'),
+                'api_badge_id' => $ittConnector->getDefaultApiBadgeIdForDriver('openrouter'),
+                'url' => $ittConnector->getDefaultUrlForDriver('openrouter'),
+            ]);
+            if ($activeId < 1) {
+                throw new RuntimeException('Failed creating the default ITT connector');
+            }
+            $activeRow = $ittConnector->getById($activeId);
+        } elseif (!$activeRow) {
+            $activeRow = $connectors[0];
+            $activeId = intval($activeRow['id'] ?? 0);
+        }
+
+        if ($activeId < 1 || !$activeRow || !dialecticSetGeneralSetting(
+            'GLOBAL_ITT_CONNECTOR_ID',
+            $activeId,
+            dialecticGetSchemaDescription('GLOBAL_ITT_CONNECTOR_ID')
+        )) {
+            throw new RuntimeException('Failed selecting the default ITT connector');
+        }
+    } catch (Throwable $e) {
+        $migrationOk = false;
+        Logger::error('Failed seeding ITT connector defaults: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('itt_connector_defaults', 20260731002);
+        Logger::info('Applied patch itt_connector_defaults 20260731002');
     }
 }
 

@@ -22,6 +22,7 @@ $eventsMemoriesGroups = [
             ['key' => 'memory', 'label' => 'Memories', 'icon' => '&#x1F9E0;', 'href' => $eventsMemoriesUiRoot . '/events-memories.php?tab=memory'],
             ['key' => 'diaries', 'label' => 'DIALECTIC Diaries', 'icon' => '&#x1F4D4;', 'href' => $eventsMemoriesUiRoot . '/events-memories.php?tab=diaries'],
             ['key' => 'gallery', 'label' => 'Image Gallery', 'icon' => '&#x1F5BC;&#xFE0F;', 'href' => $eventsMemoriesUiRoot . '/events-memories.php?tab=gallery'],
+            ['key' => 'pipvision', 'label' => 'PipVision', 'icon' => '&#x1F441;&#xFE0F;', 'href' => $eventsMemoriesUiRoot . '/events-memories.php?tab=pipvision'],
         ],
     ],
     [
