@@ -2349,6 +2349,13 @@ $contextDataHistoric = filterHistoricContextForNarratorVisibility(
     $contextDataHistoric,
     $GLOBALS["DIALECTIC_NAME"] ?? ""
 );
+require_once __DIR__ . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "compact_context_history.php";
+if (dialecticShouldCompactNpcContextHistory($GLOBALS["DIALECTIC_NAME"] ?? "")) {
+    $contextDataHistoric = dialecticFormatCompactNpcContextHistory(
+        $contextDataHistoric,
+        (string)($GLOBALS["DIALECTIC_NAME"] ?? "")
+    );
+}
 $contextDataFull = array_merge($contextDataWorld, $contextDataHistoric);
 
 $GLOBALS["DIALECTIC_CONTEXT"] = implode("\n", array_values(array_filter(array_map(
