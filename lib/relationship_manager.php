@@ -52,6 +52,15 @@ class RelationshipManager {
         'betrayed', 'suspicious', 'admirer', 'jealous', 'fearful', 'obsessed',
         'awed', 'contempt', 'pitying', 'grateful', 'curious', 'dismissive'
     ];
+    const TYPE_ALIASES = [
+        'romance' => 'romantic',
+        'marriage' => 'romantic',
+        'married' => 'romantic',
+        'lover' => 'romantic',
+        'lovers' => 'romantic',
+        'betrayal' => 'betrayed',
+        'enemies' => 'enemy',
+    ];
 
     // Tier boundaries - 11 tiers with BELL CURVE distribution
     // Extremes are HARD to reach (10 pts), center tiers are WIDE (25 pts)
@@ -155,6 +164,63 @@ class RelationshipManager {
         return in_array(strtolower($target), $aliases, true) ? 'Player' : $target;
     }
 
+    /**
+     * Canonicalize a model-supplied type without allowing the model to invent one.
+     */
+    public static function canonicalizeRelationshipType($type, $allowedCustomTypes = []) {
+        if (!is_string($type)) {
+            return null;
+        }
+
+        $normalized = strtolower(trim($type));
+        if ($normalized === '') {
+            return null;
+        }
+
+        $normalized = self::TYPE_ALIASES[$normalized] ?? $normalized;
+        if (in_array($normalized, self::TYPES, true)) {
+            return $normalized;
+        }
+
+        foreach ((array)$allowedCustomTypes as $customType) {
+            $customType = strtolower(trim((string)$customType));
+            if ($customType === '' || !preg_match('/^[a-z][a-z0-9_-]{0,49}$/', $customType)) {
+                continue;
+            }
+            $customType = self::TYPE_ALIASES[$customType] ?? $customType;
+            if ($normalized === $customType) {
+                return $normalized;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Return only custom types already created and stored by the player.
+     */
+    public static function getCustomRelationshipTypes($relationships) {
+        if (!is_array($relationships)) {
+            return [];
+        }
+
+        $customTypes = [];
+        foreach ($relationships as $relationship) {
+            if (!is_array($relationship)) {
+                continue;
+            }
+            $type = strtolower(trim((string)($relationship['type'] ?? '')));
+            if ($type === '' || isset(self::TYPE_ALIASES[$type]) || in_array($type, self::TYPES, true)) {
+                continue;
+            }
+            if (preg_match('/^[a-z][a-z0-9_-]{0,49}$/', $type)) {
+                $customTypes[$type] = true;
+            }
+        }
+
+        return array_keys($customTypes);
+    }
+
     public static function normalizeRelationshipMap($relationships) {
         if (!is_array($relationships)) {
             return [];
@@ -172,7 +238,8 @@ class RelationshipManager {
             }
 
             $relationship['aff'] = max(-100, min(100, (int)($relationship['aff'] ?? 0)));
-            $relationship['type'] = strtolower(trim((string)($relationship['type'] ?? 'neutral'))) ?: 'neutral';
+            $storedType = strtolower(trim((string)($relationship['type'] ?? 'neutral'))) ?: 'neutral';
+            $relationship['type'] = self::TYPE_ALIASES[$storedType] ?? $storedType;
             foreach (['relation', 'note', 'best', 'worst'] as $field) {
                 if (array_key_exists($field, $relationship)) {
                     $relationship[$field] = trim((string)$relationship[$field]);
@@ -530,7 +597,7 @@ class RelationshipManager {
      * @param string $npcName The speaking NPC
      * @return string Cleaned response with commands stripped
      */
-    public static function extractChangeCommands($aiResponse) {
+    public static function extractChangeCommands($aiResponse, array $relationships = []) {
         $commands = [
             'affinity' => [],
             'types' => [],
@@ -545,15 +612,19 @@ class RelationshipManager {
             }
         }
 
-        if (preg_match_all('/#TYPE:([^=]+)=([a-zA-Z]+)#/', (string)$aiResponse, $matches)) {
+        $allowedCustomTypes = self::getCustomRelationshipTypes($relationships);
+        if (preg_match_all('/#TYPE:([^=]+)=([a-zA-Z][a-zA-Z0-9_-]{0,49})#/', (string)$aiResponse, $matches)) {
             foreach ($matches[1] as $i => $target) {
-                $newType = strtolower(trim($matches[2][$i]));
-                if (preg_match('/^[a-z]+$/', $newType)) {
-                    $commands['types'][] = [
-                        'target' => trim($target),
-                        'type' => $newType,
-                    ];
+                $rawType = trim($matches[2][$i]);
+                $newType = self::canonicalizeRelationshipType($rawType, $allowedCustomTypes);
+                if ($newType === null) {
+                    error_log("[REL] Rejected invented relationship type '$rawType'");
+                    continue;
                 }
+                $commands['types'][] = [
+                    'target' => trim($target),
+                    'type' => $newType,
+                ];
             }
         }
 
@@ -581,8 +652,11 @@ class RelationshipManager {
 
         foreach (($commands['types'] ?? []) as $change) {
             $target = trim((string)($change['target'] ?? ''));
-            $newType = strtolower(trim((string)($change['type'] ?? '')));
-            if ($target === '' || !preg_match('/^[a-z]+$/', $newType)) {
+            $newType = self::canonicalizeRelationshipType(
+                $change['type'] ?? null,
+                self::getCustomRelationshipTypes($relationships)
+            );
+            if ($target === '' || $newType === null) {
                 continue;
             }
             if (!isset($relationships[$target])) {
@@ -620,7 +694,7 @@ class RelationshipManager {
             return preg_replace('/#(REL|TYPE):[^#]+#/', '', $aiResponse);
         }
         $rels = self::normalizeRelationshipMap($extended['relationships'] ?? []);
-        $commands = self::extractChangeCommands($aiResponse);
+        $commands = self::extractChangeCommands($aiResponse, $rels);
         $result = self::applyChangeCommands($rels, $commands);
         $rels = $result['relationships'];
         $changed = $result['changed'];
@@ -666,10 +740,10 @@ class RelationshipManager {
 
         $rels[$targetName]['aff'] = max(-100, min(100, (int)$affinity));
 
-        // Accept any type - predefined or custom
-        // Custom types are allowed to support user creativity
+        // Direct/admin writes may create custom types; known aliases remain canonical.
         if ($type !== null && is_string($type) && strlen($type) > 0 && strlen($type) <= 50) {
-            $rels[$targetName]['type'] = strtolower(trim($type));
+            $normalizedType = strtolower(trim($type));
+            $rels[$targetName]['type'] = self::TYPE_ALIASES[$normalizedType] ?? $normalizedType;
         }
 
         $extended['relationships'] = $rels;
@@ -697,16 +771,16 @@ class RelationshipManager {
      * Get the system prompt addition for relationship tracking
      */
     public static function getSystemPromptAddition() {
-        return <<<'PROMPT'
+        $prompt = <<<'PROMPT'
 [SYSTEM: RELATIONSHIPS]
 You have relationships with others defined by a Score (-100 to +100) and a Type.
 Levels: Hostile(-100) < Resentful < Cold < Wary < Neutral(0) < Warm < Fond < Attached < Devoted(+100).
 
 COMMANDS (use when feelings change - scale to the significance of the action):
 - To adjust affinity: #REL:Name=+/-Amount#
-- To change relationship type: #TYPE:Name=NewType#
+- To change relationship type: #TYPE:Name=NewType# where NewType is EXACTLY one of the types below. Never invent a type.
 
-Types: Romantic, Platonic, Familial, Professional, Rival, Enemy, Neutral
+Types: {RELATIONSHIP_TYPES}
 
 SCALE YOUR RESPONSE TO THE ACTION:
 - Minor: +/-5 to 10 (small kindness, rude comment)
@@ -720,6 +794,8 @@ Saved your life: "You... you saved me! I won't forget this." #REL:Player=+40#
 Attacked you: "You dare strike me?!" #REL:Player=-35# #TYPE:Player=Rival#
 Killed your friend: "MURDERER! I will NEVER forgive you!" #REL:Player=-70#
 PROMPT;
+
+        return str_replace('{RELATIONSHIP_TYPES}', implode(', ', self::TYPES), $prompt);
     }
 
     /**
