@@ -37,12 +37,12 @@ $validTabs = [
 ];
 $configSections = [
     'characters' => ['label' => 'Characters', 'tabs' => ['npc' => 'DIALECTIC NPCs', 'profiles' => 'Profiles', 'player' => 'Player', 'narrator' => 'Narration', 'npcbio' => 'NPC Biographies']],
-    'ai-voice' => ['label' => 'AI & Voice', 'tabs' => ['llm' => 'LLM', 'ttscfg' => 'TTS', 'xtts' => 'TTS Studio', 'sttcfg' => 'STT', 'pipvision' => 'PipVision', 'keys' => 'API Keys']],
+    'ai-voice' => ['label' => 'AI & Voice', 'tabs' => ['llm' => 'LLM', 'ttscfg' => 'TTS', 'xtts' => 'TTS Studio', 'sttcfg' => 'STT', 'pipvision' => 'ITT', 'keys' => 'API Keys']],
     'world-behavior' => ['label' => 'World & Behavior', 'tabs' => ['globals' => 'Global Settings', 'worldknowledge' => 'World Knowledge', 'items' => 'Descriptions', 'actions' => 'Action Editor', 'prompts' => 'Prompts Manager']],
 ];
 $tabIcons = [
     'npc' => '&#x1F31F;', 'profiles' => '&#x1F5C3;&#xFE0F;', 'player' => '&#x1F464;', 'narrator' => '&#x1F5E3;&#xFE0F;', 'npcbio' => '&#x1FAAA;',
-    'llm' => '&#x1F9E0;', 'ttscfg' => '&#x1F50A;', 'xtts' => '&#x1F4E2;', 'sttcfg' => '&#x1F3A4;', 'pipvision' => '&#x1F441;&#xFE0F;', 'keys' => '&#x1F511;',
+    'llm' => '&#x1F9E0;', 'ttscfg' => '&#x1F50A;', 'xtts' => '&#x1F4E2;', 'sttcfg' => '&#x1F3A4;', 'pipvision' => '&#x1F5BC;&#xFE0F;', 'keys' => '&#x1F511;',
     'globals' => '&#x1F310;', 'worldknowledge' => '&#x1F4DC;', 'items' => '&#x1F4D6;', 'actions' => '&#x2694;&#xFE0F;', 'prompts' => '&#x1F4AC;',
 ];
 $initialTab = isset($_GET['tab']) ? trim((string)$_GET['tab']) : 'npc';
