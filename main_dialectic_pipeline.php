@@ -2392,6 +2392,12 @@ Logger::phaseStart("prompt_dynamic_context_build", [
 ]);
 $dynamicBiography = buildDynamicBiography($GLOBALS);
 $worldPrompt = buildWorldPrompt($gameRequest[2] ?? 0);
+require_once(__DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'visual_context.php');
+$visualContextPrompt = dialecticBuildVisualContextPrompt(
+    function_exists('dialecticLatestWorldContextPayload')
+        ? (dialecticLatestWorldContextPayload() ?: [])
+        : []
+);
 
 $playerBioSection = "";
 try {
@@ -2523,7 +2529,7 @@ if (!empty($GLOBALS["WORLDKNOWLEDGE_HINT"])) {
 }
 
 $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
-    "\n</roleplay_instructions>" . $worldPrompt .
+    "\n</roleplay_instructions>" . $worldPrompt . ($visualContextPrompt !== '' ? "\n\n" . $visualContextPrompt : '') .
     "\n\n<character>\n" . $GLOBALS["DIALECTIC_PERS"] . $dynamicBiography . $latestDiaryContext . $characterBottomInjections .
     "\n</character>" . $knowledgeSection .
     "\n\n<general_instructions>\n" . $GLOBALS["COMMAND_PROMPT"] .
