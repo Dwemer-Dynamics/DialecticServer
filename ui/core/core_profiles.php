@@ -1162,6 +1162,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create_import_rule"])
         'match_race' => dialecticNullIfBlank($_POST['match_race'] ?? ''),
         'match_gender' => dialecticNullIfBlank($_POST['match_gender'] ?? ''),
         'match_base' => dialecticNullIfBlank($_POST['match_base'] ?? ''),
+        'match_faction' => dialecticNullIfBlank($_POST['match_faction'] ?? ''),
         'match_mods' => $modsArr,
         'action' => $decodedAction,
         'profile' => !empty($_POST['profile']) ? (int)$_POST['profile'] : null,
@@ -1202,6 +1203,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["update_import_rule"])
         'match_race' => dialecticNullIfBlank($_POST['match_race'] ?? ''),
         'match_gender' => dialecticNullIfBlank($_POST['match_gender'] ?? ''),
         'match_base' => dialecticNullIfBlank($_POST['match_base'] ?? ''),
+        'match_faction' => dialecticNullIfBlank($_POST['match_faction'] ?? ''),
         'match_mods' => $modsArr,
         'action' => $decodedAction,
         'profile' => !empty($_POST['profile']) ? (int)$_POST['profile'] : null,
@@ -2651,7 +2653,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
                 <strong>About Profile Rules:</strong>
                     <p style="margin: 6px 0;">Profile Rules automatically apply when an NPC is Activated ingame. If an NPC that is activated matches the following ruleset, they will be assigned a custom profile of your choosing.</p>
                     <ul style="margin: 6px 0 0 16px; padding: 0;">
-                    <li><strong>Match Fields:</strong> Use regex for name/race/base. Leave blank to match all. Gender is exact match.</li>
+                    <li><strong>Match Fields:</strong> Use regex for name, race, gender, base, or faction name. Leave blank to match all.</li>
                     <li><strong>Regex examples:</strong>
                         <ul style="margin: 4px 0 0 16px; padding: 0;">
                             <li>
@@ -2673,6 +2675,10 @@ const saveAllBtn = document.getElementById('btn_save_all');
                             <li>
                                 <strong>Race one of</strong>: <code>^(human|ghoul|super mutant|robot)$</code>
                                 <div style="color:#9fb1c9; font-size:12px; margin-top:2px;">matches: human, ghoul &nbsp;|&nbsp; does not match: (any race not in the list)</div>
+                            </li>
+                            <li>
+                                <strong>Faction name</strong>: <code>^(New California Republic|Brotherhood of Steel)$</code>
+                                <div style="color:#9fb1c9; font-size:12px; margin-top:2px;">matches when any active NPC faction name satisfies the expression</div>
                             </li>
                         </ul>
                     </li>
@@ -2936,6 +2942,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
                     ${renderField('Match Race (regex)', 'match_race', rule.match_race || '', isEditing, 'text')}
                     ${renderField('Match Gender (regex)', 'match_gender', rule.match_gender || '', isEditing, 'text')}
                     ${renderField('Match Base (regex)', 'match_base', rule.match_base || '', isEditing, 'text')}
+                    ${renderField('Match Faction Name (regex)', 'match_faction', rule.match_faction || '', isEditing, 'text')}
                     ${renderField('Match Mods (comma-separated)', 'match_mods', modsStr, isEditing, 'text')}
                     ${renderField('Action (JSON)', 'action', rule.action || '', isEditing, 'json')}
                 </div>
@@ -3017,6 +3024,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
             formData.append('match_race', getData('match_race') || '');
             formData.append('match_gender', getData('match_gender') || '');
             formData.append('match_base', getData('match_base') || '');
+            formData.append('match_faction', getData('match_faction') || '');
             formData.append('match_mods', getData('match_mods') || '');
             // Validate JSON before sending; if invalid, show error and abort
             (function(){
