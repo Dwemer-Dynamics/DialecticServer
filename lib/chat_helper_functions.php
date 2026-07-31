@@ -941,7 +941,7 @@ function cleanupDisplayText($text, $speakerName = null) {
 function formatPlayerSubtitleText($text, $speakerName = null) {
     $speakerName = $speakerName ?? ($GLOBALS["PLAYER_NAME"] ?? null);
     $subtitleText = preg_replace(
-        '/\s*\((?:(?:Talking|Whispering|Shouting) to [^)]+|speaking loudly to [^)]+ from far away)\)\s*$/i',
+        '/\s*\((?:(?:Talking|Whispering|Shouting|Speaking privately) to [^)]+|speaking loudly to [^)]+ from far away)\)\s*$/i',
         '',
         $text
     );
@@ -1437,8 +1437,8 @@ function returnLines($lines,$writeOutput=true)
         // regardless of inline narration mode.
         $isPlayerSpeech = isset($GLOBALS["DIALECTIC_NAME"]) && strcasecmp((string)$GLOBALS["DIALECTIC_NAME"], "Player") === 0;
         if ($inlineNarrationEnabled || $isPlayerSpeech) {
-            $sentence = preg_replace('/\s*\((?:Talking|Whispering|Shouting)\s+to\s+[^)]+\)\s*$/i', '', $sentence);
-            $sentenceForSubtitles = preg_replace('/\s*\((?:Talking|Whispering|Shouting)\s+to\s+[^)]+\)\s*$/i', '', $sentenceForSubtitles);
+            $sentence = preg_replace('/\s*\((?:Talking|Whispering|Shouting|Speaking privately)\s+to\s+[^)]+\)\s*$/i', '', $sentence);
+            $sentenceForSubtitles = preg_replace('/\s*\((?:Talking|Whispering|Shouting|Speaking privately)\s+to\s+[^)]+\)\s*$/i', '', $sentenceForSubtitles);
         }
 
         // Check if we should split narration to The Narrator BEFORE unmoodSentence strips asterisks
@@ -2980,13 +2980,24 @@ function isWhisperExecutionMode()
     return ($mode === "WHISPER");
 }
 
+function isCloseExecutionMode()
+{
+    $mode = isset($GLOBALS["DIALECTIC_EXECUTION_MODE"]) ? strtoupper(trim((string)$GLOBALS["DIALECTIC_EXECUTION_MODE"])) : "";
+    return ($mode === "CLOSE");
+}
+
+function isPrivateConversationExecutionMode()
+{
+    return isWhisperExecutionMode() || isCloseExecutionMode();
+}
+
 function isShoutExecutionMode()
 {
     $mode = isset($GLOBALS["DIALECTIC_EXECUTION_MODE"]) ? strtoupper(trim((string)$GLOBALS["DIALECTIC_EXECUTION_MODE"])) : "";
     return ($mode === "SHOUT");
 }
 
-function buildWhisperPrivatePeople($listenerName = "")
+function buildPrivateConversationPeople($listenerName = "")
 {
     $participants = [];
 
@@ -3000,6 +3011,11 @@ function buildWhisperPrivatePeople($listenerName = "")
     }
 
     return normalizePeoplePipeList($participants);
+}
+
+function buildWhisperPrivatePeople($listenerName = "")
+{
+    return buildPrivateConversationPeople($listenerName);
 }
 
 function buildDialogueTargetSuffix($listenerName, $isSpeakingLoudly = false)
@@ -3024,6 +3040,10 @@ function buildDialogueTargetSuffix($listenerName, $isSpeakingLoudly = false)
 
     if (isWhisperExecutionMode()) {
         return "(whispering to {$listenerName})";
+    }
+
+    if (isCloseExecutionMode()) {
+        return "(speaking privately to {$listenerName})";
     }
 
     if (isShoutExecutionMode()) {
@@ -3890,7 +3910,7 @@ function convertDirectedDialogueTagsToVerb($eventData, $verb)
     }
 
     return preg_replace_callback(
-        '/\(\s*([Tt]alking|[Ww]hispering|[Ss]houting)\s+to\s+([^()]+?)\s*\)/u',
+        '/\(\s*([Tt]alking|[Ww]hispering|[Ss]houting|[Ss]peaking\s+privately)\s+to\s+([^()]+?)\s*\)/u',
         static function ($matches) use ($verb) {
             $prefix = ctype_upper(substr((string)$matches[1], 0, 1)) ? $verb : strtolower($verb);
             $target = trim((string)$matches[2]);
@@ -3903,6 +3923,11 @@ function convertDirectedDialogueTagsToVerb($eventData, $verb)
 function convertTalkingTagsToWhispering($eventData)
 {
     return convertDirectedDialogueTagsToVerb($eventData, 'Whispering');
+}
+
+function convertTalkingTagsToPrivate($eventData)
+{
+    return convertDirectedDialogueTagsToVerb($eventData, 'Speaking privately');
 }
 
 function convertTalkingTagsToShouting($eventData)
@@ -3923,7 +3948,7 @@ function extractTalkTargetMetadata($eventData)
         return $metadata;
     }
 
-    if (!preg_match('/\(\s*(?:(?:talking|whispering|shouting)\s+to|speaking\s+loudly\s+to)\s+([^()]+?)(?:\s+from\s+far\s+away)?\s*\)/i', $eventData, $matches)) {
+    if (!preg_match('/\(\s*(?:(?:talking|whispering|shouting|speaking\s+privately)\s+to|speaking\s+loudly\s+to)\s+([^()]+?)(?:\s+from\s+far\s+away)?\s*\)/i', $eventData, $matches)) {
         return $metadata;
     }
 
@@ -4009,7 +4034,7 @@ function extractCoreUtteranceFromInputEvent($eventData)
         $eventData = trim((string)$matches[1]);
     }
 
-    $eventData = preg_replace('/\s*\(\s*(?:(?:talking|whispering)\s+to|speaking\s+loudly\s+to)\s+[^)]*\)\s*$/iu', '', $eventData);
+    $eventData = preg_replace('/\s*\(\s*(?:(?:talking|whispering|speaking\s+privately)\s+to|speaking\s+loudly\s+to)\s+[^)]*\)\s*$/iu', '', $eventData);
     return trim((string)$eventData);
 }
 
@@ -4054,7 +4079,7 @@ function extractCoreUtteranceFromChatEvent($eventData)
         $eventData = trim((string)$matches[1]);
     }
 
-    $eventData = preg_replace('/\s*\(\s*(?:(?:talking|whispering|shouting)\s+to|speaking\s+loudly\s+to)\s+[^)]*\)\s*$/iu', '', $eventData);
+    $eventData = preg_replace('/\s*\(\s*(?:(?:talking|whispering|shouting|speaking\s+privately)\s+to|speaking\s+loudly\s+to)\s+[^)]*\)\s*$/iu', '', $eventData);
     return trim((string)$eventData);
 }
 
@@ -4433,7 +4458,8 @@ function buildNarratorSharedPeopleForEvent($eventType, $eventData, $listenerName
         return "";
     }
 
-    if (stripos((string)$eventData, '(whispering to ') !== false) {
+    if (stripos((string)$eventData, '(whispering to ') !== false ||
+        stripos((string)$eventData, '(speaking privately to ') !== false) {
         return "";
     }
 
@@ -5039,7 +5065,7 @@ function filterHistoricContextForNarratorVisibility(array $contextDataHistoric, 
         }
 
         $content = isset($entry["content"]) ? (string)$entry["content"] : "";
-        if (preg_match('/\(\s*(?:Talking|Whispering|Shouting|Speaking loudly)\s+to\s+The Narrator(?:\s+from\s+far\s+away)?\s*\)/i', $content) === 1) {
+        if (preg_match('/\(\s*(?:Talking|Whispering|Shouting|Speaking privately|Speaking loudly)\s+to\s+The Narrator(?:\s+from\s+far\s+away)?\s*\)/i', $content) === 1) {
             return false;
         }
 

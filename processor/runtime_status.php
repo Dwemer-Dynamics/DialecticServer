@@ -39,12 +39,13 @@ try {
     $allowedModes = [
         "STANDARD" => 0,
         "WHISPER" => 1,
-        "SHOUT" => 2,
-        "NARRATOR" => 3,
-        "DIRECTOR" => 4,
-        "INJECTION_LOG" => 5,
-        "INJECTION_CHAT" => 6,
-        "CHEATMODE" => 7,
+        "CLOSE" => 2,
+        "SHOUT" => 3,
+        "NARRATOR" => 4,
+        "DIRECTOR" => 5,
+        "INJECTION_LOG" => 6,
+        "INJECTION_CHAT" => 7,
+        "CHEATMODE" => 8,
     ];
     if (!array_key_exists($mode, $allowedModes)) {
         $mode = "STANDARD";
