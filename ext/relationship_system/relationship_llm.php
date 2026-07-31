@@ -423,17 +423,18 @@ PROMPT;
             return null;
         }
 
-        // Validate and normalize
+        // Initial analysis may select built-in relationship types only.
         $relationships = [];
-        $validTypes = ['romantic', 'platonic', 'familial', 'professional', 'rival', 'enemy', 'neutral'];
 
         foreach ($parsed['relationships'] as $target => $data) {
             $aff = isset($data['aff']) ? intval($data['aff']) : 0;
-            $type = isset($data['type']) ? strtolower($data['type']) : 'neutral';
+            $rawType = isset($data['type']) ? (string)$data['type'] : 'neutral';
+            $type = RelationshipManager::canonicalizeRelationshipType($rawType);
             $note = isset($data['note']) ? trim($data['note']) : '';
 
             $aff = max(-100, min(100, $aff));
-            if (!in_array($type, $validTypes) && !preg_match('/^[a-z]+$/', $type)) {
+            if ($type === null) {
+                Logger::info("[REL-LLM] REJECTED invented initial relationship type '{$rawType}' for {$target}; using neutral");
                 $type = 'neutral';
             }
 
@@ -1145,7 +1146,9 @@ REASON FORMAT - Keep it SHORT (under 15 words):
 ? NOT: Long clinical explanations
 
 TYPE CHANGES (rare - only for defining moments):
-- Only change type for: romance confession, betrayal, violence, marriage, family reveal
+- Add "type" only when this exchange visibly changed the relationship's nature.
+- "type" must be exactly one of: romantic, platonic, familial, professional, rival, enemy, crush, ex, betrayed.
+- Never invent labels: use "romantic", not "romance"; "betrayed", not "betrayal"; "enemy", not "enemies".
 - Most interactions just adjust affinity, not type
 
 OUTPUT (JSON only):
@@ -1213,9 +1216,18 @@ PROMPT;
             'nightingale', 'the nightingale'
         ];
 
+        $allowedCustomTypes = RelationshipManager::getCustomRelationshipTypes($currentRels);
+
         foreach ($changes as $target => $change) {
             $delta = intval($change['delta'] ?? 0);
-            $newType = $change['type'] ?? null;
+            $rawType = $change['type'] ?? null;
+            $newType = $rawType === null
+                ? null
+                : RelationshipManager::canonicalizeRelationshipType($rawType, $allowedCustomTypes);
+            if ($rawType !== null && $newType === null) {
+                $loggedType = is_scalar($rawType) ? (string)$rawType : gettype($rawType);
+                Logger::info("[REL-LLM] REJECTED invented type '{$loggedType}' for {$npc['npc_name']} -> {$target}: affinity delta still applies");
+            }
             $reason = $change['reason'] ?? '';
 
             if ($delta === 0 && $newType === null) continue;
