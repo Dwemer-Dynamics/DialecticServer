@@ -833,6 +833,25 @@ if ($checkVersion("memory_summary")<20260319001) {
     Logger::info("Applied patch memory_summary 20260319001");
 }
 
+if ($checkVersion("memory_summary") < 20260730001) {
+    Logger::debug("Applying memory_summary 20260730001 - normalize diary memory owners");
+
+    $migrationOk = $db->execQuery("
+        UPDATE public.memory_summary
+        SET companions = '|' || trim(both '|' from trim(companions)) || '|'
+        WHERE classifier = 'diary'
+          AND nullif(trim(companions), '') IS NOT NULL
+          AND companions NOT LIKE '|%|'
+    ") !== false;
+
+    if ($migrationOk) {
+        $updateVersion("memory_summary", 20260730001);
+        Logger::info("Applied patch memory_summary 20260730001");
+    } else {
+        Logger::error("Failed to apply patch memory_summary 20260730001");
+    }
+}
+
 if ($checkVersion("rolemaster")<20250414001) {
     $db->execQuery(file_get_contents(__DIR__."/../data/rolemaster.sql"));
     $updateVersion("rolemaster",20250414001);
