@@ -179,6 +179,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'core_itt_connector' => 20260731001,
             'visual_context' => 20260731001,
             'pipvision_general_settings' => 20260731001,
+            'itt_connector_defaults' => 20260731002,
             'descriptions_defaults' => 20260626004,
             'prompts' => 20260627001,
             'core_profiles' => 20260717001,

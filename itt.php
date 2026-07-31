@@ -6,7 +6,7 @@ ini_set('display_errors', '0');
 $enginePath = __DIR__ . DIRECTORY_SEPARATOR;
 require_once($enginePath . 'lib' . DIRECTORY_SEPARATOR . 'runtime_bootstrap.php');
 
-function dialecticPipVisionRespond(int $statusCode, bool $ok, array $extra = []): void
+function dialecticIttRespond(int $statusCode, bool $ok, array $extra = []): void
 {
     if (PHP_SAPI !== 'cli' && !headers_sent()) {
         header('Content-Type: application/json; charset=utf-8');
@@ -29,34 +29,34 @@ try {
     ]);
     require_once($enginePath . 'lib' . DIRECTORY_SEPARATOR . 'logger.php');
     require_once($enginePath . 'lib' . DIRECTORY_SEPARATOR . 'visual_context.php');
-    require_once($enginePath . 'lib' . DIRECTORY_SEPARATOR . 'pipvision_service.php');
-    Logger::bootstrapRequestId('pv');
+    require_once($enginePath . 'lib' . DIRECTORY_SEPARATOR . 'itt_service.php');
+    Logger::bootstrapRequestId('itt');
 } catch (Throwable $e) {
-    dialecticPipVisionRespond(500, false, ['error' => 'PipVision bootstrap failed']);
+    dialecticIttRespond(500, false, ['error' => 'PipVision ITT bootstrap failed']);
     exit;
 }
 
 if (strtoupper(strval($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
-    dialecticPipVisionRespond(405, false, ['error' => 'Method Not Allowed']);
+    dialecticIttRespond(405, false, ['error' => 'Method Not Allowed']);
     exit;
 }
 
 $rawMetadata = trim(strval($_POST['metadata'] ?? ''));
 $metadata = json_decode($rawMetadata, true);
 if (!is_array($metadata) || strval($metadata['schema'] ?? '') !== 'dialectic.visual_context.capture.v1') {
-    dialecticPipVisionRespond(400, false, ['error' => 'Invalid PipVision metadata']);
+    dialecticIttRespond(400, false, ['error' => 'Invalid PipVision metadata']);
     exit;
 }
 
 $captureId = dialecticVisualContextText($metadata['capture_id'] ?? '', 160);
 if ($captureId === '' || !preg_match('/^[A-Za-z0-9._-]+$/', $captureId)) {
-    dialecticPipVisionRespond(400, false, ['error' => 'Invalid PipVision capture ID']);
+    dialecticIttRespond(400, false, ['error' => 'Invalid PipVision capture ID']);
     exit;
 }
 
 $file = $_FILES['file'] ?? null;
 if (!is_array($file) || intval($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-    dialecticPipVisionRespond(400, false, ['capture_id' => $captureId, 'error' => 'No screenshot uploaded']);
+    dialecticIttRespond(400, false, ['capture_id' => $captureId, 'error' => 'No screenshot uploaded']);
     exit;
 }
 
@@ -64,7 +64,7 @@ $maxBytes = 8 * 1024 * 1024;
 $size = intval($file['size'] ?? 0);
 $tmpPath = strval($file['tmp_name'] ?? '');
 if ($size < 1 || $size > $maxBytes || !is_uploaded_file($tmpPath)) {
-    dialecticPipVisionRespond(413, false, ['capture_id' => $captureId, 'error' => 'Screenshot exceeds the 8 MB limit']);
+    dialecticIttRespond(413, false, ['capture_id' => $captureId, 'error' => 'Screenshot exceeds the 8 MB limit']);
     exit;
 }
 
@@ -73,25 +73,25 @@ $width = intval($imageInfo[0] ?? 0);
 $height = intval($imageInfo[1] ?? 0);
 $mime = strtolower(strval($imageInfo['mime'] ?? ''));
 if ($width < 1 || $height < 1 || $width > 8192 || $height > 8192 || ($width * $height) > 32000000) {
-    dialecticPipVisionRespond(400, false, ['capture_id' => $captureId, 'error' => 'Invalid screenshot dimensions']);
+    dialecticIttRespond(400, false, ['capture_id' => $captureId, 'error' => 'Invalid screenshot dimensions']);
     exit;
 }
 if (!in_array($mime, ['image/jpeg', 'image/png', 'image/bmp', 'image/gif'], true)) {
-    dialecticPipVisionRespond(415, false, ['capture_id' => $captureId, 'error' => 'Unsupported screenshot format']);
+    dialecticIttRespond(415, false, ['capture_id' => $captureId, 'error' => 'Unsupported screenshot format']);
     exit;
 }
 
 $rawImage = @file_get_contents($tmpPath);
 $image = is_string($rawImage) ? @imagecreatefromstring($rawImage) : false;
 if ($image === false) {
-    dialecticPipVisionRespond(400, false, ['capture_id' => $captureId, 'error' => 'Screenshot could not be decoded']);
+    dialecticIttRespond(400, false, ['capture_id' => $captureId, 'error' => 'Screenshot could not be decoded']);
     exit;
 }
 
 $galleryRoot = $enginePath . 'data' . DIRECTORY_SEPARATOR . 'pictures' . DIRECTORY_SEPARATOR . 'gallery';
 if (!is_dir($galleryRoot) && !@mkdir($galleryRoot, 0775, true)) {
     imagedestroy($image);
-    dialecticPipVisionRespond(500, false, ['capture_id' => $captureId, 'error' => 'PipVision gallery is unavailable']);
+    dialecticIttRespond(500, false, ['capture_id' => $captureId, 'error' => 'PipVision gallery is unavailable']);
     exit;
 }
 
@@ -102,12 +102,12 @@ $quality = max(45, min(dialecticGetGeneralSettingInt('PIPVISION_IMAGE_QUALITY', 
 $encoded = @imagejpeg($image, $outputPath, $quality);
 imagedestroy($image);
 if (!$encoded || !is_file($outputPath)) {
-    dialecticPipVisionRespond(500, false, ['capture_id' => $captureId, 'error' => 'PipVision screenshot normalization failed']);
+    dialecticIttRespond(500, false, ['capture_id' => $captureId, 'error' => 'PipVision screenshot normalization failed']);
     exit;
 }
 
 $phaseStarted = microtime(true);
-Logger::phaseStart('pipvision', [
+Logger::phaseStart('itt', [
     'capture_id' => $captureId,
     'bytes' => filesize($outputPath) ?: 0,
     'width' => $width,
@@ -117,7 +117,7 @@ Logger::phaseStart('pipvision', [
 ]);
 
 try {
-    $descriptionResult = dialecticPipVisionDescribe($outputPath, $metadata);
+    $descriptionResult = dialecticIttDescribe($outputPath, $metadata);
     $subject = is_array($metadata['subject'] ?? null) ? $metadata['subject'] : [];
     $subjectType = dialecticVisualContextSubjectType($metadata['visual_type'] ?? ($subject['type'] ?? 'scene'));
     $subjectName = dialecticVisualContextText($subject['name'] ?? '', 300);
@@ -150,7 +150,7 @@ try {
         throw new RuntimeException('PipVision could not persist the visual context record');
     }
 
-    Logger::phaseEnd('pipvision', [
+    Logger::phaseEnd('itt', [
         'capture_id' => $captureId,
         'record_id' => $recordId,
         'provider' => $descriptionResult['provider'],
@@ -158,7 +158,7 @@ try {
         'description_length' => strlen($descriptionResult['description']),
         'elapsed_ms' => intval(round((microtime(true) - $phaseStarted) * 1000)),
     ]);
-    dialecticPipVisionRespond(200, true, [
+    dialecticIttRespond(200, true, [
         'capture_id' => $captureId,
         'record_id' => $recordId,
         'description' => $descriptionResult['description'],
@@ -167,10 +167,10 @@ try {
     ]);
 } catch (Throwable $e) {
     @unlink($outputPath);
-    Logger::phaseEnd('pipvision', [
+    Logger::phaseEnd('itt', [
         'capture_id' => $captureId,
         'error' => $e->getMessage(),
         'elapsed_ms' => intval(round((microtime(true) - $phaseStarted) * 1000)),
     ], 'error');
-    dialecticPipVisionRespond(502, false, ['capture_id' => $captureId, 'error' => $e->getMessage()]);
+    dialecticIttRespond(502, false, ['capture_id' => $captureId, 'error' => $e->getMessage()]);
 }

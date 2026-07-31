@@ -8,7 +8,7 @@ dialecticRuntimeBootstrap($enginePath, [
     'load_itt_connector' => false,
 ]);
 require_once($enginePath . 'lib' . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'itt_connector.class.php');
-require_once($enginePath . 'lib' . DIRECTORY_SEPARATOR . 'pipvision_service.php');
+require_once($enginePath . 'lib' . DIRECTORY_SEPARATOR . 'itt_service.php');
 
 try {
     require_once($enginePath . 'debug' . DIRECTORY_SEPARATOR . 'db_updates.php');
@@ -37,12 +37,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         if ($action === 'save') {
             $driver = strtolower(trim(strval($_POST['driver'] ?? '')));
-            $metadata = [
-                'model' => trim(strval($_POST['model'] ?? '')),
-                'max_tokens' => intval($_POST['max_tokens'] ?? 350),
-                'temperature' => floatval($_POST['temperature'] ?? 0.2),
-                'prompt' => trim(strval($_POST['prompt'] ?? '')),
-            ];
+            $id = intval($_POST['id'] ?? 0);
+            $existing = $id > 0 ? $connector->getById($id) : null;
+            $existingMetadata = $connector->decodeMetadata($existing['metadata'] ?? '{}');
+            $metadata = $connector->buildMetadataFromPostedForm($driver, $_POST, $existingMetadata);
             $payload = [
                 'driver' => $driver,
                 'label' => trim(strval($_POST['label'] ?? '')),
@@ -50,7 +48,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'api_badge_id' => intval($_POST['api_badge_id'] ?? 0),
                 'metadata' => $metadata,
             ];
-            $id = intval($_POST['id'] ?? 0);
             if ($id > 0) {
                 if (!$connector->update($id, $payload)) throw new RuntimeException('Connector update failed');
             } else {
@@ -61,6 +58,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 dialecticSetGeneralSetting('GLOBAL_ITT_CONNECTOR_ID', $id, dialecticGetSchemaDescription('GLOBAL_ITT_CONNECTOR_ID'));
             }
             $message = 'PipVision connector saved.';
+        } elseif ($action === 'clone') {
+            $id = $connector->clone(intval($_POST['id'] ?? 0));
+            if ($id < 1) throw new RuntimeException('Connector clone failed');
+            $message = 'PipVision connector cloned.';
         } elseif ($action === 'activate') {
             $id = intval($_POST['id'] ?? 0);
             if (!$connector->getById($id)) throw new RuntimeException('Connector was not found');
@@ -81,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!is_array($file) || intval($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
                 throw new RuntimeException('Choose a JPG or PNG test image');
             }
-            $result = dialecticPipVisionDescribe(strval($file['tmp_name']), [
+            $result = dialecticIttDescribe(strval($file['tmp_name']), [
                 'location' => 'PipVision connector test',
                 'worldspace' => 'Fallout',
                 'subject' => ['name' => 'Test image'],
@@ -96,14 +97,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $activeId = dialecticGetGeneralSettingInt('GLOBAL_ITT_CONNECTOR_ID', 0);
 $rows = $connector->readAll();
 $badges = $GLOBALS['db']->fetchAll('SELECT id, label FROM public.core_api_badge ORDER BY LOWER(label)');
-$drivers = $connector->getDriverOptions();
+$driverValues = $connector->getDriverOptions();
+$drivers = [];
+foreach ($driverValues as $driverValue) {
+    $drivers[$driverValue] = $connector->getDisplayName($driverValue);
+}
 $editId = intval($_GET['edit'] ?? 0);
 $editing = $editId > 0 ? $connector->getById($editId) : null;
-$editMetadata = $editing ? json_decode(strval($editing['metadata'] ?? '{}'), true) : [];
-if (!is_array($editMetadata)) $editMetadata = [];
+$editMetadata = $editing ? $connector->decodeMetadata($editing['metadata'] ?? '{}') : [];
 $selectedDriver = strval($editing['driver'] ?? 'openrouter');
-$defaultUrl = $editing['url'] ?? $connector->getDefaultUrl($selectedDriver);
-$defaultModel = $editMetadata['model'] ?? $connector->getDefaultModel($selectedDriver);
+$editMetadata = array_replace($connector->getDefaultMetadataForDriver($selectedDriver), $editMetadata);
+$defaultUrl = $editing['url'] ?? $connector->getDefaultUrlForDriver($selectedDriver);
+$defaultModel = $editMetadata['model'] ?? '';
+$driverDefaults = [];
+foreach ($driverValues as $driverValue) {
+    $driverDefaults[$driverValue] = [
+        'url' => $connector->getDefaultUrlForDriver($driverValue),
+        'metadata' => $connector->getDefaultMetadataForDriver($driverValue),
+        'uses_api_badge' => $connector->driverUsesApiBadge($driverValue),
+    ];
+}
 
 $TITLE = 'PipVision';
 $BODY_CLASS = 'hub-page';
@@ -130,6 +143,7 @@ body{background:#1d1d1d;color:#f5f5f5}.pipvision-page{padding:18px;max-width:118
         <div class="pv-actions">
           <a class="pv-button" href="?<?= http_build_query(array_filter(['embed'=>$isEmbed?'1':null,'edit'=>$rowId])) ?>">Edit</a>
           <?php if($rowId!==$activeId):?><form method="post"><input type="hidden" name="action" value="activate"><input type="hidden" name="id" value="<?= $rowId ?>"><button class="pv-button" type="submit">Use</button></form><?php endif;?>
+          <form method="post"><input type="hidden" name="action" value="clone"><input type="hidden" name="id" value="<?= $rowId ?>"><button class="pv-button" type="submit">Clone</button></form>
           <form method="post" onsubmit="return confirm('Delete this PipVision connector?');"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= $rowId ?>"><button class="pv-button" type="submit">Delete</button></form>
         </div>
       </article>
@@ -141,11 +155,12 @@ body{background:#1d1d1d;color:#f5f5f5}.pipvision-page{padding:18px;max-width:118
         <label for="driver">Provider</label><select id="driver" name="driver"><?php foreach($drivers as $value=>$label):?><option value="<?= pipVisionH($value) ?>" <?= $selectedDriver===$value?'selected':'' ?>><?= pipVisionH($label) ?></option><?php endforeach;?></select>
         <label for="label">Name</label><input id="label" name="label" value="<?= pipVisionH($editing['label'] ?? '') ?>" placeholder="PipVision OpenRouter">
         <label for="url">Endpoint URL</label><input id="url" name="url" value="<?= pipVisionH($defaultUrl) ?>">
-        <label for="model">Vision model</label><input id="model" name="model" value="<?= pipVisionH($defaultModel) ?>">
-        <label for="api_badge_id">API key</label><select id="api_badge_id" name="api_badge_id"><option value="0">None / local service</option><?php foreach($badges as $badge):?><option value="<?= intval($badge['id']) ?>" <?= intval($editing['api_badge_id'] ?? 0)===intval($badge['id'])?'selected':'' ?>><?= pipVisionH($badge['label']) ?></option><?php endforeach;?></select>
-        <label for="max_tokens">Maximum tokens</label><input id="max_tokens" type="number" min="64" max="1200" name="max_tokens" value="<?= intval($editMetadata['max_tokens'] ?? 350) ?>">
-        <label for="temperature">Temperature</label><input id="temperature" type="number" min="0" max="2" step="0.1" name="temperature" value="<?= pipVisionH($editMetadata['temperature'] ?? 0.2) ?>">
-        <label for="prompt">Visual description instruction</label><textarea id="prompt" name="prompt" placeholder="Leave empty for the Fallout-aware default."><?= pipVisionH($editMetadata['prompt'] ?? '') ?></textarea>
+        <div id="model_block"><label for="model">Vision model</label><input id="model" name="meta__model" value="<?= pipVisionH($defaultModel) ?>"></div>
+        <div id="api_badge_block"><label for="api_badge_id">API key</label><select id="api_badge_id" name="api_badge_id"><option value="0">None / local service</option><?php foreach($badges as $badge):?><option value="<?= intval($badge['id']) ?>" <?= intval($editing['api_badge_id'] ?? 0)===intval($badge['id'])?'selected':'' ?>><?= pipVisionH($badge['label']) ?></option><?php endforeach;?></select></div>
+        <div id="tokens_block"><label for="max_tokens">Maximum tokens</label><input id="max_tokens" type="number" min="64" max="4096" name="meta__max_tokens" value="<?= intval($editMetadata['max_tokens'] ?? 1024) ?>"></div>
+        <div id="detail_block"><label for="detail">Image detail</label><select id="detail" name="meta__detail"><option value="low" <?= strval($editMetadata['detail'] ?? 'low')==='low'?'selected':'' ?>>Low</option><option value="high" <?= strval($editMetadata['detail'] ?? '')==='high'?'selected':'' ?>>High</option></select></div>
+        <label for="vision_prompt">Visual description instruction</label><textarea id="vision_prompt" name="meta__AI_VISION_PROMPT"><?= pipVisionH($editMetadata['AI_VISION_PROMPT'] ?? '') ?></textarea>
+        <label for="context_prompt">Context instruction</label><textarea id="context_prompt" name="meta__AI_PROMPT"><?= pipVisionH($editMetadata['AI_PROMPT'] ?? '') ?></textarea>
         <label><input type="checkbox" name="make_active" value="1" <?= !$editing || intval($editing['id'] ?? 0)===$activeId?'checked':'' ?> style="width:auto"> Make active</label>
         <div class="pv-actions"><button class="pv-button primary" type="submit">Save Connector</button></div>
       </form>
@@ -154,7 +169,14 @@ body{background:#1d1d1d;color:#f5f5f5}.pipvision-page{padding:18px;max-width:118
   </div>
 </main>
 <script>
-(function(){const driver=document.getElementById('driver'),url=document.getElementById('url'),model=document.getElementById('model');if(!driver)return;const defaults={openrouter:['https://openrouter.ai/api/v1/chat/completions','google/gemini-2.5-flash'],openai:['https://api.openai.com/v1/chat/completions','gpt-4.1-mini'],google_openai:['https://generativelanguage.googleapis.com/v1beta/openai/chat/completions','gemini-2.5-flash'],llamacpp:['http://127.0.0.1:8080/v1/chat/completions',''],custom:['','']};driver.addEventListener('change',function(){const value=defaults[driver.value]||['',''];url.value=value[0];model.value=value[1];});})();
+(function(){
+const driver=document.getElementById('driver');if(!driver)return;
+const defaults=<?= json_encode($driverDefaults, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+const fields={url:document.getElementById('url'),model:document.getElementById('model'),max_tokens:document.getElementById('max_tokens'),detail:document.getElementById('detail'),AI_VISION_PROMPT:document.getElementById('vision_prompt'),AI_PROMPT:document.getElementById('context_prompt')};
+function toggleDriver(){const value=defaults[driver.value]||{uses_api_badge:false};const local=driver.value==='llamacpp';document.getElementById('model_block').style.display=local?'none':'';document.getElementById('tokens_block').style.display=local?'none':'';document.getElementById('detail_block').style.display=local?'none':'';document.getElementById('api_badge_block').style.display=value.uses_api_badge?'':'none';}
+function applyDriver(){const value=defaults[driver.value]||{url:'',metadata:{},uses_api_badge:false};fields.url.value=value.url||'';Object.keys(fields).forEach(function(key){if(key!=='url'&&Object.prototype.hasOwnProperty.call(value.metadata||{},key)){fields[key].value=value.metadata[key];}});toggleDriver();}
+driver.addEventListener('change',applyDriver);toggleDriver();
+})();
 </script>
 <?php
 include(__DIR__ . DIRECTORY_SEPARATOR . 'tmpl' . DIRECTORY_SEPARATOR . 'footer.html');

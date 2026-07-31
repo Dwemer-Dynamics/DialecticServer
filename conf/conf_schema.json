@@ -258,6 +258,58 @@
  "_title":"Speech-to-Text Service","scope":"global"
  },
  "GLOBAL_ITT_CONNECTOR_ID": {"type":"integer","default":0,"userlvl":"basic","scope":"global","description":"Active global PipVision image-to-text connector."},
+ "ITTFUNCTION": {
+ "type":"select","values":["openrouter","custom","openai","google_openai","llamacpp"],"default":"openrouter","description":"Image-to-text service used by PipVision.",
+ "_title":"PipVision (ITT)","scope":"global"
+ },
+ "ITT": {
+ "custom": {
+ "_title":"Custom OpenAI-Compatible Service",
+ "url":{"type":"url","default":"","description":"Endpoint for a custom OpenAI-compatible vision/chat completions service.","scope":"global"},
+ "model":{"type":"string","default":"","description":"Model to use for image analysis.","scope":"global"},
+ "max_tokens":{"type":"integer","default":1024,"description":"Maximum tokens to generate.","scope":"global"},
+ "detail":{"type":"select","values":["low","high"],"default":"low","description":"Low or high fidelity image understanding.","scope":"global"},
+ "API_KEY":{"type":"apikey","description":"Optional API key for the custom service.","code":"OPENAI_API_KEY","scope":"global"},
+ "AI_VISION_PROMPT":{"type":"longstring","default":"Describe this Fallout image as if it is real life. Describe the environment, objects, and people you see at a fifth grade reading level. Ignore video game HUD and UI elements in your description.","description":"Prompt sent to the custom vision model.","scope":"global"},
+ "AI_PROMPT":{"type":"longstring","default":"Use the visual description as factual scene context without claiming to see game HUD or UI elements.","description":"Prompt guidance for using the visual description."}
+ },
+ "openai": {
+ "_title":"OpenAI",
+ "url":{"type":"url","default":"https://api.openai.com/v1/chat/completions","description":"OpenAI chat completions endpoint.","scope":"global"},
+ "model":{"type":"string","default":"gpt-4o-mini","description":"Vision-capable OpenAI model.","scope":"global"},
+ "max_tokens":{"type":"integer","default":1024,"description":"Maximum tokens to generate.","scope":"global"},
+ "detail":{"type":"select","values":["low","high"],"default":"low","description":"Low or high fidelity image understanding.","scope":"global"},
+ "API_KEY":{"type":"apikey","description":"OpenAI API key.","code":"OPENAI_API_KEY","scope":"global"},
+ "AI_VISION_PROMPT":{"type":"longstring","default":"Describe this Fallout image as if it is real life. Describe the environment, objects, and people you see at a fifth grade reading level. Ignore video game HUD and UI elements in your description.","description":"Prompt sent to the OpenAI vision model.","scope":"global"},
+ "AI_PROMPT":{"type":"longstring","default":"Use the visual description as factual scene context without claiming to see game HUD or UI elements.","description":"Prompt guidance for using the visual description."}
+ },
+ "google_openai": {
+ "_title":"Google OpenAI API",
+ "url":{"type":"url","default":"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions","description":"Google OpenAI-compatible endpoint.","scope":"global"},
+ "model":{"type":"string","default":"gemini-1.5-flash","description":"Vision-capable Gemini model.","scope":"global"},
+ "max_tokens":{"type":"integer","default":1024,"description":"Maximum tokens to generate.","scope":"global"},
+ "detail":{"type":"select","values":["low","high"],"default":"low","description":"Low or high fidelity image understanding.","scope":"global"},
+ "API_KEY":{"type":"apikey","description":"Google API key.","code":"GOOGLE_API_KEY","scope":"global"},
+ "AI_VISION_PROMPT":{"type":"longstring","default":"Describe this Fallout image as if it is real life. Describe the environment, objects, and people you see at a fifth grade reading level. Ignore video game HUD and UI elements in your description.","description":"Prompt sent to the Gemini vision model.","scope":"global"},
+ "AI_PROMPT":{"type":"longstring","default":"Use the visual description as factual scene context without claiming to see game HUD or UI elements.","description":"Prompt guidance for using the visual description."}
+ },
+ "llamacpp": {
+ "_title":"llama.cpp Server (Installed in DwemerDistro)",
+ "URL":{"type":"url","default":"http://127.0.0.1:8007","description":"URL of the llama.cpp server.","scope":"global"},
+ "AI_VISION_PROMPT":{"type":"longstring","default":"Describe this Fallout image as if it is real life. Describe the environment, objects, and people you see at a fifth grade reading level. Ignore video game HUD and UI elements in your description.","description":"Prompt sent to the llama.cpp vision model.","scope":"global"},
+ "AI_PROMPT":{"type":"longstring","default":"Use the visual description as factual scene context without claiming to see game HUD or UI elements.","description":"Prompt guidance for using the visual description."}
+ },
+ "openrouter": {
+ "_title":"OpenRouter API",
+ "url":{"type":"url","default":"https://openrouter.ai/api/v1/chat/completions","description":"OpenRouter chat completions endpoint.","scope":"global"},
+ "model":{"type":"string","default":"google/gemini-2.5-flash","description":"Vision-capable OpenRouter model.","scope":"global"},
+ "max_tokens":{"type":"integer","default":1024,"description":"Maximum tokens to generate.","scope":"global"},
+ "detail":{"type":"select","values":["low","high"],"default":"low","description":"Low or high fidelity image understanding.","scope":"global"},
+ "API_KEY":{"type":"apikey","description":"OpenRouter API key.","code":"OPENROUTER_API_KEY","scope":"global"},
+ "AI_VISION_PROMPT":{"type":"longstring","default":"Describe this Fallout image as if it is real life. Describe the environment, objects, and people you see at a fifth grade reading level. Ignore video game HUD and UI elements in your description.","description":"Prompt sent to the OpenRouter vision model.","scope":"global"},
+ "AI_PROMPT":{"type":"longstring","default":"Use the visual description as factual scene context without claiming to see game HUD or UI elements.","description":"Prompt guidance for using the visual description."}
+ }
+ },
  "VISUAL_CONTEXT_SCENE_TTL_MINUTES": {"type":"integer","default":10,"userlvl":"basic","scope":"global","description":"Minutes that an unlocked PipVision capture remains available to prompts. Locked location captures do not expire."},
  "VISUAL_CONTEXT_PROMPT_MAX_CHARS": {"type":"integer","default":1800,"userlvl":"basic","scope":"global","description":"Maximum PipVision description characters injected into a prompt."},
  "PIPVISION_IMAGE_QUALITY": {"type":"integer","default":88,"userlvl":"pro","scope":"global","description":"JPEG quality used when DialecticServer stores PipVision screenshots. Range: 45-95."},

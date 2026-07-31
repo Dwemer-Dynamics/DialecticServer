@@ -4516,4 +4516,49 @@ if ($checkVersion('pipvision_general_settings') < 20260731001) {
     }
 }
 
+if ($checkVersion('itt_connector_defaults') < 20260731002) {
+    Logger::debug('Applying itt_connector_defaults 20260731002 - seed CHIM-compatible ITT defaults');
+    $migrationOk = true;
+    try {
+        require_once(__DIR__ . '/../lib/core/itt_connector.class.php');
+        $ittConnector = new ITTConnector();
+        $connectors = $ittConnector->readAll();
+        $activeId = dialecticGetGeneralSettingInt('GLOBAL_ITT_CONNECTOR_ID', 0);
+        $activeRow = $activeId > 0 ? $ittConnector->getById($activeId) : null;
+
+        if (!$connectors) {
+            $activeId = $ittConnector->create([
+                'driver' => 'openrouter',
+                'label' => 'Global ITT Connector',
+                'metadata' => $ittConnector->getDefaultMetadataForDriver('openrouter'),
+                'api_badge_id' => $ittConnector->getDefaultApiBadgeIdForDriver('openrouter'),
+                'url' => $ittConnector->getDefaultUrlForDriver('openrouter'),
+            ]);
+            if ($activeId < 1) {
+                throw new RuntimeException('Failed creating the default ITT connector');
+            }
+            $activeRow = $ittConnector->getById($activeId);
+        } elseif (!$activeRow) {
+            $activeRow = $connectors[0];
+            $activeId = intval($activeRow['id'] ?? 0);
+        }
+
+        if ($activeId < 1 || !$activeRow || !dialecticSetGeneralSetting(
+            'GLOBAL_ITT_CONNECTOR_ID',
+            $activeId,
+            dialecticGetSchemaDescription('GLOBAL_ITT_CONNECTOR_ID')
+        )) {
+            throw new RuntimeException('Failed selecting the default ITT connector');
+        }
+    } catch (Throwable $e) {
+        $migrationOk = false;
+        Logger::error('Failed seeding ITT connector defaults: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('itt_connector_defaults', 20260731002);
+        Logger::info('Applied patch itt_connector_defaults 20260731002');
+    }
+}
+
 Logger::info(__FILE__." update file processed. This file has ".__LINE__." lines.");
