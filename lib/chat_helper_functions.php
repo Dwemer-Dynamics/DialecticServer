@@ -10,6 +10,54 @@ require_once(__DIR__."/utils_game_timestamp.php");
 require_once(__DIR__."/emote_moods.php");
 require_once(__DIR__."/npc_tts_status.php");
 
+function dialecticBuildLatestDiaryContextBlock(string $npcName, array $profileData): string
+{
+    $safeNpcName = trim($npcName);
+    if ($safeNpcName === '' || strcasecmp($safeNpcName, 'The Narrator') === 0) {
+        return '';
+    }
+
+    $metadata = json_decode(strval($profileData['metadata'] ?? '{}'), true);
+    if (!is_array($metadata)
+        || !filter_var($metadata['LATEST_DIARY_CONTEXT_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        return '';
+    }
+
+    $db = $GLOBALS['db'] ?? null;
+    if (!is_object($db) || !method_exists($db, 'fetchOne') || !method_exists($db, 'escape')) {
+        return '';
+    }
+
+    try {
+        $escapedName = $db->escape($safeNpcName);
+        $entry = $db->fetchOne(
+            "SELECT topic, content
+             FROM diarylog
+             WHERE lower(trim(people)) = lower('{$escapedName}')
+             ORDER BY gamets DESC, localts DESC, rowid DESC
+             LIMIT 1"
+        );
+    } catch (Throwable $e) {
+        Logger::warn("[LATEST_DIARY_CONTEXT] Unable to load diary context for {$safeNpcName}: " . $e->getMessage());
+        return '';
+    }
+
+    $content = trim(strval($entry['content'] ?? ''));
+    if ($content === '') {
+        return '';
+    }
+
+    $topic = trim(strval($entry['topic'] ?? ''));
+    $diaryText = $topic !== '' ? "Date: {$topic}\n{$content}" : $content;
+    $escapedText = htmlspecialchars(
+        $diaryText,
+        ENT_QUOTES | ENT_XML1 | ENT_SUBSTITUTE,
+        'UTF-8'
+    );
+
+    return "\n<latest_diary_entry>\n{$escapedText}\n</latest_diary_entry>\n";
+}
+
 function callConfiguredTts($textString, $mood, $stringforhash)
 {
     $ttsFunction = strval($GLOBALS["TTSFUNCTION"] ?? '');
@@ -2550,6 +2598,17 @@ function getGametsLimitFor($actor) {
 
 
 
+function dialecticMemorySearchInputFromRequest(array $gameRequest): string
+{
+    $rawInput = trim((string)($gameRequest[3] ?? ''));
+    if (($gameRequest[0] ?? '') !== 'rechat') {
+        return $rawInput;
+    }
+
+    $payload = dialecticParseServerSideRechatPayload($rawInput);
+    return trim((string)($payload['origin_line'] ?? ''));
+}
+
 function offerMemory($gameRequest)
 {
     global $db;
@@ -2571,6 +2630,7 @@ function offerMemory($gameRequest)
     }
 
     $timeThreshold=round($gameRequest[2]-(getGametsLimitFor($npc)/0.0000024),0)-1;
+    $memorySearchInput = dialecticMemorySearchInputFromRequest($gameRequest);
 
     error_log("[DataSearchMemoryByVector] Using timeThreshold $timeThreshold");
     $contextKeywords  = implode(" ", lastKeyWordsContext(5,$npc));
@@ -2578,9 +2638,9 @@ function offerMemory($gameRequest)
     if ($GLOBALS["FEATURES"]["MEMORY_EMBEDDING"]["USE_TEXT2VEC"]) {
         $localStartTime = microtime(true);
         error_log("[DataSearchMemoryByVector calling]  : " . (microtime(true) - $localStartTime) . " seconds");
-        $res = DataSearchMemoryByVector($gameRequest[3], $npc, true,$timeThreshold);
+        $res = DataSearchMemoryByVector($memorySearchInput, $npc, true,$timeThreshold);
         error_log("[DataSearchMemoryByVector called 1]  : " . (microtime(true) - $localStartTime) . " seconds");
-        $res2 = DataSearchMemoryByVector($gameRequest[3], $npc,false,$timeThreshold);
+        $res2 = DataSearchMemoryByVector($memorySearchInput, $npc,false,$timeThreshold);
         error_log("[DataSearchMemoryByVector called 2]  : " . (microtime(true) - $localStartTime) . " seconds");
 
         if (isset($res[0]) && isset($res2[0])) {
@@ -2591,7 +2651,7 @@ function offerMemory($gameRequest)
         $memories = $resFinal;
         
     } else {
-        $memories=DataSearchMemory($gameRequest[3],$npc);
+        $memories=DataSearchMemory($memorySearchInput,$npc);
     }
    
     

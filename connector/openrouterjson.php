@@ -486,7 +486,7 @@ class openrouterjson
                 
             } else {
                 
-                if ($lastrole=="assistant" && $lastrole!=$element["role"] && $element["role"]!="tool" ) {
+                if ($lastrole=="assistant" && $lastrole!=$element["role"] && $element["role"]!="tool" && !empty($assistantRoleBuffer)) {
                     $contextDataCopy[]=[
                         "role"=>"assistant",
                         "content"=>"{\"character\": \"{$GLOBALS["DIALECTIC_NAME"]}\", \"listener\": \"$lastTargetBuffer\", \"mood\": \"\", \"action\": \"Talk\",\"target\": \"\", \"message\":\"".trim($assistantRoleBuffer)."\"}"
@@ -552,6 +552,14 @@ class openrouterjson
                         
                         unset($contextData[$n]);
                     } else {
+                        if (!empty($element["_dialectic_compact_history"])) {
+                            $content = trim((string)$element["content"]);
+                            $contextDataCopy[] = ["role" => "assistant", "content" => $content];
+                            $pb["system"] .= $content . "\n";
+                            $lastrole = "assistant";
+                            continue;
+                        }
+
                         $alreadyJs=json_decode($element["content"],true);
                         if (is_array($alreadyJs)) {
                             $contextDataCopy[]=[
@@ -1490,15 +1498,16 @@ class openrouterjson
             $json_response = false;
         }
 
-        
-        
-        file_put_contents(__DIR__."/../log/output_from_llm_fast.log",date(DATE_ATOM)."\n=\n{$json_response}\n=\n", FILE_APPEND);
-
         if ($json_response) {
             $text_response=json_decode($json_response,true);
             
             // Check for API error response (e.g., {"error": {"message": "..."}})
             if (is_array($text_response) && isset($text_response["error"])) {
+                file_put_contents(
+                    __DIR__."/../log/output_from_llm_fast.log",
+                    date(DATE_ATOM)."\n=\n".$json_response."\n=\n",
+                    FILE_APPEND
+                );
                 $errorMsg = "ERROR|API_ERROR";
                 if (is_array($text_response["error"]) && isset($text_response["error"]["message"])) {
                     $errorMsg .= "|" . substr($text_response["error"]["message"], 0, 200);
@@ -1520,6 +1529,11 @@ class openrouterjson
             }
            
             if (is_valid_array($text_response)) {
+                file_put_contents(
+                    __DIR__."/../log/output_from_llm_fast.log",
+                    date(DATE_ATOM)."\n=\n".json_encode($text_response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n=\n",
+                    FILE_APPEND
+                );
                 if ($GLOBALS["db"]) {
                     $GLOBALS["db"]->insert(
                     'audit_request',
@@ -1534,6 +1548,11 @@ class openrouterjson
                 return $text_response["choices"][0]["message"]["content"];    
             }
             else {
+                file_put_contents(
+                    __DIR__."/../log/output_from_llm_fast.log",
+                    date(DATE_ATOM)."\n=\n".$json_response."\n=\n",
+                    FILE_APPEND
+                );
                 if ($GLOBALS["db"]) {
                     $GLOBALS["db"]->insert(
                     'audit_request',
@@ -1550,6 +1569,11 @@ class openrouterjson
             }
             
         } else {
+            file_put_contents(
+                __DIR__."/../log/output_from_llm_fast.log",
+                date(DATE_ATOM)."\n=\nNO RESPONSE\n=\n",
+                FILE_APPEND
+            );
             $lastError = error_get_last();
             $errorDetail = $lastError ? $lastError['message'] : 'unknown';
             error_log("[fast_request] No response from '{$this->_url}': {$errorDetail}");

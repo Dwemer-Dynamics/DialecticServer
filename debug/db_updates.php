@@ -833,6 +833,25 @@ if ($checkVersion("memory_summary")<20260319001) {
     Logger::info("Applied patch memory_summary 20260319001");
 }
 
+if ($checkVersion("memory_summary") < 20260730001) {
+    Logger::debug("Applying memory_summary 20260730001 - normalize diary memory owners");
+
+    $migrationOk = $db->execQuery("
+        UPDATE public.memory_summary
+        SET companions = '|' || trim(both '|' from trim(companions)) || '|'
+        WHERE classifier = 'diary'
+          AND nullif(trim(companions), '') IS NOT NULL
+          AND companions NOT LIKE '|%|'
+    ") !== false;
+
+    if ($migrationOk) {
+        $updateVersion("memory_summary", 20260730001);
+        Logger::info("Applied patch memory_summary 20260730001");
+    } else {
+        Logger::error("Failed to apply patch memory_summary 20260730001");
+    }
+}
+
 if ($checkVersion("rolemaster")<20250414001) {
     $db->execQuery(file_get_contents(__DIR__."/../data/rolemaster.sql"));
     $updateVersion("rolemaster",20250414001);
@@ -1666,6 +1685,18 @@ if ($checkTableExists("import_rules") == -1) {
     $db->execQuery(file_get_contents(__DIR__."/../data/import_rules.sql"));
 } else
     Logger::info(__FILE__." import_rules exists");
+
+if ($checkVersion("import_rules") < 20260730001) {
+    try {
+        if ($db->execQuery("ALTER TABLE public.import_rules ADD COLUMN IF NOT EXISTS match_faction text") === false) {
+            throw new RuntimeException("Could not add import_rules.match_faction");
+        }
+        $updateVersion("import_rules", 20260730001);
+        Logger::info("Applied patch import_rules 20260730001 - add faction matching");
+    } catch (Throwable $e) {
+        Logger::error("Failed to apply patch import_rules 20260730001: " . $e->getMessage());
+    }
+}
 
 // Usage column
 $db->execQuery("ALTER TABLE public.audit_request ADD COLUMN IF NOT EXISTS usage jsonb");
@@ -3879,6 +3910,12 @@ $playthroughMetadataRow = $db->fetchOne("
     SELECT
         to_regclass('dialectic_meta.playthrough_profiles')::text AS profiles_relation,
         to_regclass('dialectic_meta.settings')::text AS settings_relation,
+        (SELECT pg_get_functiondef(p.oid)
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'dialectic_meta'
+            AND p.proname = 'clone_schema'
+          LIMIT 1) AS clone_function_definition,
         (SELECT COUNT(DISTINCT p.proname)
            FROM pg_proc p
            JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -3888,11 +3925,12 @@ $playthroughMetadataRow = $db->fetchOne("
 $playthroughMetadataIncomplete = (
     empty($playthroughMetadataRow['profiles_relation']) ||
     empty($playthroughMetadataRow['settings_relation']) ||
-    intval($playthroughMetadataRow['clone_functions'] ?? 0) !== 3
+    intval($playthroughMetadataRow['clone_functions'] ?? 0) !== 3 ||
+    stripos((string)($playthroughMetadataRow['clone_function_definition'] ?? ''), 'sync_schema_sequences(dest_schema)') === false
 );
 
-if ($checkVersion("playthrough_metadata_schema") < 20260713002 || $playthroughMetadataIncomplete) {
-    Logger::debug("Applying playthrough_metadata_schema 20260713002 - create playthrough metadata and clone functions");
+if ($checkVersion("playthrough_metadata_schema") < 20260730001 || $playthroughMetadataIncomplete) {
+    Logger::debug("Applying playthrough_metadata_schema 20260730001 - refresh clone functions and repair sequences");
 
     $b_ok = true;
     try {
@@ -3906,6 +3944,9 @@ if ($checkVersion("playthrough_metadata_schema") < 20260713002 || $playthroughMe
             if (!$db->execQuery($sql)) {
                 throw new RuntimeException("Failed to execute playthrough schema file: {$sqlPath}");
             }
+        }
+        if (!$db->execQuery("SELECT dialectic_meta.sync_schema_sequences('public')")) {
+            throw new RuntimeException("Failed to repair public schema sequences");
         }
 
         $metadataRow = $db->fetchOne("
@@ -3933,8 +3974,8 @@ if ($checkVersion("playthrough_metadata_schema") < 20260713002 || $playthroughMe
     }
 
     if ($b_ok) {
-        $updateVersion("playthrough_metadata_schema", 20260713002);
-        Logger::info("Applied patch playthrough_metadata_schema 20260713002");
+        $updateVersion("playthrough_metadata_schema", 20260730001);
+        Logger::info("Applied patch playthrough_metadata_schema 20260730001");
     }
 }
 
@@ -4388,6 +4429,22 @@ if ($checkVersion("fallout_worldknowledge_seed") < 20260722001) {
     if ($b_ok) {
         $updateVersion("fallout_worldknowledge_seed", 20260722001);
         Logger::info("Applied patch fallout_worldknowledge_seed 20260722001");
+    }
+}
+
+if ($checkVersion("latest_diary_context") < 20260727001) {
+    Logger::debug("Applying latest_diary_context 20260727001 - index latest NPC diary lookups");
+
+    $migrationOk = $db->execQuery(
+        "CREATE INDEX IF NOT EXISTS idx_diarylog_people_gamets
+         ON public.diarylog (lower(trim(people)), gamets DESC, localts DESC, rowid DESC)"
+    ) !== false;
+
+    if ($migrationOk) {
+        $updateVersion("latest_diary_context", 20260727001);
+        Logger::info("Applied patch latest_diary_context 20260727001");
+    } else {
+        Logger::error("Failed to apply patch latest_diary_context 20260727001");
     }
 }
 

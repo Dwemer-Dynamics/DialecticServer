@@ -12,6 +12,7 @@ require_once(__DIR__."/core/game_plugins.php");
 require_once(__DIR__."/core/npc_master.class.php");
 require_once(__DIR__."/core/core_profiles.class.php");
 require_once(__DIR__."/prompt_injections.php");
+require_once(__DIR__."/memory_ranking.php");
 
 
 function ChangeDialecticName($new_name="") {
@@ -282,6 +283,10 @@ function dialecticInventoryMetadataLabels(array $item): array
         $labels[] = 'condition ' . ($condition <= 1.0
             ? (string)round($condition * 100) . '%'
             : rtrim(rtrim(number_format($condition, 2, '.', ''), '0'), '.'));
+    }
+
+    if (isset($item['value']) && is_numeric($item['value']) && (int)$item['value'] >= 0) {
+        $labels[] = 'value ' . (int)$item['value'] . ' caps';
     }
 
     $ammo = trim((string)($item['ammo'] ?? ''));
@@ -1305,7 +1310,10 @@ function DataLastInfoFor($actorBeingCalled, $lastNelements = -2,$includeActorDes
     }
         
     // Compact CHIM-style nearby actor list from the latest structured game snapshot.
-    $nearbyActorsList = dialecticNearbyActorNamesFromPayload(false, false);
+    $nearbyActorsList = !empty($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"]) &&
+        is_array($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"])
+        ? array_values($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"])
+        : dialecticNearbyActorNamesFromPayload(false, false);
     if (!empty($nearbyActorsList)) {
         if (!isset($GLOBALS["PROMPT_NEARBY_SECTIONS"])) {
             $GLOBALS["PROMPT_NEARBY_SECTIONS"] = "";
@@ -3948,7 +3956,12 @@ function PackIntoSummary($onlyMissingDiary=false)
     
     if ($onlyMissingDiary) {
         $results = $db->query("insert into memory_summary (gamets_truncated,n,packed_message,summary,classifier,uid,companions,scope)
-        select gamets,1,message,message,'diary',uid,speaker,'global'
+        select gamets,1,message,message,'diary',uid,
+            case
+                when nullif(trim(speaker), '') is null then ''
+                else '|' || trim(both '|' from trim(speaker)) || '|'
+            end,
+            'global'
         from memory
         where event in ('diary','auto_diary')
         and uid not in (select uid from memory_summary where classifier in  ('diary','auto_diary'))");
@@ -4106,7 +4119,12 @@ function PackIntoSummary($onlyMissingDiary=false)
         $results = $db->query($query);
         
         $results = $db->query("insert into memory_summary (gamets_truncated,n,packed_message,summary,classifier,uid,companions,scope)
-                                    select gamets,1,message,message,'diary',uid,speaker,'global'
+                                    select gamets,1,message,message,'diary',uid,
+                                        case
+                                            when nullif(trim(speaker), '') is null then ''
+                                            else '|' || trim(both '|' from trim(speaker)) || '|'
+                                        end,
+                                        'global'
                                     from memory
                                     where event='diary'
                                     and gamets>$maxRow
@@ -4475,6 +4493,11 @@ function dialecticNearbyActorNamesFromPayload($excludeFarAway = false, $includeP
 
 function DataBeingsInCloseRange($excludeFarAway=false)
 {
+    if (!empty($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"]) &&
+        is_array($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"])) {
+        return "|" . implode("|", array_values($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"])) . "|";
+    }
+
     $structuredPeople = dialecticPeoplePipeFromNearbyActorsPayload($excludeFarAway);
     if ($structuredPeople !== "") {
         return $structuredPeople;
@@ -4771,6 +4794,32 @@ function dataGetMemoryScopeConditionSql($npcName)
     return "(scope IS NULL OR scope='global')";
 }
 
+function dataGetMemoryCompanionConditionSql(
+    $npcName,
+    string $column = 'companions',
+    string $classifierColumn = 'classifier'
+): string
+{
+    $npcName = trim((string)$npcName);
+    if ($npcName === '') {
+        $narratorOnlyDiaryAccess = filter_var(
+            $GLOBALS['NARRATOR_ONLY_DIARY_ACCESS'] ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+        if (!$narratorOnlyDiaryAccess) {
+            // By default, the narrator searches every NPC diary in the global memory bank.
+            return 'TRUE';
+        }
+
+        $narratorName = $GLOBALS['db']->escape('The Narrator');
+        return "(COALESCE($classifierColumn, '') NOT IN ('diary','auto_diary','backgroundlife_diary')"
+            . " OR $column LIKE '%|$narratorName|%' OR $column='$narratorName')";
+    }
+
+    $npcEsc = $GLOBALS['db']->escape($npcName);
+    return "($column LIKE '%|$npcEsc|%' OR $column='$npcEsc')";
+}
+
 function DataSearchMemory($rawstring,$npcfilter) {
     
     //$kw=explode(" ",($rawstring));
@@ -4888,6 +4937,7 @@ function DataSearchMemory($rawstring,$npcfilter) {
     
     
     $scopeConditionSql = dataGetMemoryScopeConditionSql($npcfilter);
+    $companionConditionSql = dataGetMemoryCompanionConditionSql($npcfilter, 'A.companions', 'A.classifier');
 
     $memory=$GLOBALS["db"]->fetchAll("
         SELECT summary,gamets_truncated,
@@ -4897,7 +4947,7 @@ function DataSearchMemory($rawstring,$npcfilter) {
         where native_vec @@to_tsquery('$kwStringAny')
         and not (native_vec @@to_tsquery('#Reminiscence'))
         and $scopeConditionSql
-        and companions like '|%{$GLOBALS["db"]->escape($npcfilter)}|%'
+        and $companionConditionSql
 
         ORDER BY rank_all DESC, rank_any DESC;
         ",true);
@@ -4922,6 +4972,23 @@ function DataSearchMemory($rawstring,$npcfilter) {
     
 }
 
+
+function dialecticNormalizeTsQueryTerms(string $text): array
+{
+    if (!preg_match_all('/[\p{L}\p{N}_]+/u', $text, $matches)) {
+        return [];
+    }
+
+    $terms = [];
+    foreach ($matches[0] as $term) {
+        if (mb_strlen($term, 'UTF-8') < 3) {
+            continue;
+        }
+        $terms[] = $term;
+    }
+
+    return array_values(array_unique($terms));
+}
 
 function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$timeThreshold=0) {
     
@@ -5077,14 +5144,12 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
         }
 
        
-        if (empty($npcfilter)) {
-            $npcfilter=$GLOBALS["DIALECTIC_NAME"];
-        } else {
-            if ($useContextKw)
-                $result=array_merge($result,lastKeyWordsContext(5,$npcfilter));
+        if (!empty($npcfilter) && $useContextKw) {
+            $result=array_merge($result,lastKeyWordsContext(5,$npcfilter));
         }
 
         $scopeConditionSql = dataGetMemoryScopeConditionSql($npcfilter);
+        $companionConditionSql = dataGetMemoryCompanionConditionSql($npcfilter);
 
         $contextKeywords  = implode(" ", $result);
         $contextKeywords=strtr($contextKeywords,["remember"=>"","Remember"=>"","do you remember"=>""]);
@@ -5123,17 +5188,7 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
 
         }
 
-        $result = explode(" ",$contextKeywords);
-
-        $resultNormalized=[];
-        foreach ($result as $word) {
-            if (strlen($word)<3)
-                continue;
-            if (!empty($word))
-                $resultNormalized[]=$word;
-        }
-
-        
+        $resultNormalized = dialecticNormalizeTsQueryTerms($contextKeywords);
         $kwStringAny=implode(" | ",$resultNormalized);
         $kwStringAll=implode(" & ",$resultNormalized);
         error_log("[DataSearchMemoryByVector] Generated Tags: $kwStringAny" );
@@ -5141,61 +5196,45 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
 
         if (is_array($vector) && isset($vector["embedding"])) {
             $vectorString="'[".implode(",",$vector["embedding"])."]'";
-   
-            $finalQuery="
-                SELECT summary, gamets_truncated,
-                        embedding <-> $vectorString as distance,
-                         ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_any_fts,
-                         ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_all_fts,
-                         (embedding <-> $vectorString) - ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll'))
-                          AS mixed_distance
-                    FROM public.memory_summary 
-                    WHERE embedding IS NOT NULL
-                    and $scopeConditionSql
-                    and companions like '|%{$GLOBALS["db"]->escape($npcfilter)}|%'
-                    ORDER BY (embedding <-> $vectorString)
-                    LIMIT 5 OFFSET 0
-                ";
+            $rankAnySql = $kwStringAny !== ''
+                ? "ts_rank(native_vec, to_tsquery('" . $GLOBALS["db"]->escape($kwStringAny) . "'))"
+                : "0::real";
+            $rankAllSql = $kwStringAll !== ''
+                ? "ts_rank(native_vec, to_tsquery('" . $GLOBALS["db"]->escape($kwStringAll) . "'))"
+                : "0::real";
+            $rankCombinedSql = "($rankAnySql + $rankAllSql)";
 
-             $finalQuery="
+            $finalQuery="
                 SELECT rowid,gamets_truncated,
                         embedding <-> $vectorString as distance,
-                         ts_rank(native_vec, to_tsquery('$kwStringAny')) AS rank_any_fts_raw,
-                         ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_all_fts_raw,
-                         ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_any_fts,
-                         ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_all_fts,
-                         (embedding <-> $vectorString) - (ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll')) ) AS mixed_distance,
+                         $rankAnySql AS rank_any_fts_raw,
+                         $rankAllSql AS rank_all_fts_raw,
+                         $rankCombinedSql AS rank_fts,
+                         (embedding <-> $vectorString) - $rankCombinedSql AS mixed_distance,
                          summary
                     FROM public.memory_summary 
                     WHERE embedding IS NOT NULL
                     and $scopeConditionSql
-                    and companions like '|%{$GLOBALS["db"]->escape($npcfilter)}|%'
+                    and $companionConditionSql
                     and (gamets_truncated<$timeThreshold or $timeThreshold=0)
                     
                     ORDER BY 
                         round((embedding <-> $vectorString)::numeric, 2) ASC,
-                        (ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll'))) DESC
+                        $rankCombinedSql DESC
                     LIMIT 50 OFFSET 0
                 ";    
             $memory=$GLOBALS["db"]->fetchAll($finalQuery);
             //error_log($finalQuery);
-            $singleMemory = null;
-            $maxRankAny = -INF;
-
-            foreach ($memory as $entry) {
-                if (isset($entry['rank_any_fts']) && $entry['rank_any_fts'] > $maxRankAny) {
-                    $maxRankAny = $entry['rank_any_fts'];
-                    $singleMemory = $entry;
-                }
-            }
+            $singleMemory = dialecticSelectBestHybridMemoryCandidate($memory);
          
             if (!isset($singleMemory)) {
-                $singleMemory=["rank_any"=>null,"rank_all"=>null,"summary"=>null];
-                $singleMemory["distance"]=1.4;
-            }
-            else {
-                 $singleMemory['rank_any']=(($singleMemory["rank_any_fts"])+($singleMemory["rank_all_fts"])/2);
-                 $singleMemory['rank_all']=($singleMemory["rank_all_fts"]);
+                $singleMemory = [
+                    "rank_any" => null,
+                    "rank_all" => null,
+                    "summary" => null,
+                    "distance" => 1.4,
+                    "mixed_distance" => 1.4,
+                ];
             }
             
             /*error_log("

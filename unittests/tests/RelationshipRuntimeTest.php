@@ -85,7 +85,7 @@ final class RelationshipRuntimeTest extends TestCase
     public function testCommandsAreExtractedAndAppliedWithBounds(): void
     {
         $commands = RelationshipManager::extractChangeCommands(
-            'Fine. #REL:Player=+25# #TYPE:Player=Friend# #REL:Arcade=-150#'
+            'Fine. #REL:Player=+25# #TYPE:Player=Romance# #REL:Arcade=-150#'
         );
         $result = RelationshipManager::applyChangeCommands(
             ['Player' => ['aff' => 90, 'type' => 'neutral']],
@@ -94,8 +94,24 @@ final class RelationshipRuntimeTest extends TestCase
 
         $this->assertTrue($result['changed']);
         $this->assertSame(100, $result['relationships']['Player']['aff']);
-        $this->assertSame('friend', $result['relationships']['Player']['type']);
+        $this->assertSame('romantic', $result['relationships']['Player']['type']);
         $this->assertSame(-100, $result['relationships']['Arcade']['aff']);
+    }
+
+    public function testInventedTypesAreRejectedButExistingCustomTypesRemainSelectable(): void
+    {
+        $relationships = [
+            'Player' => ['aff' => 10, 'type' => 'trusted_ally'],
+        ];
+
+        $commands = RelationshipManager::extractChangeCommands(
+            '#TYPE:Player=Soulmate# #TYPE:Arcade=Trusted_Ally#',
+            $relationships
+        );
+
+        $this->assertCount(1, $commands['types']);
+        $this->assertSame('Arcade', $commands['types'][0]['target']);
+        $this->assertSame('trusted_ally', $commands['types'][0]['type']);
     }
 
     public function testCompletedStreamIsParsedOnceAfterAllLinesArrive(): void

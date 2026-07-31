@@ -123,7 +123,7 @@ class google_openaijson
                 
             } else {
 
-                if ($lastrole=="assistant" && $lastrole!=$element["role"] && $element["role"]!="tool" ) {
+                if ($lastrole=="assistant" && $lastrole!=$element["role"] && $element["role"]!="tool" && !empty($assistantRoleBuffer)) {
                     $contextDataCopy[]=[
                         "role"=>"assistant",
                         "content"=>"{\"character\": \"{$GLOBALS["DIALECTIC_NAME"]}\", \"listener\": \"$lastTargetBuffer\", \"mood\": \"\", \"action\": \"Talk\",\"target\": \"\", \"message\":\"".trim($assistantRoleBuffer)."\"}"
@@ -174,6 +174,14 @@ class google_openaijson
                         
                         unset($contextData[$n]);
                     } else {
+                        if (!empty($element["_dialectic_compact_history"])) {
+                            $content = trim((string)$element["content"]);
+                            $contextDataCopy[] = ["role" => "assistant", "content" => $content];
+                            $pb["system"] .= $content . "\n";
+                            $lastrole = "assistant";
+                            continue;
+                        }
+
                         $alreadyJs=json_decode($element["content"],true);
                         if (is_array($alreadyJs)) {
                             $contextDataCopy[]=[

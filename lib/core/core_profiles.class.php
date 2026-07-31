@@ -25,6 +25,7 @@ class CoreProfile
             'CONTEXT_HISTORY_DIARY' => 100,
             'AUTO_DIARY_ENABLED' => false,
             'AUTO_DIARY_WAIT_ENABLED' => true,
+            'LATEST_DIARY_CONTEXT_ENABLED' => false,
             'SALUTATION_AFTER_A_WHILE' => false,
         ];
     }
@@ -79,9 +80,9 @@ class CoreProfile
         }
 
         $filtered = array_intersect_key($data, array_flip($fields));
-        $created = $GLOBALS["db"]->insert($this->table, $filtered);
-        $this->repairDefaultFlags($created ? intval($created) : null, $filtered);
-        return $created;
+        $createdId = $GLOBALS["db"]->insertReturningId($this->table, $filtered);
+        $this->repairDefaultFlags($createdId ?: null, $filtered);
+        return $createdId;
     }
 
     public function readAll()

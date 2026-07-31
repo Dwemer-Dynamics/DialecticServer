@@ -42,7 +42,7 @@ ob_start();
 include(__DIR__.DIRECTORY_SEPARATOR."../tmpl/head.html");
 ?>
 
-<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css">
+<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css?v=<?php echo (int) @filemtime(dirname(__DIR__) . '/css/main.css'); ?>">
 <style>
 /* Match WorldKnowledge/Connectors spacing and title styling */
 @font-face {
@@ -398,7 +398,10 @@ h1.api-title {
 }
 .profile-prompt-field { margin-top:10px; }
 .profile-prompt-field textarea { min-height:82px; }
-.profile-toggle-grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; margin-top:10px; }
+.profile-toggle-groups { display:grid; gap:9px; margin-top:10px; }
+.profile-toggle-group { padding:9px; border:1px solid #3f3f3f; border-radius:7px; background:#202020; }
+.profile-toggle-group-title { margin:0 0 7px; color:var(--dialectic-accent, #ffb641); font-family:'Gothic821', sans-serif; font-size:1em; letter-spacing:0.4px; word-spacing:4px; }
+.profile-toggle-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:8px; }
 .profile-toggle-card {
     display:block !important;
     min-height:78px;
@@ -908,7 +911,8 @@ if (!function_exists('dialecticNullIfBlank')) {
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_profile"])) {
     try { while (ob_get_level() > 0) { ob_end_clean(); } } catch (Throwable $e) {}
     header('Content-Type: application/json');
-    
+
+    $importTransactionStarted = false;
     try {
         $importJson = $_POST['import_data'] ?? '';
         
@@ -937,6 +941,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_profile"])) {
             echo json_encode(['ok' => false, 'error' => 'Profile slot must be 1-4 or empty']);
             exit;
         }
+
+        if ($GLOBALS["db"]->query("BEGIN") === false) {
+            throw new Exception('Could not start profile import transaction');
+        }
+        $importTransactionStarted = true;
+
         $previousDefaultNpc = $profiles->getDefaultNpc();
         $previousDefaultNpcId = is_array($previousDefaultNpc) && !empty($previousDefaultNpc['id'])
             ? (int)$previousDefaultNpc['id']
@@ -968,6 +978,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_profile"])) {
                     'label' => $label,
                     'api_key' => '' // Empty, user must fill in
                 ]);
+                if (!$newBadgeId) {
+                    throw new Exception($apiBadgeObj->getLastError() ?: "Could not import API key entry '{$label}'");
+                }
                 $apiBadgeIdMap[$oldId] = $newBadgeId;
             }
         }
@@ -1001,6 +1014,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_profile"])) {
                 
                 // Create new connector
                 $newConnId = $llmConn->create($connData);
+                if (!$newConnId) {
+                    throw new Exception($llmConn->getLastError() ?: "Could not import LLM connector '{$label}'");
+                }
                 $llmConnectorIdMap[$oldId] = $newConnId;
             }
         }
@@ -1028,6 +1044,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_profile"])) {
                 }
                 
                 $ttsConnectorId = $ttsConn->create($ttsData);
+                if (!$ttsConnectorId) {
+                    throw new Exception($ttsConn->getLastError() ?: "Could not import TTS connector '{$label}'");
+                }
             }
         }
         
@@ -1076,7 +1095,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_profile"])) {
         }
 
         if ($assignSlot !== null) {
-            $GLOBALS["db"]->query("UPDATE core_profiles SET slot = NULL WHERE slot = {$assignSlot}");
+            if ($GLOBALS["db"]->query("UPDATE core_profiles SET slot = NULL WHERE slot = {$assignSlot}") === false) {
+                throw new Exception('Could not clear the selected profile slot');
+            }
             $slotOk = $profiles->update($newProfileId, ['slot' => $assignSlot]);
             if ($slotOk === false) {
                 throw new Exception($profiles->getLastError() ?: 'Could not assign imported profile slot');
@@ -1084,7 +1105,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_profile"])) {
         }
 
         if ($makeDefaultNpc) {
-            $profiles->promoteToDefaultNpc($newProfileId);
+            if ($profiles->promoteToDefaultNpc($newProfileId) === false) {
+                throw new Exception($profiles->getLastError() ?: 'Could not set imported profile as the default');
+            }
         }
 
         $migratedNpcCount = 0;
@@ -1096,7 +1119,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_profile"])) {
             $where = implode(' OR ', $whereParts);
             $countRow = $GLOBALS["db"]->fetchOne("SELECT COUNT(*) AS c FROM core_npc_master WHERE {$where}");
             $migratedNpcCount = (int)($countRow['c'] ?? 0);
-            $GLOBALS["db"]->query("UPDATE core_npc_master SET profile_id = {$newProfileId} WHERE {$where}");
+            if ($GLOBALS["db"]->query("UPDATE core_npc_master SET profile_id = {$newProfileId} WHERE {$where}") === false) {
+                throw new Exception('Could not move current default NPCs to the imported profile');
+            }
         }
 
         $messageParts = ['Profile imported successfully'];
@@ -1109,7 +1134,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_profile"])) {
         if ($migrateOldDefaultNpcs) {
             $messageParts[] = "migrated {$migratedNpcCount} NPCs from old default/empty profile";
         }
-        
+        if ($GLOBALS["db"]->query("COMMIT") === false) {
+            throw new Exception('Could not commit imported profile');
+        }
+        $importTransactionStarted = false;
+
         echo json_encode([
             'ok' => true, 
             'id' => $newProfileId,
@@ -1117,6 +1146,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_profile"])) {
         ]);
         
     } catch (Throwable $e) {
+        if ($importTransactionStarted) {
+            $GLOBALS["db"]->query("ROLLBACK");
+        }
         echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
     }
     exit;
@@ -1159,6 +1191,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create_import_rule"])
         'match_race' => dialecticNullIfBlank($_POST['match_race'] ?? ''),
         'match_gender' => dialecticNullIfBlank($_POST['match_gender'] ?? ''),
         'match_base' => dialecticNullIfBlank($_POST['match_base'] ?? ''),
+        'match_faction' => dialecticNullIfBlank($_POST['match_faction'] ?? ''),
         'match_mods' => $modsArr,
         'action' => $decodedAction,
         'profile' => !empty($_POST['profile']) ? (int)$_POST['profile'] : null,
@@ -1199,6 +1232,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["update_import_rule"])
         'match_race' => dialecticNullIfBlank($_POST['match_race'] ?? ''),
         'match_gender' => dialecticNullIfBlank($_POST['match_gender'] ?? ''),
         'match_base' => dialecticNullIfBlank($_POST['match_base'] ?? ''),
+        'match_faction' => dialecticNullIfBlank($_POST['match_faction'] ?? ''),
         'match_mods' => $modsArr,
         'action' => $decodedAction,
         'profile' => !empty($_POST['profile']) ? (int)$_POST['profile'] : null,
@@ -1273,14 +1307,14 @@ $ttsById = $byId($ttsRows);
 
 <div class="llm-layout">
     <div class="llm-left">
-        <div style="margin: 6px 0 10px 4px; display:flex; gap:8px; flex-wrap:wrap;">
-            <form method="get" action="core_profiles.php" style="display:inline">
+        <div class="sidebar-action-grid">
+            <form method="get" action="core_profiles.php">
                 <input type="hidden" name="create_blank" value="1">
-                <button type="submit" class="btn-save">New Profile</button>
+                <button type="submit" class="btn-save">New</button>
             </form>
-            <button type="button" id="import_profile_btn" class="btn-primary">Import Profile</button>
-            <button type="button" id="open_import_rules_btn" class="btn-primary">Profile Rules</button>
-            <button type="button" id="profile_test_all_btn" class="btn-primary">Test All Profiles</button>
+            <button type="button" id="import_profile_btn" class="btn-primary">Import</button>
+            <button type="button" id="open_import_rules_btn" class="btn-primary">Rules</button>
+            <button type="button" id="profile_test_all_btn" class="btn-primary">Test</button>
         </div>
         <div id="profiles_list" class="conn-list"></div>
         <script>
@@ -1727,6 +1761,7 @@ $ttsById = $byId($ttsRows);
         $mtmEnabled = !empty($profileMetadata['MIDDLE_TERM_MEMORY_ENABLED']);
         $autoDiaryEnabled = !empty($profileMetadata['AUTO_DIARY_ENABLED']);
         $autoDiaryWaitEnabled = !empty($profileMetadata['AUTO_DIARY_WAIT_ENABLED']);
+        $latestDiaryContextEnabled = !empty($profileMetadata['LATEST_DIARY_CONTEXT_ENABLED']);
         $randomizerEnabled = !empty($profileMetadata['LLM_RANDOMIZER_ENABLED']);
         $fallbackEnabled = !empty($profileMetadata['LLM_FALLBACK_ENABLED']);
 
@@ -1736,13 +1771,29 @@ $ttsById = $byId($ttsRows);
         $currentId = (int)($editItem['id'] ?? 0);
         $currentSlot = isset($editItem['slot']) ? (int)$editItem['slot'] : 0;
 
-        $profileToggleCards = [
-            ['key' => 'DYNAMIC_PROFILE_ENABLED', 'icon' => '&#x267B;&#xFE0F;', 'title' => 'Dynamic Profile', 'enabled' => $dynamicProfileEnabled, 'short' => 'Allow gameplay events to evolve NPC profiles.', 'help' => 'Allow systems to evolve NPC profiles based on gameplay events. NPCs using this profile will have dynamic profile enabled by default.'],
-            ['key' => 'MIDDLE_TERM_MEMORY_ENABLED', 'icon' => '&#x1F4C3;', 'title' => 'Middle Term Memory', 'enabled' => $mtmEnabled, 'short' => 'Include periodic middle-term memory summaries.', 'help' => 'Saves a list of recent events after every 10 memory summaries. NPCs using this profile will have MTM enabled by default.'],
-            ['key' => 'AUTO_DIARY_ENABLED', 'icon' => '&#x1F4D9;', 'title' => 'Auto Diary', 'enabled' => $autoDiaryEnabled, 'short' => 'Generate nearby NPC diaries during sleep or wait.', 'help' => 'Automatically generate diary entries when NPCs are nearby during sleep/wait events. NPCs using this profile will have auto diary enabled by default.'],
-            ['key' => 'AUTO_DIARY_WAIT_ENABLED', 'icon' => '&#x23F3;', 'title' => 'Auto Diary Wait', 'enabled' => $autoDiaryWaitEnabled, 'short' => 'Include wait events when Auto Diary is enabled.', 'help' => 'When Auto Diary is enabled, this controls whether diary entries are created during wait events. If disabled, auto diary will only trigger on sleep events.'],
-            ['key' => 'LLM_RANDOMIZER_ENABLED', 'icon' => '&#x1F3B2;', 'title' => 'LLM Randomizer', 'enabled' => $randomizerEnabled, 'short' => 'Rotate among the four profile LLM connectors.', 'help' => 'Randomly switches between the 4 LLM connectors for NPCs using this profile. Will roughly switch every 2-3 responses per NPC.'],
-            ['key' => 'LLM_FALLBACK_ENABLED', 'icon' => '&#x1F504;', 'title' => 'LLM Fallback Chain', 'enabled' => $fallbackEnabled, 'short' => 'Retry failed requests through the ordered fallback connectors.', 'help' => 'Automatically retry failed, rate-limited, or empty requests through up to three ordered fallback connectors. Response time will be longer only when fallback is used.'],
+        $profileToggleGroups = [
+            [
+                'title' => 'Profiles & Memories',
+                'cards' => [
+                    ['key' => 'DYNAMIC_PROFILE_ENABLED', 'icon' => '&#x267B;&#xFE0F;', 'title' => 'Dynamic Profile', 'enabled' => $dynamicProfileEnabled, 'short' => 'Allow gameplay events to evolve NPC profiles.', 'help' => 'Allow systems to evolve NPC profiles based on gameplay events. NPCs using this profile will have dynamic profile enabled by default.'],
+                    ['key' => 'MIDDLE_TERM_MEMORY_ENABLED', 'icon' => '&#x1F4C3;', 'title' => 'Middle Term Memory', 'enabled' => $mtmEnabled, 'short' => 'Include periodic middle-term memory summaries.', 'help' => 'Saves a list of recent events after every 10 memory summaries. NPCs using this profile will have MTM enabled by default.'],
+                ],
+            ],
+            [
+                'title' => 'Diary',
+                'cards' => [
+                    ['key' => 'AUTO_DIARY_ENABLED', 'icon' => '&#x1F4D9;', 'title' => 'Auto Diary', 'enabled' => $autoDiaryEnabled, 'short' => 'Generate nearby NPC diaries during sleep or wait.', 'help' => 'Automatically generate diary entries when NPCs are nearby during sleep/wait events. NPCs using this profile will have auto diary enabled by default.'],
+                    ['key' => 'AUTO_DIARY_WAIT_ENABLED', 'icon' => '&#x23F3;', 'title' => 'Auto Diary Wait', 'enabled' => $autoDiaryWaitEnabled, 'short' => 'Include wait events when Auto Diary is enabled.', 'help' => 'When Auto Diary is enabled, this controls whether diary entries are created during wait events. If disabled, auto diary will only trigger on sleep events.'],
+                    ['key' => 'LATEST_DIARY_CONTEXT_ENABLED', 'icon' => '&#x1F4D6;', 'title' => 'Include Latest Diary Entry', 'enabled' => $latestDiaryContextEnabled, 'short' => 'Include the NPC\'s latest diary entry in response context.', 'help' => 'Adds the latest diary entry written by an NPC to the character section of every response prompt.'],
+                ],
+            ],
+            [
+                'title' => 'LLM',
+                'cards' => [
+                    ['key' => 'LLM_RANDOMIZER_ENABLED', 'icon' => '&#x1F3B2;', 'title' => 'LLM Randomizer', 'enabled' => $randomizerEnabled, 'short' => 'Rotate among the four profile LLM connectors.', 'help' => 'Randomly switches between the 4 LLM connectors for NPCs using this profile. Will roughly switch every 2-3 responses per NPC.'],
+                    ['key' => 'LLM_FALLBACK_ENABLED', 'icon' => '&#x1F504;', 'title' => 'LLM Fallback Chain', 'enabled' => $fallbackEnabled, 'short' => 'Retry failed requests through the ordered fallback connectors.', 'help' => 'Automatically retry failed, rate-limited, or empty requests through up to three ordered fallback connectors. Response time will be longer only when fallback is used.'],
+                ],
+            ],
         ];
     ?>
 
@@ -1799,26 +1850,33 @@ $ttsById = $byId($ttsRows);
             <small class="hint">Optional profile-specific system instructions appended to requests.</small>
         </div>
 
-        <div class="profile-toggle-grid">
-            <?php foreach ($profileToggleCards as $toggleCard): ?>
-                <label class="profile-toggle-card" title="<?= htmlspecialchars($toggleCard['help']) ?>">
-                    <span class="profile-toggle-heading">
-                        <span><?= $toggleCard['icon'] ?> <?= htmlspecialchars($toggleCard['title']) ?></span>
-                        <span class="profile-toggle-control">
-                            <input type="hidden" name="meta_vis[<?= htmlspecialchars($toggleCard['key']) ?>]" value="">
-                            <input type="checkbox" name="meta_vis[<?= htmlspecialchars($toggleCard['key']) ?>]" value="1" <?= $toggleCard['enabled'] ? "checked" : "" ?>>
-                            <span class="toggle-text"><?= $toggleCard['enabled'] ? 'On' : 'Off' ?></span>
-                        </span>
-                    </span>
-                    <span class="profile-toggle-description"><?= htmlspecialchars($toggleCard['short']) ?></span>
-                </label>
+        <div class="profile-toggle-groups">
+            <?php foreach ($profileToggleGroups as $toggleGroup): ?>
+                <section class="profile-toggle-group">
+                    <h3 class="profile-toggle-group-title"><?= htmlspecialchars($toggleGroup['title']) ?></h3>
+                    <div class="profile-toggle-grid">
+                        <?php foreach ($toggleGroup['cards'] as $toggleCard): ?>
+                            <label class="profile-toggle-card" title="<?= htmlspecialchars($toggleCard['help']) ?>">
+                                <span class="profile-toggle-heading">
+                                    <span><?= $toggleCard['icon'] ?> <?= htmlspecialchars($toggleCard['title']) ?></span>
+                                    <span class="profile-toggle-control">
+                                        <input type="hidden" name="meta_vis[<?= htmlspecialchars($toggleCard['key']) ?>]" value="">
+                                        <input type="checkbox" name="meta_vis[<?= htmlspecialchars($toggleCard['key']) ?>]" value="1" <?= $toggleCard['enabled'] ? "checked" : "" ?>>
+                                        <span class="toggle-text"><?= $toggleCard['enabled'] ? 'On' : 'Off' ?></span>
+                                    </span>
+                                </span>
+                                <span class="profile-toggle-description"><?= htmlspecialchars($toggleCard['short']) ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                </section>
             <?php endforeach; ?>
         </div>
     </div>
 
     <script>
     document.addEventListener('DOMContentLoaded', function(){
-        const names = ['default_npc','meta_vis[LLM_RANDOMIZER_ENABLED]','meta_vis[LLM_FALLBACK_ENABLED]','meta_vis[DYNAMIC_PROFILE_ENABLED]','meta_vis[MIDDLE_TERM_MEMORY_ENABLED]','meta_vis[AUTO_DIARY_ENABLED]','meta_vis[AUTO_DIARY_WAIT_ENABLED]'];
+        const names = ['default_npc','meta_vis[LLM_RANDOMIZER_ENABLED]','meta_vis[LLM_FALLBACK_ENABLED]','meta_vis[DYNAMIC_PROFILE_ENABLED]','meta_vis[MIDDLE_TERM_MEMORY_ENABLED]','meta_vis[AUTO_DIARY_ENABLED]','meta_vis[AUTO_DIARY_WAIT_ENABLED]','meta_vis[LATEST_DIARY_CONTEXT_ENABLED]'];
         names.forEach(n=>{
             const cb = document.querySelector(`input[type="checkbox"][name="${n}"]`);
             if (!cb) return;
@@ -2077,7 +2135,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
                 'mode' => 'profile',
                 'fieldName' => 'metadata',
                 'settingsCatalog' => $profileOverrideCatalog,
-                'reservedKeys' => ['DYNAMIC_PROFILE_ENABLED', 'MIDDLE_TERM_MEMORY_ENABLED', 'AUTO_DIARY_ENABLED', 'AUTO_DIARY_WAIT_ENABLED', 'LLM_RANDOMIZER_ENABLED', 'RPG_COMMENTS', 'RPG_COMMENTS_CHANCE', 'DYNAMIC_PROFILE_FIELDS'],
+                'reservedKeys' => ['DYNAMIC_PROFILE_ENABLED', 'MIDDLE_TERM_MEMORY_ENABLED', 'AUTO_DIARY_ENABLED', 'AUTO_DIARY_WAIT_ENABLED', 'LATEST_DIARY_CONTEXT_ENABLED', 'LLM_RANDOMIZER_ENABLED', 'RPG_COMMENTS', 'RPG_COMMENTS_CHANCE', 'DYNAMIC_PROFILE_FIELDS'],
                 'currentData' => $currentProfileOverrides,
                 'systemFields' => [],
             ];
@@ -2624,7 +2682,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
                 <strong>About Profile Rules:</strong>
                     <p style="margin: 6px 0;">Profile Rules automatically apply when an NPC is Activated ingame. If an NPC that is activated matches the following ruleset, they will be assigned a custom profile of your choosing.</p>
                     <ul style="margin: 6px 0 0 16px; padding: 0;">
-                    <li><strong>Match Fields:</strong> Use regex for name/race/base. Leave blank to match all. Gender is exact match.</li>
+                    <li><strong>Match Fields:</strong> Use regex for name, race, gender, base, or faction name. Leave blank to match all.</li>
                     <li><strong>Regex examples:</strong>
                         <ul style="margin: 4px 0 0 16px; padding: 0;">
                             <li>
@@ -2646,6 +2704,10 @@ const saveAllBtn = document.getElementById('btn_save_all');
                             <li>
                                 <strong>Race one of</strong>: <code>^(human|ghoul|super mutant|robot)$</code>
                                 <div style="color:#9fb1c9; font-size:12px; margin-top:2px;">matches: human, ghoul &nbsp;|&nbsp; does not match: (any race not in the list)</div>
+                            </li>
+                            <li>
+                                <strong>Faction name</strong>: <code>^(New California Republic|Brotherhood of Steel)$</code>
+                                <div style="color:#9fb1c9; font-size:12px; margin-top:2px;">matches when any active NPC faction name satisfies the expression</div>
                             </li>
                         </ul>
                     </li>
@@ -2909,6 +2971,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
                     ${renderField('Match Race (regex)', 'match_race', rule.match_race || '', isEditing, 'text')}
                     ${renderField('Match Gender (regex)', 'match_gender', rule.match_gender || '', isEditing, 'text')}
                     ${renderField('Match Base (regex)', 'match_base', rule.match_base || '', isEditing, 'text')}
+                    ${renderField('Match Faction Name (regex)', 'match_faction', rule.match_faction || '', isEditing, 'text')}
                     ${renderField('Match Mods (comma-separated)', 'match_mods', modsStr, isEditing, 'text')}
                     ${renderField('Action (JSON)', 'action', rule.action || '', isEditing, 'json')}
                 </div>
@@ -2990,6 +3053,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
             formData.append('match_race', getData('match_race') || '');
             formData.append('match_gender', getData('match_gender') || '');
             formData.append('match_base', getData('match_base') || '');
+            formData.append('match_faction', getData('match_faction') || '');
             formData.append('match_mods', getData('match_mods') || '');
             // Validate JSON before sending; if invalid, show error and abort
             (function(){

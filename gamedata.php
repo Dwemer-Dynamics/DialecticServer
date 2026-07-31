@@ -1403,6 +1403,9 @@ function buildInventoryMetadataValue(array $items): array
             if (array_key_exists('type', $item) && $item['type'] !== null && $item['type'] !== '') {
                 $inventoryItem['type'] = intval($item['type']);
             }
+            if (array_key_exists('value', $item) && is_numeric($item['value'])) {
+                $inventoryItem['value'] = max(0, intval($item['value']));
+            }
             if (array_key_exists('ammo', $item) && $item['ammo'] !== null && $item['ammo'] !== '') {
                 $inventoryItem['ammo'] = (string)$item['ammo'];
             }
@@ -1680,6 +1683,107 @@ function sanitizeActorProfilePayload(array $data): array
     return $profile;
 }
 
+function dialecticApplyActorProfileRules(array $currentData, array $data, NpcMaster $npcMaster): void
+{
+    $db = $GLOBALS['db'];
+    $factionNames = [];
+    $factionFormIds = [];
+    foreach (($data['factions'] ?? []) as $faction) {
+        if (!is_array($faction) || intval($faction['rank'] ?? -1) < 0) {
+            continue;
+        }
+        $name = cleanBridgeString($faction['name'] ?? '');
+        if ($name !== '' && strcasecmp($name, 'Unknown Faction') !== 0) {
+            $factionNames[] = $name;
+        }
+        $formId = dialecticNormalizeHexIdentifier($faction['formid'] ?? '', 8);
+        if ($formId !== '') {
+            $factionFormIds[] = $formId;
+        }
+    }
+
+    $factionFormIds = array_values(array_unique($factionFormIds));
+    if (!empty($factionFormIds)) {
+        $formIdLiterals = implode(', ', array_map(
+            static fn($formId) => "'" . $db->escape($formId) . "'",
+            $factionFormIds
+        ));
+        foreach ($db->fetchAll("SELECT name FROM public.factions WHERE formid IN ({$formIdLiterals})") as $factionRow) {
+            $name = trim((string)($factionRow['name'] ?? ''));
+            if ($name !== '') {
+                $factionNames[] = $name;
+            }
+        }
+    }
+    $factionNames = array_values(array_unique($factionNames));
+
+    $mods = is_array($data['mods'] ?? null)
+        ? array_values(array_filter(
+            array_map(static fn($mod) => trim((string)$mod), $data['mods']),
+            static fn($mod) => $mod !== ''
+        ))
+        : [];
+    $modsArray = empty($mods)
+        ? "ARRAY[]::text[]"
+        : "ARRAY['" . implode("','", array_map([$db, 'escape'], $mods)) . "']::text[]";
+    $factionsArray = empty($factionNames)
+        ? "ARRAY[]::text[]"
+        : "ARRAY['" . implode("','", array_map([$db, 'escape'], $factionNames)) . "']::text[]";
+
+    $npcName = $db->escape((string)($currentData['npc_name'] ?? ''));
+    $npcRace = $db->escape((string)($currentData['race'] ?? ''));
+    $npcGender = $db->escape((string)($currentData['gender'] ?? ''));
+    $npcBase = $db->escape((string)($currentData['base'] ?? ''));
+    $rules = $db->fetchAll("
+        SELECT *
+          FROM public.import_rules r
+         WHERE r.enabled = TRUE
+           AND (NULLIF(BTRIM(r.match_name), '') IS NULL OR '{$npcName}' ~ r.match_name)
+           AND (NULLIF(BTRIM(r.match_race), '') IS NULL OR '{$npcRace}' ~ r.match_race)
+           AND (NULLIF(BTRIM(r.match_gender), '') IS NULL OR '{$npcGender}' ~ r.match_gender)
+           AND (NULLIF(BTRIM(r.match_base), '') IS NULL OR '{$npcBase}' ~ r.match_base)
+           AND (
+                NULLIF(BTRIM(r.match_faction), '') IS NULL
+                OR EXISTS (
+                    SELECT 1
+                      FROM unnest({$factionsArray}) AS npc_faction(name)
+                     WHERE npc_faction.name ~ r.match_faction
+                )
+           )
+           AND (r.match_mods IS NULL OR r.match_mods <@ {$modsArray})
+         ORDER BY r.priority DESC, r.id DESC
+    ");
+
+    if (empty($rules)) {
+        return;
+    }
+
+    $metadata = json_decode((string)($currentData['metadata'] ?? ''), true);
+    if (!is_array($metadata)) {
+        $metadata = [];
+    }
+    foreach ($rules as $rule) {
+        if (!empty($rule['profile'])) {
+            $currentData['profile_id'] = intval($rule['profile']);
+        }
+        $actions = json_decode((string)($rule['action'] ?? ''), true);
+        if (!is_array($actions)) {
+            continue;
+        }
+        foreach ($actions as $key => $value) {
+            if ($key === 'metadata' && is_array($value)) {
+                $metadata = array_merge($metadata, $value);
+            } else {
+                $currentData[$key] = $value;
+            }
+        }
+    }
+
+    $currentData['metadata'] = json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    $npcMaster->updateByArray($currentData);
+    Logger::info("[PROFILE_RULES] Applied " . count($rules) . " rule(s) to {$currentData['npc_name']}");
+}
+
 function handleActorProfileUpdate(array $data, NpcMaster $npcMaster): void
 {
     $actorName = cleanBridgeString($data['actor_name'] ?? '');
@@ -1735,6 +1839,9 @@ function handleActorProfileUpdate(array $data, NpcMaster $npcMaster): void
             WHERE npc_name = '" . $GLOBALS['db']->escape($currentData['npc_name']) . "'
         ");
     }
+
+    $currentData = $npcMaster->getByName($currentData['npc_name']) ?: $currentData;
+    dialecticApplyActorProfileRules($currentData, $data, $npcMaster);
 
     Logger::debug("[gamedata.php] Updated actor_profile for {$currentData['npc_name']}");
 }
