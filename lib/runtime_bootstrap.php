@@ -189,7 +189,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'prompt_manager_defaults' => 20260713002,
             'dialecticnpcs_view' => 20260713002,
             'profile_defaults' => 20260713002,
-            'playthrough_metadata_schema' => 20260713002,
+            'playthrough_metadata_schema' => 20260730001,
             'relationship_async_queues' => 20260713002,
             'fallout_worldknowledge_seed' => 20260722001,
         ];

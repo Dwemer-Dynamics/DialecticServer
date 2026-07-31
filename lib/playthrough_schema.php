@@ -9,6 +9,53 @@
 
 require_once(__DIR__ . DIRECTORY_SEPARATOR . 'logger.php');
 
+function pts_clone_function_is_current($definition): bool {
+    return is_string($definition)
+        && stripos($definition, 'OVERRIDING SYSTEM VALUE') !== false
+        && stripos($definition, 'sync_schema_sequences(dest_schema)') !== false;
+}
+
+function pts_ensure_functions($conn): bool {
+    $checkQuery = "
+        SELECT pg_get_functiondef(p.oid) AS function_definition
+          FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'dialectic_meta'
+           AND p.proname = 'clone_schema'
+         LIMIT 1
+    ";
+    $checkResult = @pg_query($conn, $checkQuery);
+    $checkRow = $checkResult ? pg_fetch_assoc($checkResult) : false;
+    if ($checkRow && pts_clone_function_is_current($checkRow['function_definition'] ?? null)) {
+        return true;
+    }
+
+    if ($checkRow) {
+        Logger::info("Schema clone functions are outdated; refreshing definitions");
+    }
+
+    $sqlFile = __DIR__ . DIRECTORY_SEPARATOR . 'schema_clone_function.sql';
+    $sql = @file_get_contents($sqlFile);
+    if ($sql === false || trim($sql) === '') {
+        Logger::error("Schema clone function SQL is unavailable");
+        return false;
+    }
+
+    if (@pg_query($conn, $sql) === false) {
+        Logger::error("Could not install schema clone functions: " . pg_last_error($conn));
+        return false;
+    }
+
+    $verifyResult = @pg_query($conn, $checkQuery);
+    $verifyRow = $verifyResult ? pg_fetch_assoc($verifyResult) : false;
+    if (!$verifyRow || !pts_clone_function_is_current($verifyRow['function_definition'] ?? null)) {
+        Logger::error("Schema clone functions were not installed successfully");
+        return false;
+    }
+
+    return true;
+}
+
 /**
  * Verify the versioned playthrough metadata migration is available.
  */
@@ -20,6 +67,10 @@ function pts_metadata_schema_ready($conn): bool {
     ");
     $tableRow = $tableResult ? pg_fetch_assoc($tableResult) : false;
     if (!$tableRow || empty($tableRow['profiles_relation']) || empty($tableRow['settings_relation'])) {
+        return false;
+    }
+
+    if (!pts_ensure_functions($conn)) {
         return false;
     }
 
