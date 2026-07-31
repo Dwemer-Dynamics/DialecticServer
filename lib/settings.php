@@ -146,6 +146,7 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'INVENTORY_ITEMS_DESCRIPTIONS_ONLY',
             'HIDE_AMBIENT_COMBAT',
             'PROMPT_TIMESTAMP',
+            'COMPACT_NPC_CONTEXT_HISTORY',
             'PROMPT_CONTEXT_OPTIONS',
             'RECHAT_MODE',
             'ENFORCE_STRICT_RECHAT_RESPONSE',
