@@ -3990,9 +3990,17 @@ $relationshipQueueRow = $db->fetchOne("
      WHERE table_schema = 'public'
        AND table_name IN ('relationship_eval_queue', 'relationship_init_queue')
 ");
-$relationshipQueuesMissing = intval($relationshipQueueRow['total'] ?? 0) !== 2;
+$relationshipQueueColumnRow = $db->fetchOne("
+    SELECT COUNT(*) AS total
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name IN ('relationship_eval_queue', 'relationship_init_queue')
+       AND column_name IN ('retry_count', 'last_error')
+");
+$relationshipQueuesIncomplete = intval($relationshipQueueRow['total'] ?? 0) !== 2
+    || intval($relationshipQueueColumnRow['total'] ?? 0) !== 4;
 
-if ($checkVersion("relationship_async_queues") < 20260713002 || $relationshipQueuesMissing) {
+if ($checkVersion("relationship_async_queues") < 20260713002 || $relationshipQueuesIncomplete) {
     Logger::debug("Applying relationship_async_queues 20260713002 - create relationship worker queues");
 
     $b_ok = true;
@@ -4007,12 +4015,18 @@ if ($checkVersion("relationship_async_queues") < 20260713002 || $relationshipQue
         }
 
         $queueRow = $db->fetchOne("
-            SELECT COUNT(*) AS total
-              FROM information_schema.tables
-             WHERE table_schema = 'public'
-               AND table_name IN ('relationship_eval_queue', 'relationship_init_queue')
+            SELECT
+                (SELECT COUNT(*)
+                   FROM information_schema.tables
+                  WHERE table_schema = 'public'
+                    AND table_name IN ('relationship_eval_queue', 'relationship_init_queue')) AS table_total,
+                (SELECT COUNT(*)
+                   FROM information_schema.columns
+                  WHERE table_schema = 'public'
+                    AND table_name IN ('relationship_eval_queue', 'relationship_init_queue')
+                    AND column_name IN ('retry_count', 'last_error')) AS column_total
         ");
-        if (intval($queueRow['total'] ?? 0) !== 2) {
+        if (intval($queueRow['table_total'] ?? 0) !== 2 || intval($queueRow['column_total'] ?? 0) !== 4) {
             throw new RuntimeException("Relationship queue schema verification failed");
         }
     } catch (Throwable $e) {
