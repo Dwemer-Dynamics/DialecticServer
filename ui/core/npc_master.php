@@ -2819,17 +2819,19 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  flex-wrap:wrap;
 }
 .pagination.npc-toolbar .npc-toolbar-actions {
- flex:1 1 1192px;
- min-width:1192px;
- flex-wrap:nowrap;
+ flex:1 1 auto;
+ min-width:0;
+ flex-wrap:wrap;
 }
 .pagination.npc-toolbar .npc-toolbar-tools {
- flex:0 0 320px;
- width:320px;
- min-width:320px;
- flex-direction:column;
- align-items:stretch;
- justify-content:flex-start;
+ flex:0 0 auto;
+ width:auto;
+ min-width:0;
+ margin-left:auto;
+ flex-direction:row;
+ align-items:center;
+ justify-content:flex-end;
+ flex-wrap:nowrap;
 }
 .pagination.npc-toolbar .npc-auto-lock-profile {
  display:flex;
@@ -2941,16 +2943,16 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  font-size:13px;
 }
 .pagination.npc-toolbar .npc-toolbar-tools input[type="text"] {
- flex:0 0 auto;
- width:100%;
+ flex:0 0 220px;
+ width:220px;
  min-width:0;
- max-width:none;
+ max-width:220px;
 }
 .pagination.npc-toolbar .npc-toolbar-tools select {
- flex:0 0 auto;
- width:100%;
+ flex:0 0 180px;
+ width:180px;
  min-width:0;
- max-width:none;
+ max-width:180px;
 }
 .pagination.npc-toolbar .npc-page-link {
  display:inline-flex;
@@ -3030,6 +3032,9 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  flex:1 1 100%;
  width:100%;
  min-width:0;
+ margin-left:0;
+ flex-wrap:wrap;
+ justify-content:flex-start;
  }
  .pagination.npc-toolbar .npc-toolbar-letter-row {
  align-items:flex-start;
