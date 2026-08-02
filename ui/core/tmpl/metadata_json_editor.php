@@ -41,9 +41,9 @@ $localSchemaOverrides = [
 ];
 
 // Visual keys to expose (can be expanded easily)
-$visualKeys = [
-  "RECHAT_H","RECHAT_P","RECHAT_ALLOW_ACTIONS","DIARY_PROMPT","DIARY_COOLDOWN","CONTEXT_HISTORY_DIARY","COMBAT_BARK_COOLDOWN"
-];
+$visualKeys = isset($profileSyncableMetadataKeys) && is_array($profileSyncableMetadataKeys)
+    ? $profileSyncableMetadataKeys
+    : ["RECHAT_H","RECHAT_P","RECHAT_ALLOW_ACTIONS","DIARY_PROMPT","DIARY_COOLDOWN","CONTEXT_HISTORY_DIARY","COMBAT_BARK_COOLDOWN"];
 
 // Organize visual keys into categories for display
 $visualGroups = [
@@ -160,7 +160,8 @@ function renderMetaSettingRow(string $key, array $schemaEntry, $value): string {
     $safeKey = htmlspecialchars($key);
     $html = '<div class="setting-row">';
     $html .= '<div>';
-    $html .= '<div class="setting-key"><span class="setting-icon">'.$icon.'</span><span>'.$label.'</span></div>';
+    $html .= '<div class="setting-key"><span class="setting-icon">'.$icon.'</span><span>'.$label.'</span>';
+    $html .= '<button type="button" class="profile-setting-sync-btn" data-setting-key="'.$safeKey.'" data-setting-label="'.$label.'" title="Copy this setting to every profile">Copy to all</button></div>';
     if (!empty($desc)) {
         $html .= '<div class="setting-desc">'.$desc.'</div>';
     }
