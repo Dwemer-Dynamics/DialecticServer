@@ -262,7 +262,7 @@ $worldRows = $hasEventlog ? dialectic_home_rows($db, "SELECT data, location, par
 $worldContext = isset($worldRows[0]) ? dialectic_home_json_object($worldRows[0]['party'] ?? '') : [];
 $worldGameTime = dialectic_home_json_object($worldContext['game_time'] ?? []);
 $activeQuests = $hasQuests ? dialectic_home_rows($db, "SELECT name, id_quest, briefing, briefing2, status FROM quests ORDER BY CASE WHEN status='selected' THEN 0 ELSE 1 END, gamets DESC LIMIT 6") : [];
-$latestDiaryRows = $hasDiary ? dialectic_home_rows($db, "SELECT topic, content, people, location, localts, gamets FROM diarylog ORDER BY gamets DESC, rowid DESC LIMIT 1") : [];
+$latestDiaryRows = $hasDiary ? dialectic_home_rows($db, "SELECT rowid, topic, content, people, location, localts, gamets FROM diarylog ORDER BY gamets DESC, rowid DESC LIMIT 1") : [];
 $latestDiary = $latestDiaryRows[0] ?? [];
 $llmStats = [
     '24h' => ['success' => 0, 'total' => 0],
@@ -659,6 +659,34 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
         white-space: pre-wrap;
     }
 
+    .latest-diary-audio-controls {
+        align-items: center;
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        padding-top: 14px;
+    }
+
+    body .latest-diary-audio-button {
+        background: var(--dialectic-accent) !important;
+        border-color: rgb(218, 145, 28) !important;
+        color: #111 !important;
+    }
+
+    body .latest-diary-audio-button:hover:not(:disabled) {
+        background: rgb(218, 145, 28) !important;
+    }
+
+    body .latest-diary-audio-button:disabled {
+        cursor: wait;
+        opacity: 0.7;
+    }
+
+    .latest-diary-audio-status {
+        color: var(--dialectic-muted);
+        font-size: 0.9rem;
+    }
+
     .stat-card.stat-period {
         cursor: pointer;
         grid-column: span 2;
@@ -988,6 +1016,10 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
                         <h4><?php echo dialectic_home_h($latestDiary['topic'] ?? 'Untitled Entry'); ?></h4>
                         <p><?php echo dialectic_home_h($latestDiary['content'] ?? ''); ?></p>
                     </div>
+                    <div class="latest-diary-audio-controls">
+                        <button type="button" id="latestDiaryAudioButton" class="latest-diary-audio-button" onclick="toggleLatestDiaryAudio(this, <?php echo (int)($latestDiary['rowid'] ?? 0); ?>)">&#9654; Play Audio</button>
+                        <span id="latestDiaryAudioStatus" class="latest-diary-audio-status" aria-live="polite"></span>
+                    </div>
                 <?php endif; ?>
             </div>
         </article>
@@ -1189,6 +1221,71 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
     </div>
 
     <script>
+        const latestDiaryAudioEndpoint = <?php echo json_encode($webRoot . '/ui/api/dialectic_diary_audio.php'); ?>;
+        const latestDiaryAudio = new Audio();
+        let latestDiaryAudioEntryId = null;
+        let latestDiaryAudioRequest = null;
+
+        async function toggleLatestDiaryAudio(button, entryId) {
+            if (!entryId) return;
+            const status = document.getElementById('latestDiaryAudioStatus');
+            if (latestDiaryAudioEntryId === entryId && latestDiaryAudio.src) {
+                if (latestDiaryAudio.paused) {
+                    await latestDiaryAudio.play();
+                    button.innerHTML = '&#10074;&#10074; Pause';
+                    if (status) status.textContent = 'Playing';
+                } else {
+                    latestDiaryAudio.pause();
+                    button.innerHTML = '&#9654; Play Audio';
+                    if (status) status.textContent = 'Paused';
+                }
+                return;
+            }
+
+            if (latestDiaryAudioRequest) latestDiaryAudioRequest.abort();
+            latestDiaryAudio.pause();
+            latestDiaryAudio.removeAttribute('src');
+            latestDiaryAudio.load();
+            latestDiaryAudioEntryId = entryId;
+            latestDiaryAudioRequest = new AbortController();
+            button.disabled = true;
+            button.textContent = 'Generating...';
+            if (status) status.textContent = 'Generating audio with the NPC voice...';
+
+            try {
+                const response = await fetch(`${latestDiaryAudioEndpoint}?entry=${encodeURIComponent(entryId)}`, {
+                    cache: 'no-store',
+                    signal: latestDiaryAudioRequest.signal
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success || !result.audio_url) {
+                    throw new Error(result.error || 'Diary audio could not be generated.');
+                }
+                latestDiaryAudioRequest = null;
+                latestDiaryAudio.src = result.audio_url;
+                await latestDiaryAudio.play();
+                button.disabled = false;
+                button.innerHTML = '&#10074;&#10074; Pause';
+                if (status) status.textContent = `Playing ${result.author || 'NPC'} with ${result.connector || 'configured TTS'}`;
+            } catch (error) {
+                latestDiaryAudioRequest = null;
+                if (error.name === 'AbortError') return;
+                console.error('Latest diary audio failed:', error);
+                button.disabled = false;
+                button.innerHTML = '&#9654; Play Audio';
+                if (status) status.textContent = error.message || 'Diary audio failed.';
+                latestDiaryAudioEntryId = null;
+            }
+        }
+
+        latestDiaryAudio.addEventListener('ended', () => {
+            const button = document.getElementById('latestDiaryAudioButton');
+            const status = document.getElementById('latestDiaryAudioStatus');
+            if (button) button.innerHTML = '&#9654; Play Audio';
+            if (status) status.textContent = '';
+            latestDiaryAudioEntryId = null;
+        });
+
         function dialecticOpenDashboardModal(id) {
             const modal = document.getElementById(id);
             if (!modal) return;
