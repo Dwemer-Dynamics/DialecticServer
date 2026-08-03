@@ -1743,12 +1743,13 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
     <button type="button" class="npc-editor-tab is-active" role="tab" aria-selected="true" data-npc-editor-tab="general">🧭 General</button>
     <button type="button" class="npc-editor-tab" role="tab" aria-selected="false" data-npc-editor-tab="bios">📖 Roleplay</button>
     <button type="button" class="npc-editor-tab" role="tab" aria-selected="false" data-npc-editor-tab="relationships">🤝 Relationships</button>
+    <button type="button" class="npc-editor-tab" role="tab" aria-selected="false" data-npc-editor-tab="actions">&#x1F9ED; Actions</button>
     <button type="button" class="npc-editor-tab" role="tab" aria-selected="false" data-npc-editor-tab="info">🛠️ Info</button>
 </div>
 <style>
 .npc-editor-tabs {
     display:grid;
-    grid-template-columns:repeat(4, minmax(0, 1fr));
+    grid-template-columns:repeat(5, minmax(0, 1fr));
     gap:8px;
     margin-bottom:14px;
     padding:8px;
@@ -1780,7 +1781,25 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
 .npc-editor-panels { display:block; }
 .npc-editor-panel[hidden] { display:none !important; }
 .npc-editor-panel[data-npc-editor-panel="bios"] { grid-template-columns:minmax(0, 1fr); }
+.npc-editor-panel[data-npc-editor-panel="actions"] { grid-template-columns:minmax(0, 1fr); }
+.npc-editor-action-note { margin:0; color:#aaa; font-size:0.86rem; }
+.npc-editor-action-list { display:grid; gap:10px; }
+.npc-editor-action-card {
+    display:grid;
+    grid-template-columns:minmax(0, 1fr) auto;
+    align-items:center;
+    gap:14px;
+    padding:12px;
+    border:1px solid #444;
+    border-radius:7px;
+    background:#282828;
+}
+.npc-editor-action-card h3 { margin:0 0 4px; color:rgb(255,182,65); font-size:1rem; }
+.npc-editor-action-card p { margin:0; color:#aaa; font-size:0.82rem; }
+.npc-editor-action-status { min-height:1.2rem; margin:0; color:#aaa; font-size:0.82rem; }
+.npc-editor-action-status.is-error { color:#ef8f96; }
 @media (max-width:700px) { .npc-editor-tabs { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+@media (max-width:850px) { .npc-editor-action-card { grid-template-columns:minmax(0, 1fr); } }
 </style>
 <script>
 (function(){
@@ -1788,6 +1807,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
         general: new Set(['npc_name','profile_id','lock_profile','npc_favorite','gender','race','base','refid','oghma_knowledge_tags','worldknowledge_tags','world_knowledge_tags','voiceid','faction','dynamic_profile','middle_term_enabled','individual_memory_enabled','auto_diary_enabled','auto_diary_wait_enabled','salutation_after_a_while','prompt_head']),
         bios: new Set(['core','npc_static_bio','appearance','personality','occupation','skills','speechstyle','goals']),
         relationships: new Set(['relationships','relationships_jsonb','middle_term_latest']),
+        actions: new Set([]),
         info: new Set(['emote_moods','metadata','extended_data'])
     };
 
@@ -1800,7 +1820,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
             tablist.dataset.initialized = '1';
 
             const panels = {};
-            ['general','bios','relationships','info'].forEach(function(section){
+            ['general','bios','relationships','actions','info'].forEach(function(section){
                 const panel = document.createElement('div');
                 panel.className = 'npc-editor-panel form-grid';
                 panel.dataset.npcEditorPanel = section;
@@ -1857,6 +1877,72 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
             grid.classList.remove('form-grid');
             grid.classList.add('npc-editor-panels');
             Object.values(panels).forEach(function(panel){ grid.appendChild(panel); });
+
+            <?php
+            $editorMetadata = json_decode((string)($editItem['metadata'] ?? '{}'), true);
+            $editorReturnLocation = is_array($editorMetadata) && is_array($editorMetadata['npc_manager_return_location'] ?? null)
+                ? $editorMetadata['npc_manager_return_location']
+                : null;
+            ?>
+            const targetId = <?= (int)($editItem['id'] ?? 0) ?>;
+            const savedReturnLocation = <?= json_encode($editorReturnLocation, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+            const initialTeleportAction = savedReturnLocation ? 'return' : 'teleport';
+            const initialReturnName = savedReturnLocation && savedReturnLocation.name ? String(savedReturnLocation.name) : '';
+            panels.actions.innerHTML = `
+                <p class="npc-editor-action-note">The game must be running and unpaused for Visit, Teleport, and Return NPC.</p>
+                <div class="npc-editor-action-list">
+                    <article class="npc-editor-action-card">
+                        <div><h3>Visit</h3><p>Move the player to this NPC's current position.</p></div>
+                        <button type="button" class="btn-cancel" data-npc-action="visit">Visit</button>
+                    </article>
+                    <article class="npc-editor-action-card">
+                        <div><h3 data-npc-teleport-title>${initialTeleportAction === 'return' ? 'Return NPC' : 'Teleport'}</h3><p data-npc-teleport-description>${initialTeleportAction === 'return' ? 'Send this NPC back to ' + (initialReturnName || 'their previous location') + '.' : "Move this NPC to the player's current position and save their previous location."}</p></div>
+                        <button type="button" class="btn-cancel" data-npc-action="${initialTeleportAction}" data-npc-teleport-button>${initialTeleportAction === 'return' ? 'Return NPC' : 'Teleport'}</button>
+                    </article>
+                </div>
+                <p class="npc-editor-action-status" data-npc-action-status role="status" aria-live="polite"></p>`;
+
+            const actionStatus = panels.actions.querySelector('[data-npc-action-status]');
+            const teleportButton = panels.actions.querySelector('[data-npc-teleport-button]');
+            const teleportTitle = panels.actions.querySelector('[data-npc-teleport-title]');
+            const teleportDescription = panels.actions.querySelector('[data-npc-teleport-description]');
+            panels.actions.querySelectorAll('[data-npc-action]').forEach(function(button){
+                button.disabled = targetId <= 0;
+                button.addEventListener('click', async function(){
+                    const action = button.dataset.npcAction;
+                    button.disabled = true;
+                    actionStatus.textContent = 'Sending action...';
+                    actionStatus.classList.remove('is-error');
+                    try {
+                        const response = await fetch('../api/dialectic_npc_manager.php', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({operation:'action', action:action, id:targetId})
+                        });
+                        const payload = await response.json();
+                        if (!response.ok || !payload || !payload.success) {
+                            throw new Error((payload && payload.error) || ('HTTP ' + response.status));
+                        }
+                        actionStatus.textContent = (payload.data && payload.data.message) || 'Action sent.';
+                        if (button === teleportButton && payload.data && payload.data.next_action) {
+                            const nextAction = payload.data.next_action;
+                            const returnName = payload.data.return_location ? String(payload.data.return_location) : '';
+                            button.dataset.npcAction = nextAction;
+                            button.textContent = nextAction === 'return' ? 'Return NPC' : 'Teleport';
+                            teleportTitle.textContent = nextAction === 'return' ? 'Return NPC' : 'Teleport';
+                            teleportDescription.textContent = nextAction === 'return'
+                                ? 'Send this NPC back to ' + (returnName || 'their previous location') + '.'
+                                : "Move this NPC to the player's current position and save their previous location.";
+                        }
+                    } catch (error) {
+                        actionStatus.textContent = 'Action failed: ' + (error.message || error);
+                        actionStatus.classList.add('is-error');
+                    } finally {
+                        button.disabled = targetId <= 0;
+                    }
+                });
+            });
+            if (targetId <= 0) actionStatus.textContent = 'Save this NPC before using actions.';
 
             const storageKey = tablist.dataset.storageKey || 'npc-editor-tab';
             function activate(section){
