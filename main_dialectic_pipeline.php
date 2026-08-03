@@ -2457,6 +2457,7 @@ if ($gameRequest[0] === "vision") {
 
 // Ensure actions and nearby sections are added to PROMPT_HEAD before building system prompt
 require_once(__DIR__.DIRECTORY_SEPARATOR."functions".DIRECTORY_SEPARATOR."json_response.php");
+require_once(__DIR__.DIRECTORY_SEPARATOR."lib".DIRECTORY_SEPARATOR."prompt_composition.php");
 
 if (
     $gameRequest[0] === "narrator_inputtext"
@@ -2544,6 +2545,19 @@ $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
     "\n</character>" . $knowledgeSection .
     "\n\n<general_instructions>\n" . $GLOBALS["COMMAND_PROMPT"] .
     "\n</general_instructions>" . $actionsList . $nearbySections . $promptBottomInjections . $paralinguisticTagsPrompt . "\n";
+
+$promptCompositionSections = [
+    'roleplay_instructions' => $GLOBALS['PROMPT_HEAD'] ?? '',
+    'world' => $worldPrompt ?? '',
+    'visual_context' => $visualContextPrompt ?? '',
+    'character' => ($GLOBALS['DIALECTIC_PERS'] ?? '') . ($dynamicBiography ?? '') . ($latestDiaryContext ?? '') . ($characterBottomInjections ?? ''),
+    'knowledge' => $knowledgeSection ?? '',
+    'general_instructions' => $GLOBALS['COMMAND_PROMPT'] ?? '',
+    'actions' => $actionsList ?? '',
+    'nearby_actors' => $nearbySections ?? '',
+    'plugin_injections' => $promptBottomInjections ?? '',
+    'paralinguistic_tags' => $paralinguisticTagsPrompt ?? '',
+];
 
 $systemPrompt = dialecticFormatPromptXmlSections(
     strtr(
@@ -2648,6 +2662,20 @@ if (microtime(true) - $startTime > 0.25) {
     $dbExecutionTime = $GLOBALS["DB_EXECUTION_TIME"] ?? 0;
     error_log("*TRACE SQL: TOTAL DATABASE query execution time: {$dbExecutionTime} seconds");
     error_log("*TRACE: ".__LINE__. " at ".__FILE__.": ".(microtime(true) - $startTime)." secs building call");
+}
+
+if (($gameRequest[0] ?? '') !== 'diary') {
+    dialecticLogPromptComposition(
+        strval($gameRequest[0] ?? ''),
+        array_merge(
+            $promptCompositionSections,
+            [
+                'history' => $contextDataFull ?? [],
+                'memory_injection' => $memoryInjectionCtx ?? [],
+            ]
+        ),
+        $contextData ?? []
+    );
 }
 
 //returnLines(["Mmm..let me think"]);
