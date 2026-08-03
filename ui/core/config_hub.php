@@ -33,17 +33,17 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "../tmpl/navbar.php");
 $validTabs = [
     'npc', 'globals', 'profiles', 'llm', 'ttscfg', 'sttcfg', 'pipvision', 'keys',
     'player', 'narrator', 'worldknowledge', 'npcbio', 'items', 'actions',
-    'prompts', 'xtts'
+    'prompts', 'serverplugins', 'xtts'
 ];
 $configSections = [
     'characters' => ['label' => 'Characters', 'tabs' => ['npc' => 'DIALECTIC NPCs', 'profiles' => 'Profiles', 'player' => 'Player', 'narrator' => 'Narration', 'npcbio' => 'NPC Biographies']],
     'ai-voice' => ['label' => 'AI & Voice', 'tabs' => ['llm' => 'LLM', 'ttscfg' => 'TTS', 'xtts' => 'TTS Studio', 'sttcfg' => 'STT', 'pipvision' => 'ITT', 'keys' => 'API Keys']],
-    'world-behavior' => ['label' => 'World & Behavior', 'tabs' => ['globals' => 'Global Settings', 'worldknowledge' => 'World Knowledge', 'items' => 'Descriptions', 'actions' => 'Action Editor', 'prompts' => 'Prompts Manager']],
+    'world-behavior' => ['label' => 'World & Behavior', 'tabs' => ['globals' => 'Global Settings', 'worldknowledge' => 'World Knowledge', 'items' => 'Descriptions', 'actions' => 'Action Editor', 'prompts' => 'Prompts Manager', 'serverplugins' => 'Server Plugins']],
 ];
 $tabIcons = [
     'npc' => '&#x1F31F;', 'profiles' => '&#x1F5C3;&#xFE0F;', 'player' => '&#x1F464;', 'narrator' => '&#x1F5E3;&#xFE0F;', 'npcbio' => '&#x1FAAA;',
     'llm' => '&#x1F9E0;', 'ttscfg' => '&#x1F50A;', 'xtts' => '&#x1F4E2;', 'sttcfg' => '&#x1F3A4;', 'pipvision' => '&#x1F5BC;&#xFE0F;', 'keys' => '&#x1F511;',
-    'globals' => '&#x1F310;', 'worldknowledge' => '&#x1F4DC;', 'items' => '&#x1F4D6;', 'actions' => '&#x2694;&#xFE0F;', 'prompts' => '&#x1F4AC;',
+    'globals' => '&#x1F310;', 'worldknowledge' => '&#x1F4DC;', 'items' => '&#x1F4D6;', 'actions' => '&#x2694;&#xFE0F;', 'prompts' => '&#x1F4AC;', 'serverplugins' => '&#x1F9E9;',
 ];
 $initialTab = isset($_GET['tab']) ? trim((string)$_GET['tab']) : 'npc';
 if (!in_array($initialTab, $validTabs, true)) {
@@ -184,6 +184,11 @@ main { padding: 80px 10px 10px; height: 100vh; }
         <div id="prompts" class="tab-content">
             <div class="embed-wrap">
                 <iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/prompts_manager.php?embed=1"></iframe>
+            </div>
+        </div>
+        <div id="serverplugins" class="tab-content">
+            <div class="embed-wrap">
+                <iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/server_plugins.php?embed=1"></iframe>
             </div>
         </div>
     </div>
