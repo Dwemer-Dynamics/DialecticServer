@@ -45,10 +45,10 @@ if (!function_exists('dialecticCompactHistoryDialogue')) {
         $speaker = trim($fallbackSpeaker);
         $listener = '';
 
-        if (preg_match('/\s*\((?:talking|whispering|shouting)\s+to\s+([^\)]+)\)\s*\.?\s*$/iu', $content, $match)) {
+        if (preg_match('/\s*\((?:talking|whispering|shouting|speaking privately)\s+to\s+([^\)]+)\)\s*\.?\s*$/iu', $content, $match)) {
             $listener = dialecticCompactHistoryWhitespace($match[1]);
             $content = trim((string)preg_replace(
-                '/\s*\((?:talking|whispering|shouting)\s+to\s+[^\)]+\)\s*\.?\s*$/iu',
+                '/\s*\((?:talking|whispering|shouting|speaking privately)\s+to\s+[^\)]+\)\s*\.?\s*$/iu',
                 '',
                 $content
             ));
@@ -130,7 +130,7 @@ if (!function_exists('dialecticCompactUserHistoryEntry')) {
             return "Background dialogue at {$location}: {$dialogue}";
         }
 
-        if (preg_match('/\((?:talking|whispering|shouting)\s+to\s+[^\)]+\)\s*\.?\s*$/iu', $content)) {
+        if (preg_match('/\((?:talking|whispering|shouting|speaking privately)\s+to\s+[^\)]+\)\s*\.?\s*$/iu', $content)) {
             return dialecticCompactHistoryDialogue($content, '');
         }
 

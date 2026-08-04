@@ -322,6 +322,22 @@ h1.api-title {
 .setting-control select,
 .setting-control textarea { width:100%; }
 .setting-control textarea { min-height: 88px; }
+body .setting-key .profile-setting-sync-btn {
+    display:inline-flex;
+    flex:0 0 auto;
+    min-height:18px !important;
+    margin:0 !important;
+    padding:2px 5px !important;
+    border:1px solid #4b4b4b !important;
+    border-radius:4px !important;
+    background:#303030 !important;
+    color:#f3f3f3 !important;
+    font-size:9px !important;
+    font-weight:600;
+    line-height:1.1;
+    cursor:pointer;
+}
+body .setting-key .profile-setting-sync-btn:hover { border-color:rgb(255, 182, 65) !important; background:#383838 !important; }
 .range-pair { display:flex; align-items:center; gap:8px; }
 .range-pair input[type="range"] { flex:1; accent-color: rgb(255, 182, 65); }
 .range-pair input[type="number"] { width:86px; min-width:86px; text-align:right; }
@@ -541,11 +557,21 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create"])) {
 }
 
 // Handle Update
+$profileSyncableMetadataKeys = [
+    'RECHAT_H', 'RECHAT_P', 'RECHAT_ALLOW_ACTIONS',
+    'DIARY_PROMPT', 'DIARY_COOLDOWN', 'CONTEXT_HISTORY_DIARY',
+    'COMBAT_BARK_COOLDOWN',
+];
+
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["update"])) {
     if ((isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')) {
         try { while (ob_get_level() > 0) { ob_end_clean(); } } catch (Throwable $e) {}
         header('Content-Type: application/json');
     }
+    $requestedSyncSetting = $_POST['sync_profile_setting'] ?? null;
+    $syncSettingKey = is_string($requestedSyncSetting) ? trim($requestedSyncSetting) : null;
+    $syncRequestInvalid = $syncSettingKey !== null && !in_array($syncSettingKey, $profileSyncableMetadataKeys, true);
+
     // Server-side merge of visual metadata with JSON editor content
     if (isset($_POST['meta_vis'])) {
         $base = [];
@@ -566,9 +592,43 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["update"])) {
         }
         $_POST['metadata'] = json_encode($base, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
     }
-    $profiles->update($_POST["id"], $_POST);
+    $updated = $syncRequestInvalid ? false : $profiles->update($_POST["id"], $_POST);
+    $syncedProfiles = null;
+    $syncError = $syncRequestInvalid ? 'This profile setting cannot be copied to all profiles.' : null;
+
+    if ($updated !== false && $syncSettingKey !== null) {
+        $metadata = json_decode($_POST['metadata'] ?? '{}', true);
+        $metadata = is_array($metadata) ? $metadata : [];
+
+        if (array_key_exists($syncSettingKey, $metadata)) {
+            $encodedValue = json_encode($metadata[$syncSettingKey], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $escapedValue = $GLOBALS['db']->escape($encodedValue);
+            $syncResult = $GLOBALS['db']->execQuery(
+                "UPDATE core_profiles
+                 SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{{$syncSettingKey}}', '{$escapedValue}'::jsonb, true)"
+            );
+        } else {
+            $syncResult = $GLOBALS['db']->execQuery(
+                "UPDATE core_profiles
+                 SET metadata = COALESCE(metadata, '{}'::jsonb) - '{$syncSettingKey}'"
+            );
+        }
+
+        if ($syncResult === false) {
+            $updated = false;
+            $syncError = 'The profile was saved, but the selected setting could not be copied to all profiles.';
+        } else {
+            $syncedProfiles = $profiles->getProfileCount();
+        }
+    }
     if ((isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')) {
-        echo json_encode(['ok'=>true,'id'=>$_POST['id'] ?? null]);
+        echo json_encode([
+            'ok' => $updated !== false,
+            'id' => $_POST['id'] ?? null,
+            'synced_profiles' => $syncedProfiles,
+            'synced_setting' => $syncSettingKey,
+            'error' => $updated === false ? ($syncError ?? $profiles->getLastError()) : null,
+        ]);
         exit;
     } else {
         header("Location: core_profiles.php");
@@ -2167,7 +2227,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
     })();
 
     // Save handler that keeps the user on the same profile and shows a toast
-    async function saveProfileAjax(ev, formId){
+    async function saveProfileAjax(ev, formId, syncSettingKey, syncSettingLabel){
         try {
             if (typeof consolidation === 'function') {
                 const ok = consolidation(ev, formId);
@@ -2200,6 +2260,9 @@ const saveAllBtn = document.getElementById('btn_save_all');
         } else {
             if (!fd.has('create')) fd.append('create','1');
         }
+        if (typeof syncSettingKey === 'string' && syncSettingKey !== '') {
+            fd.append('sync_profile_setting', syncSettingKey);
+        }
         try {
             const res = await fetch('core_profiles.php', { method:'POST', headers:{ 'X-Requested-With': 'XMLHttpRequest' }, body: fd });
             let json = {};
@@ -2212,7 +2275,11 @@ const saveAllBtn = document.getElementById('btn_save_all');
                     idEl.value = String(json.id);
                     try { history.replaceState({}, '', 'core_profiles.php?edit='+encodeURIComponent(String(json.id))); } catch(_){ }
                 }
-                if (typeof showToast === 'function') showToast('Profile saved');
+                if (typeof showToast === 'function') {
+                    const synced = Number(json.synced_profiles || 0);
+                    const label = syncSettingLabel || 'Setting';
+                    showToast(synced > 0 ? (label + ' copied to ' + synced + ' profiles') : 'Profile saved');
+                }
             } else {
                 if (typeof showToast === 'function') showToast('Save failed: ' + (json && json.error ? json.error : 'Unknown error'), true);
             }
@@ -2221,6 +2288,17 @@ const saveAllBtn = document.getElementById('btn_save_all');
         }
         return false;
     }
+
+    document.querySelectorAll('.profile-setting-sync-btn').forEach(btn => {
+        btn.addEventListener('click', function(ev){
+            const settingKey = btn.dataset.settingKey || '';
+            const settingLabel = btn.dataset.settingLabel || 'this setting';
+            if (!settingKey) return;
+            if (!window.confirm('Copy "' + settingLabel + '" from this profile to all profiles? Other profile settings will not change.')) return;
+            if (typeof showToast === 'function') showToast('Copying ' + settingLabel + '...');
+            saveProfileAjax(ev, 'core_profile_form', settingKey, settingLabel);
+        });
+    });
 
     // Save only profile basics (label, default flags, prompt)
     async function saveProfileBasics(){

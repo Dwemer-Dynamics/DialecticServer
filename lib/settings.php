@@ -165,6 +165,11 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'WORLDKNOWLEDGE_INFINIUM',
             'WORLDKNOWLEDGE_AMOUNT',
             'LOCATION_WORLDKNOWLEDGE',
+            'GLOBAL_ITT_CONNECTOR_ID',
+            'VISUAL_CONTEXT_SCENE_TTL_MINUTES',
+            'VISUAL_CONTEXT_PROMPT_MAX_CHARS',
+            'PIPVISION_IMAGE_QUALITY',
+            'PIPVISION_REQUEST_TIMEOUT_SECONDS',
         ];
     }
 }
@@ -203,6 +208,7 @@ if (!function_exists('dialecticGetManagedGeneralSettingDescriptions')) {
         $descriptions['FEATURES@MEMORY_EMBEDDING@AUTO_CREATE_SUMMARYS'] = 'Controls whether automatic memory summaries are created by the memory embedding system.';
         $descriptions['PROMPT_CONTEXT_OPTIONS'] = 'Controls which XML-like prompt context sections are included in the final system prompt sent to the LLM. Managed from Global Settings.';
         $descriptions['GLOBAL_STT_CONNECTOR_ID'] = 'Active global STT connector. Only one STT connector is used globally for player speech-to-text.';
+        $descriptions['GLOBAL_ITT_CONNECTOR_ID'] = 'Active global PipVision connector. Only one image-to-text connector is used for visual captures.';
 
         return $descriptions;
     }
@@ -239,6 +245,11 @@ if (!function_exists('dialecticPrettySettingLabel')) {
             'SHORTER_NEARBY_ITEM_LIST' => 'Shorter Nearby Item List',
             'CLEAN_CONTEXT_FOCUS_CHAT_HISTORY' => 'Focus Chat Context',
             'GLOBAL_STT_CONNECTOR_ID' => 'Speech To Text Connector',
+            'GLOBAL_ITT_CONNECTOR_ID' => 'PipVision Connector',
+            'VISUAL_CONTEXT_SCENE_TTL_MINUTES' => 'PipVision Scene Lifetime',
+            'VISUAL_CONTEXT_PROMPT_MAX_CHARS' => 'PipVision Prompt Limit',
+            'PIPVISION_IMAGE_QUALITY' => 'PipVision Image Quality',
+            'PIPVISION_REQUEST_TIMEOUT_SECONDS' => 'PipVision Request Timeout',
         ];
         if (isset($customLabels[$flatName])) {
             return $customLabels[$flatName];
@@ -256,6 +267,14 @@ if (!function_exists('dialecticPrettySettingLabel')) {
 if (!function_exists('dialecticGetOverrideableGeneralSettingCategory')) {
     function dialecticGetOverrideableGeneralSettingCategory(string $flatId): string
     {
+        if (
+            strpos($flatId, 'PIPVISION_') === 0
+            || strpos($flatId, 'VISUAL_CONTEXT_') === 0
+            || $flatId === 'GLOBAL_ITT_CONNECTOR_ID'
+        ) {
+            return 'PipVision';
+        }
+
         if (in_array($flatId, ['WORLDKNOWLEDGE_INFINIUM', 'WORLDKNOWLEDGE_AMOUNT', 'LOCATION_WORLDKNOWLEDGE', 'WORLDKNOWLEDGE_CUSTOM', 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'], true)) {
             return 'World Knowledge';
         }
@@ -311,6 +330,9 @@ if (!function_exists('dialecticGetSelectOptionsForOverrideSetting')) {
             'GLOBAL_STT_CONNECTOR_ID' => [
                 'query' => "SELECT id, COALESCE(NULLIF(label, ''), NULLIF(driver, ''), CAST(id AS text)) AS option_label FROM public.core_stt_connector ORDER BY id ASC",
             ],
+            'GLOBAL_ITT_CONNECTOR_ID' => [
+                'query' => "SELECT id, COALESCE(NULLIF(label, ''), NULLIF(driver, ''), CAST(id AS text)) AS option_label FROM public.core_itt_connector ORDER BY id ASC",
+            ],
         ];
 
         if (strpos($flatId, 'CORE_CONNECTOR_') === 0 || $flatId === 'RELLLM_CONNECTOR') {
@@ -362,7 +384,7 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingsCatalog')) {
 
         $candidateIds = array_values(array_unique(array_merge(
             dialecticGetManagedGeneralSettingIds(),
-            ['GLOBAL_STT_CONNECTOR_ID'],
+            ['GLOBAL_STT_CONNECTOR_ID', 'GLOBAL_ITT_CONNECTOR_ID'],
             array_keys($rowMap)
         )));
 
@@ -372,7 +394,7 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingsCatalog')) {
             'RECHAT_ALLOW_ACTIONS',
         ];
         $managedIds = array_flip(dialecticGetManagedGeneralSettingIds());
-        $explicitOverrideIds = ['GLOBAL_STT_CONNECTOR_ID' => true];
+        $explicitOverrideIds = ['GLOBAL_STT_CONNECTOR_ID' => true, 'GLOBAL_ITT_CONNECTOR_ID' => true];
 
         $catalog = [];
         foreach ($candidateIds as $id) {
@@ -1006,6 +1028,29 @@ if (!function_exists('dialecticLoadActiveSttConnectorIntoGlobals')) {
         }
         if ($row) {
             $connector->setOldGlobals($row);
+        }
+    }
+}
+
+if (!function_exists('dialecticLoadActiveIttConnectorIntoGlobals')) {
+    function dialecticLoadActiveIttConnectorIntoGlobals(): void
+    {
+        $connectorId = dialecticGetGeneralSettingInt('GLOBAL_ITT_CONNECTOR_ID', 0);
+        if ($connectorId <= 0) {
+            return;
+        }
+
+        if (!class_exists('ITTConnector')) {
+            require_once(__DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'itt_connector.class.php');
+        }
+
+        try {
+            $row = (new ITTConnector())->getById($connectorId);
+        } catch (Throwable $e) {
+            $row = null;
+        }
+        if ($row) {
+            (new ITTConnector())->setOldGlobals($row);
         }
     }
 }

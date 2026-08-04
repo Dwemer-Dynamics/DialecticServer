@@ -310,6 +310,16 @@ if (function_exists("dialectic_adapt_json_input_payload_for_pipeline")) {
     }
 }
 
+if (function_exists("dialectic_adapt_json_vision_payload_for_pipeline")) {
+    $normalizedVisionPayload = dialectic_adapt_json_vision_payload_for_pipeline($gameRequest);
+    if (!empty($normalizedVisionPayload["changed"])) {
+        Logger::info("[main] Adapted structured PipVision payload for vision pipeline" . Logger::formatContext([
+            "target" => $normalizedVisionPayload["target"] ?? "",
+            "chars" => strlen((string)($normalizedVisionPayload["description"] ?? "")),
+        ]));
+    }
+}
+
 // In directed DIALECTIC modes, normalize incoming dialogue tags so logs/prompts stay aligned
 // with the active speaking style.
 $dialecticExecutionMode = strtoupper((string)($GLOBALS["DIALECTIC_EXECUTION_MODE"] ?? ""));
@@ -317,6 +327,8 @@ if (isset($gameRequest[3]) && is_string($gameRequest[3]) &&
     in_array($gameRequest[0], ["inputtext", "inputtext_s", "narrator_inputtext", "chat", "prechat", "rechat", "continue"], true)) {
     if ($dialecticExecutionMode === "WHISPER") {
         $gameRequest[3] = convertTalkingTagsToWhispering($gameRequest[3]);
+    } elseif ($dialecticExecutionMode === "CLOSE") {
+        $gameRequest[3] = convertTalkingTagsToPrivate($gameRequest[3]);
     } elseif ($dialecticExecutionMode === "SHOUT") {
         $gameRequest[3] = convertTalkingTagsToShouting($gameRequest[3]);
     }
@@ -455,7 +467,7 @@ if (in_array(($gameRequest[0] ?? ''), ['rpg_lvlup', 'combatend', 'combatendmight
 }
 
 $inputRequestType = $gameRequest[0] ?? '';
-if (in_array($inputRequestType, ["inputtext", "inputtext_s", "cheatmode"], true)) {
+if (in_array($inputRequestType, ["inputtext", "inputtext_s", "cheatmode", "vision"], true)) {
     Logger::phaseStart("input_profile_bind", [
         "type" => $inputRequestType,
     ]);
@@ -611,7 +623,7 @@ $OVERRIDES["MINIME_T5"] = isset($GLOBALS["MINIME_T5"]) ? $GLOBALS["MINIME_T5"] :
             $currentProfileData = null;
 
             // Highest-confidence target extraction from player text payload.
-            if ($requestText !== "" && preg_match('/\(\s*(?:(?:talking|whispering|shouting)\s+to|speaking\s+loudly\s+to)\s+([^()]+?)(?:\s+from\s+far\s+away)?\s*\)/i', $requestText, $matches)) {
+            if ($requestText !== "" && preg_match('/\(\s*(?:(?:talking|whispering|shouting|speaking\s+privately)\s+to|speaking\s+loudly\s+to)\s+([^()]+?)(?:\s+from\s+far\s+away)?\s*\)/i', $requestText, $matches)) {
                 $candidate = trim($matches[1]);
                 if ($candidate !== "") {
                     $fallbackNpcName = $candidate;
@@ -621,6 +633,7 @@ $OVERRIDES["MINIME_T5"] = isset($GLOBALS["MINIME_T5"]) ? $GLOBALS["MINIME_T5"] :
             $isNarratorScopedRequest = in_array($gameRequest[0], ["narrator_inputtext", "narration", "narrator_welcome"], true)
                 || stripos($requestText, '(Talking to The Narrator)') !== false
                 || stripos($requestText, '(Whispering to The Narrator)') !== false
+                || stripos($requestText, '(Speaking privately to The Narrator)') !== false
                 || stripos($requestText, '(Shouting to The Narrator)') !== false
                 || ($fallbackNpcName !== null && strcasecmp($fallbackNpcName, "The Narrator") === 0);
 
@@ -1127,6 +1140,11 @@ Logger::phaseEnd("processor_comm", [
 
 
 if (in_array($gameRequest[0],["rechat","narration"]) ) {
+    if (function_exists('isPrivateConversationExecutionMode') && isPrivateConversationExecutionMode()) {
+        Logger::info("[RECHAT_SELECT] Terminating " . ($gameRequest[0] ?? "rechat") .
+            " because " . ($GLOBALS["DIALECTIC_EXECUTION_MODE"] ?? "private") . " mode is private");
+        terminate();
+    }
     Logger::phaseStart("rechat_pre_management", [
         "type" => $gameRequest[0] ?? "",
         "speaker" => $GLOBALS["DIALECTIC_NAME"] ?? "",
@@ -1411,7 +1429,7 @@ Logger::phaseStart("post_rechat_runtime_prepare", [
 ]);
 
 if (
-    in_array($gameRequest[0], ["inputtext", "inputtext_s"], true) &&
+    in_array($gameRequest[0], ["inputtext", "inputtext_s", "vision"], true) &&
     empty($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"])
 ) {
     $jsonSpeaker = function_exists('dialectic_extract_conversation_target')
@@ -1891,8 +1909,8 @@ Logger::phaseStart("pre_llm_audience_scope", [
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
 ]);
 $playerInputEventTypes = ["inputtext", "inputtext_s", "narrator_inputtext", "cheatmode"];
-$authoritativeAudienceEventTypes = array_merge($playerInputEventTypes, ["player_consumed"]);
-$turnPeopleSnapshotEventTypes = array_merge($playerInputEventTypes, ["rechat"]);
+$authoritativeAudienceEventTypes = array_merge($playerInputEventTypes, ["player_consumed", "vision"]);
+$turnPeopleSnapshotEventTypes = array_merge($playerInputEventTypes, ["rechat", "vision"]);
 $requestAudienceSnapshot = dialecticDecodeAudienceSnapshotField($gameRequest[4] ?? "");
 $hasAuthoritativeRequestAudience = (
     in_array($gameRequest[0] ?? "", $authoritativeAudienceEventTypes, true) &&
@@ -1904,14 +1922,15 @@ if (($gameRequest[0] ?? "") === "rechat" && isset($GLOBALS["RECHAT_RESOLVED_TARG
 }
 $authoritativePeople = $hasAuthoritativeRequestAudience ? $requestAudienceSnapshot : $resolvedRechatPeople;
 
-if (function_exists('isWhisperExecutionMode') &&
-    function_exists('buildWhisperPrivatePeople') &&
-    isWhisperExecutionMode() &&
+if (function_exists('isPrivateConversationExecutionMode') &&
+    function_exists('buildPrivateConversationPeople') &&
+    isPrivateConversationExecutionMode() &&
     in_array($gameRequest[0] ?? "", $playerInputEventTypes, true)) {
-    $whisperPrivatePeople = buildWhisperPrivatePeople($GLOBALS["DIALECTIC_NAME"] ?? "");
-    if ($whisperPrivatePeople !== "") {
-        $authoritativePeople = $whisperPrivatePeople;
-        Logger::info("Scoped CACHE_PEOPLE for WHISPER {$gameRequest[0]}: " . $whisperPrivatePeople);
+    $privatePeople = buildPrivateConversationPeople($GLOBALS["DIALECTIC_NAME"] ?? "");
+    if ($privatePeople !== "") {
+        $authoritativePeople = $privatePeople;
+        Logger::info("Scoped CACHE_PEOPLE for " . ($GLOBALS["DIALECTIC_EXECUTION_MODE"] ?? "private") .
+            " " . ($gameRequest[0] ?? "input") . ": " . $privatePeople);
     }
 }
 
@@ -2187,12 +2206,17 @@ if (in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext","ch
 
 error_log("TRACE:\t".__LINE__. "\t".__FILE__.":\t".(microtime(true) - $startTime));
 
-// Whisper-mode speaking behavior: make the NPC explicitly treat this exchange as whispered.
+// Mode-specific response behavior keeps private and projected speech distinct.
 if (isset($GLOBALS["DIALECTIC_EXECUTION_MODE"]) && strtoupper((string)$GLOBALS["DIALECTIC_EXECUTION_MODE"]) === "WHISPER") {
     if (!isset($GLOBALS["COMMAND_PROMPT"]) || !is_string($GLOBALS["COMMAND_PROMPT"])) {
         $GLOBALS["COMMAND_PROMPT"] = "";
     }
     $GLOBALS["COMMAND_PROMPT"] .= "\n\n[Whisper mode is active. {$GLOBALS["PLAYER_NAME"]} is whispering to you. Reply by whispering back in a quiet, discreet, close-range tone and keep the delivery private.]";
+} elseif (isset($GLOBALS["DIALECTIC_EXECUTION_MODE"]) && strtoupper((string)$GLOBALS["DIALECTIC_EXECUTION_MODE"]) === "CLOSE") {
+    if (!isset($GLOBALS["COMMAND_PROMPT"]) || !is_string($GLOBALS["COMMAND_PROMPT"])) {
+        $GLOBALS["COMMAND_PROMPT"] = "";
+    }
+    $GLOBALS["COMMAND_PROMPT"] .= "\n\n[Close mode is active. {$GLOBALS["PLAYER_NAME"]} is speaking privately to you at close range. Reply discreetly to the player only; do not address or involve bystanders.]";
 } elseif (isset($GLOBALS["DIALECTIC_EXECUTION_MODE"]) && strtoupper((string)$GLOBALS["DIALECTIC_EXECUTION_MODE"]) === "SHOUT") {
     if (!isset($GLOBALS["COMMAND_PROMPT"]) || !is_string($GLOBALS["COMMAND_PROMPT"])) {
         $GLOBALS["COMMAND_PROMPT"] = "";
@@ -2378,6 +2402,12 @@ Logger::phaseStart("prompt_dynamic_context_build", [
 ]);
 $dynamicBiography = buildDynamicBiography($GLOBALS);
 $worldPrompt = buildWorldPrompt($gameRequest[2] ?? 0);
+require_once(__DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'visual_context.php');
+$visualContextPrompt = dialecticBuildVisualContextPrompt(
+    function_exists('dialecticLatestWorldContextPayload')
+        ? (dialecticLatestWorldContextPayload() ?: [])
+        : []
+);
 
 $playerBioSection = "";
 try {
@@ -2427,6 +2457,7 @@ if ($gameRequest[0] === "vision") {
 
 // Ensure actions and nearby sections are added to PROMPT_HEAD before building system prompt
 require_once(__DIR__.DIRECTORY_SEPARATOR."functions".DIRECTORY_SEPARATOR."json_response.php");
+require_once(__DIR__.DIRECTORY_SEPARATOR."lib".DIRECTORY_SEPARATOR."prompt_composition.php");
 
 if (
     $gameRequest[0] === "narrator_inputtext"
@@ -2509,11 +2540,24 @@ if (!empty($GLOBALS["WORLDKNOWLEDGE_HINT"])) {
 }
 
 $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
-    "\n</roleplay_instructions>" . $worldPrompt .
+    "\n</roleplay_instructions>" . $worldPrompt . ($visualContextPrompt !== '' ? "\n\n" . $visualContextPrompt : '') .
     "\n\n<character>\n" . $GLOBALS["DIALECTIC_PERS"] . $dynamicBiography . $latestDiaryContext . $characterBottomInjections .
     "\n</character>" . $knowledgeSection .
     "\n\n<general_instructions>\n" . $GLOBALS["COMMAND_PROMPT"] .
     "\n</general_instructions>" . $actionsList . $nearbySections . $promptBottomInjections . $paralinguisticTagsPrompt . "\n";
+
+$promptCompositionSections = [
+    'roleplay_instructions' => $GLOBALS['PROMPT_HEAD'] ?? '',
+    'world' => $worldPrompt ?? '',
+    'visual_context' => $visualContextPrompt ?? '',
+    'character' => ($GLOBALS['DIALECTIC_PERS'] ?? '') . ($dynamicBiography ?? '') . ($latestDiaryContext ?? '') . ($characterBottomInjections ?? ''),
+    'knowledge' => $knowledgeSection ?? '',
+    'general_instructions' => $GLOBALS['COMMAND_PROMPT'] ?? '',
+    'actions' => $actionsList ?? '',
+    'nearby_actors' => $nearbySections ?? '',
+    'plugin_injections' => $promptBottomInjections ?? '',
+    'paralinguistic_tags' => $paralinguisticTagsPrompt ?? '',
+];
 
 $systemPrompt = dialecticFormatPromptXmlSections(
     strtr(
@@ -2618,6 +2662,20 @@ if (microtime(true) - $startTime > 0.25) {
     $dbExecutionTime = $GLOBALS["DB_EXECUTION_TIME"] ?? 0;
     error_log("*TRACE SQL: TOTAL DATABASE query execution time: {$dbExecutionTime} seconds");
     error_log("*TRACE: ".__LINE__. " at ".__FILE__.": ".(microtime(true) - $startTime)." secs building call");
+}
+
+if (($gameRequest[0] ?? '') !== 'diary') {
+    dialecticLogPromptComposition(
+        strval($gameRequest[0] ?? ''),
+        array_merge(
+            $promptCompositionSections,
+            [
+                'history' => $contextDataFull ?? [],
+                'memory_injection' => $memoryInjectionCtx ?? [],
+            ]
+        ),
+        $contextData ?? []
+    );
 }
 
 //returnLines(["Mmm..let me think"]);

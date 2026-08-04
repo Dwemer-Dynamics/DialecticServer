@@ -806,7 +806,16 @@ function handleNearbyActorsUpdate(array $data, NpcMaster $npcMaster): array
         $peopleNames[] = $player;
     }
 
-    $ensureActorProfileFromPayload = static function (array $actor) use ($db): void {
+    $worldContext = [];
+    $worldContextRow = $db->fetchOne("SELECT party FROM eventlog WHERE type='world_context' ORDER BY gamets DESC, rowid DESC LIMIT 1");
+    if (is_array($worldContextRow)) {
+        $decodedWorldContext = json_decode((string)($worldContextRow['party'] ?? ''), true);
+        if (is_array($decodedWorldContext)) {
+            $worldContext = $decodedWorldContext;
+        }
+    }
+
+    $ensureActorProfileFromPayload = static function (array $actor) use ($db, $worldContext): void {
         $name = cleanBridgeString($actor['name'] ?? '');
         if ($name === '' || $name === '<no name>' || strcasecmp($name, 'The Narrator') === 0) {
             return;
@@ -832,6 +841,34 @@ function handleNearbyActorsUpdate(array $data, NpcMaster $npcMaster): array
                 SET base = COALESCE(NULLIF(base, ''), '" . $db->escape($baseid) . "')
                 WHERE npc_name = '" . $db->escape($name) . "'
             ");
+        }
+
+        if (is_numeric($actor['x'] ?? null) && is_numeric($actor['y'] ?? null)) {
+            $lastPosition = [
+                'x' => floatval($actor['x']),
+                'y' => floatval($actor['y']),
+                'z' => is_numeric($actor['z'] ?? null) ? floatval($actor['z']) : 0.0,
+                'yaw' => is_numeric($actor['yaw'] ?? null) ? floatval($actor['yaw']) : 0.0,
+                'cell_formid' => cleanBridgeString($actor['cell_formid'] ?? ''),
+                'worldspace_formid' => cleanBridgeString($actor['worldspace_formid'] ?? ''),
+                'is_interior' => filter_var($actor['is_interior'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'location' => cleanBridgeString($worldContext['location'] ?? ''),
+                'worldspace' => cleanBridgeString($worldContext['worldspace'] ?? ''),
+                'updated_at' => time(),
+            ];
+            $encodedPosition = json_encode($lastPosition, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($encodedPosition !== false) {
+                $db->execQuery("
+                    UPDATE public.core_npc_master
+                    SET metadata = jsonb_set(
+                        COALESCE(metadata, '{}'::jsonb),
+                        '{last_coords}',
+                        '" . $db->escape($encodedPosition) . "'::jsonb,
+                        true
+                    )
+                    WHERE npc_name = '" . $db->escape($name) . "'
+                ");
+            }
         }
     };
 

@@ -15,6 +15,7 @@ final class AsteriskParsingTest extends TestCase
     {
         unset(
             $GLOBALS['DIALECTIC_NAME'],
+            $GLOBALS['DIALECTIC_EXECUTION_MODE'],
             $GLOBALS['PLAYER_NAME'],
             $GLOBALS['INLINE_NARRATION_MODE'],
             $GLOBALS['REMOVE_PLAYER_AUTOCHAT_ASTERISKS'],
@@ -187,6 +188,36 @@ final class AsteriskParsingTest extends TestCase
         $this->assertSame(
             "Keep this quiet",
             formatPlayerSubtitleText("Rangroo: Keep this quiet (Whispering to Doc Mitchell)")
+        );
+    }
+
+    public function testPlayerSubtitleTextStripsPrivateTargetTag(): void
+    {
+        $GLOBALS['PLAYER_NAME'] = 'Rangroo';
+
+        $this->assertSame(
+            'Keep this between us',
+            formatPlayerSubtitleText('Rangroo: Keep this between us (Speaking privately to Doc Mitchell)')
+        );
+    }
+
+    public function testCloseModeBuildsPrivateTargetSuffix(): void
+    {
+        $GLOBALS['DIALECTIC_EXECUTION_MODE'] = 'CLOSE';
+        $GLOBALS['PLAYER_NAME'] = 'Rangroo';
+
+        $this->assertSame(
+            '(speaking privately to Doc Mitchell)',
+            buildDialogueTargetSuffix('Doc Mitchell')
+        );
+        $this->assertTrue(isPrivateConversationExecutionMode());
+        $this->assertSame(
+            '|Rangroo|Doc Mitchell|',
+            buildPrivateConversationPeople('Doc Mitchell')
+        );
+        $this->assertSame(
+            'Rangroo: Keep this quiet (Speaking privately to Doc Mitchell)',
+            convertTalkingTagsToPrivate('Rangroo: Keep this quiet (Talking to Doc Mitchell)')
         );
     }
 

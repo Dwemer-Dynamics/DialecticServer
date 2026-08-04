@@ -10,7 +10,7 @@ if (!function_exists('dialecticExtractPlayerTtsDialogueLine')) {
         }
 
         $jsonCandidate = preg_replace(
-            '/\s*\((?:(?:Talking|Whispering|Shouting) to [^)]+|speaking loudly to [^)]+ from far away)\)\s*$/i',
+            '/\s*\((?:(?:Talking|Whispering|Shouting|Speaking privately) to [^)]+|speaking loudly to [^)]+ from far away)\)\s*$/i',
             '',
             $line
         );
@@ -48,7 +48,7 @@ if (!function_exists('dialecticExtractPlayerTtsDialogueLine')) {
         }
 
         $line = preg_replace(
-            '/\s*\((?:(?:Talking|Whispering|Shouting) to [^)]+|speaking loudly to [^)]+ from far away)\)\s*$/i',
+            '/\s*\((?:(?:Talking|Whispering|Shouting|Speaking privately) to [^)]+|speaking loudly to [^)]+ from far away)\)\s*$/i',
             '',
             $line
         );
