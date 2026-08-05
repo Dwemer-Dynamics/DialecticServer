@@ -6,6 +6,32 @@ require_once 'CallableMock.php';
 // setUp and tearDown for the test database are in DatabaseTestCase.php
 final class MemoryTest extends DatabaseTestCase
 {
+    public function testMemorySearchInputRemovesConversationRoutingLabels(): void
+    {
+        require_once dirname(__DIR__, 2) . '/lib/data_functions.php';
+        $originalPlayerName = $GLOBALS['PLAYER_NAME'] ?? null;
+        $GLOBALS['PLAYER_NAME'] = 'Courier';
+
+        $cases = [
+            'Courier: Ask about the dam. (Talking to Veronica)',
+            'Courier: Ask about the dam. (Whispering to Veronica)',
+            'Courier: Ask about the dam. (Shouting to Veronica)',
+            'Courier: Ask about the dam. (Speaking privately to Veronica)',
+            'Courier: Ask about the dam. (Context location: The Strip)',
+            'Courier: Ask about the dam. Talking to The Narrator',
+        ];
+
+        foreach ($cases as $input) {
+            $this->assertSame('Ask about the dam.', dialecticNormalizeMemorySearchInput($input));
+        }
+
+        if ($originalPlayerName === null) {
+            unset($GLOBALS['PLAYER_NAME']);
+        } else {
+            $GLOBALS['PLAYER_NAME'] = $originalPlayerName;
+        }
+    }
+
     public function testMemory_WhenDumbContextAndNoMemoryExists_ContextShouldNotContainMemory(): void
     {
         // default test config
