@@ -4788,7 +4788,16 @@ function dataGetMemoryScopeConditionSql($npcName)
 {
     if (isIndividualMemoryEnabledForNpc($npcName)) {
         $npcEsc = $GLOBALS["db"]->escape($npcName);
-        return "scope='$npcEsc'";
+        try {
+            $scopedMemory = $GLOBALS["db"]->fetchOne(
+                "SELECT 1 FROM memory_summary WHERE scope='$npcEsc' AND NULLIF(BTRIM(COALESCE(summary, '')), '') IS NOT NULL LIMIT 1"
+            );
+            if (is_array($scopedMemory) && count($scopedMemory) > 0) {
+                return "scope='$npcEsc'";
+            }
+        } catch (Throwable $e) {
+            Logger::warn("dataGetMemoryScopeConditionSql failed for {$npcName}: " . $e->getMessage());
+        }
     }
 
     return "(scope IS NULL OR scope='global')";
