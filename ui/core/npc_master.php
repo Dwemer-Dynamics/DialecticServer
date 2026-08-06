@@ -2434,6 +2434,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  }
 
  const fd = new FormData(form);
+ const individualMemoryInput = form.querySelector('#individual_memory_enabled');
+ if (individualMemoryInput) {
+ fd.set('individual_memory_enabled', individualMemoryInput.checked ? '1' : '0');
+ }
  fd.append('inline_update_npc','1');
  if (!fd.has('id') && <?= json_encode(!empty($editItem['id'])) ?>){ fd.append('id', <?= json_encode($editItem['id'] ?? '') ?>); }
  const res = await fetch('npc_master.php', { method:'POST', body: fd });
