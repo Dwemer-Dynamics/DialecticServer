@@ -4829,6 +4829,26 @@ function dataGetMemoryCompanionConditionSql(
     return "($column LIKE '%|$npcEsc|%' OR $column='$npcEsc')";
 }
 
+// Removes request-routing labels before text and vector memory matching.
+function dialecticNormalizeMemorySearchInput($rawstring): string
+{
+    $text = (string)$rawstring;
+    $playerName = trim((string)($GLOBALS['PLAYER_NAME'] ?? ''));
+    if ($playerName !== '') {
+        $text = str_replace("{$playerName}:", '', $text);
+    }
+
+    $text = strtr($text, [
+        'Talking to The Narrator' => '',
+        'Whispering to The Narrator' => '',
+        'Speaking privately to The Narrator' => '',
+    ]);
+    $text = preg_replace('/\(Context location:[^)]+?\)/i', '', $text);
+    $text = preg_replace('/\((?:(?:talking|whispering|shouting)|speaking privately)\s+to\s+[^()]+\)/i', '', $text);
+
+    return trim((string)$text);
+}
+
 function DataSearchMemory($rawstring,$npcfilter) {
     
     //$kw=explode(" ",($rawstring));
@@ -4839,15 +4859,7 @@ function DataSearchMemory($rawstring,$npcfilter) {
     } else if (isMinimeT5Enabled()) {
         // MiniMe keyword extraction
         Logger::info("Using minime-t5 context");
-        $rawstring=strtr($rawstring,["{$GLOBALS["PLAYER_NAME"]}:"=>""]);
-        $rawstring=strtr($rawstring,["Talking to The Narrator"=>""]);
-
-        $pattern = "/\(Context location:[^)]+?\)/"; // Remove only the exact context location pattern
-        $replacement = "";
-        $TEST_TEXT = preg_replace($pattern, $replacement, $rawstring); 
-                    
-        $pattern = '/\(talking to [^()]+\)/i';
-        $TEST_TEXT = preg_replace($pattern, '', $TEST_TEXT);
+        $TEST_TEXT = dialecticNormalizeMemorySearchInput($rawstring);
 
         $keywords=minimeExtract($TEST_TEXT);
         $reponse=json_decode($keywords,true);
@@ -4912,15 +4924,7 @@ function DataSearchMemory($rawstring,$npcfilter) {
 
     if (empty($kwStringAll)) {
         Logger::info("Using dumb context");
-        $rawstring=strtr($rawstring,["{$GLOBALS["PLAYER_NAME"]}:"=>""]);
-        $rawstring=strtr($rawstring,["Talking to The Narrator"=>""]);
-
-        $pattern = "/\(Context location:[^)]+?\)/"; // Remove only the exact context location pattern
-        $replacement = "";
-        $TEST_TEXT = preg_replace($pattern, $replacement, $rawstring); // // assistant vs user war
-                    
-        $pattern = '/\(talking to [^()]+\)/i';
-        $TEST_TEXT = preg_replace($pattern, '', $TEST_TEXT);
+        $TEST_TEXT = dialecticNormalizeMemorySearchInput($rawstring);
 
         $keywords=hashtagifySentences($TEST_TEXT);
         $kw=[];
@@ -5016,15 +5020,7 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
             // MiniMe keyword extraction
             Logger::info("Using minime-t5 context");
             error_log("[DataSearchMemoryByVector] Using minime-t5 context");
-            $rawstring=strtr($rawstring,["{$GLOBALS["PLAYER_NAME"]}:"=>""]);
-            $rawstring=strtr($rawstring,["Talking to The Narrator"=>""]);
-
-            $pattern = "/\(Context location:[^)]+?\)/"; // Remove only the exact context location pattern
-            $replacement = "";
-            $TEST_TEXT = preg_replace($pattern, $replacement, $rawstring); 
-                        
-            $pattern = '/\(talking to [^()]+\)/i';
-            $TEST_TEXT = preg_replace($pattern, '', $TEST_TEXT);
+            $TEST_TEXT = dialecticNormalizeMemorySearchInput($rawstring);
 
             error_log("[DataSearchMemoryByVector start] minimeExtract : " . (microtime(true) - $localStartTime) . " seconds");
             $TEST_TEXT = preg_replace('/[(),;:!?."\'-]/', ' ', $TEST_TEXT);
@@ -5098,28 +5094,12 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
             
         } else {
             error_log("[DataSearchMemoryByVector] Minime disabled; using dumb context fallback.");
-            $rawstring=strtr($rawstring,["{$GLOBALS["PLAYER_NAME"]}:"=>""]);
-            $rawstring=strtr($rawstring,["Talking to The Narrator"=>""]);
-
-            $pattern = "/\(Context location:[^)]+?\)/";
-            $replacement = "";
-            $TEST_TEXT = preg_replace($pattern, $replacement, $rawstring);
-
-            $pattern = '/\(talking to [^()]+\)/i';
-            $TEST_TEXT = preg_replace($pattern, '', $TEST_TEXT);
+            $TEST_TEXT = dialecticNormalizeMemorySearchInput($rawstring);
         }
 
         if (sizeof($result)<1) {
             Logger::info("Using dumb context");
-            $rawstring=strtr($rawstring,["{$GLOBALS["PLAYER_NAME"]}:"=>""]);
-            $rawstring=strtr($rawstring,["Talking to The Narrator"=>""]);
-
-            $pattern = "/\(Context location:[^)]+?\)/"; // Remove only the exact context location pattern
-            $replacement = "";
-            $TEST_TEXT = preg_replace($pattern, $replacement, $rawstring); // // assistant vs user war
-                        
-            $pattern = '/\(talking to [^()]+\)/i';
-            $TEST_TEXT = preg_replace($pattern, '', $TEST_TEXT);
+            $TEST_TEXT = dialecticNormalizeMemorySearchInput($rawstring);
 
             $keywords=strtr($TEST_TEXT,["."=>" ",","=>" ","'"=>" "]);
             $kw=[];
@@ -5227,9 +5207,11 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
                     and $companionConditionSql
                     and (gamets_truncated<$timeThreshold or $timeThreshold=0)
                     
-                    ORDER BY 
-                        round((embedding <-> $vectorString)::numeric, 2) ASC,
-                        $rankCombinedSql DESC
+                    ORDER BY
+                        mixed_distance ASC,
+                        distance ASC,
+                        gamets_truncated DESC,
+                        rowid DESC
                     LIMIT 50 OFFSET 0
                 ";    
             $memory=$GLOBALS["db"]->fetchAll($finalQuery);
