@@ -2475,6 +2475,12 @@ $nearbySections = "";
 if (isset($GLOBALS["PROMPT_NEARBY_SECTIONS"]) && !empty($GLOBALS["PROMPT_NEARBY_SECTIONS"])) {
     $nearbySections = $GLOBALS["PROMPT_NEARBY_SECTIONS"];
 }
+$combatSection = function_exists('dialectic_build_combat_prompt_from_event')
+    ? dialectic_build_combat_prompt_from_event($GLOBALS["DIALECTIC_REQUEST_EVENT"] ?? [])
+    : "";
+if ($combatSection !== "") {
+    $combatSection = "\n\n" . $combatSection;
+}
 
 // Build actions list string
 $actionsList = "";
@@ -2544,7 +2550,7 @@ $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
     "\n\n<character>\n" . $GLOBALS["DIALECTIC_PERS"] . $dynamicBiography . $latestDiaryContext . $characterBottomInjections .
     "\n</character>" . $knowledgeSection .
     "\n\n<general_instructions>\n" . $GLOBALS["COMMAND_PROMPT"] .
-    "\n</general_instructions>" . $actionsList . $nearbySections . $promptBottomInjections . $paralinguisticTagsPrompt . "\n";
+    "\n</general_instructions>" . $actionsList . $combatSection . $nearbySections . $promptBottomInjections . $paralinguisticTagsPrompt . "\n";
 
 $promptCompositionSections = [
     'roleplay_instructions' => $GLOBALS['PROMPT_HEAD'] ?? '',
@@ -2554,6 +2560,7 @@ $promptCompositionSections = [
     'knowledge' => $knowledgeSection ?? '',
     'general_instructions' => $GLOBALS['COMMAND_PROMPT'] ?? '',
     'actions' => $actionsList ?? '',
+    'combat' => $combatSection ?? '',
     'nearby_actors' => $nearbySections ?? '',
     'plugin_injections' => $promptBottomInjections ?? '',
     'paralinguistic_tags' => $paralinguisticTagsPrompt ?? '',
