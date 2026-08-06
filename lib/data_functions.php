@@ -4428,8 +4428,8 @@ function dialecticPeoplePipeFromNearbyActorsPayload($excludeFarAway = false)
             continue;
         }
 
-        $eligible = filter_var($actor['eligible'] ?? true, FILTER_VALIDATE_BOOLEAN);
-        if (!$eligible) {
+        $sceneEligible = filter_var($actor['scene_eligible'] ?? ($actor['eligible'] ?? true), FILTER_VALIDATE_BOOLEAN);
+        if (!$sceneEligible) {
             continue;
         }
 
