@@ -294,7 +294,9 @@ class NpcMaster
     // Update NPC by ID
     public function update($id, $data)
     {
-        $data = $this->normalizeNpcDataForPersistence($data);
+        $id = (int) $id;
+        $existing = $this->getById($id);
+        $data = $this->normalizeNpcDataForPersistence($data, $existing ?: null);
         $data = $this->normalizeProfileAssignment($data);
 
         $fields = [
@@ -326,11 +328,9 @@ class NpcMaster
             "tags",
         ];
 
-        $id    = (int) $id;
         $where = "id = $id";
 
         // Prevent renaming The Narrator
-        $existing = $this->getById($id);
         if ($existing && isset($existing['npc_name']) && $existing['npc_name'] === 'The Narrator') {
             if (isset($data['npc_name']) && $data['npc_name'] !== $existing['npc_name']) {
                 unset($data['npc_name']);
@@ -412,11 +412,38 @@ class NpcMaster
         return $codename;
     }
 
-    public function normalizeNpcDataForPersistence($data)
+    public function normalizeNpcDataForPersistence($data, ?array $existingNpcData = null)
     {
         if (!is_array($data)) {
             return $data;
         }
+
+        $hasIndividualMemoryUpdate = array_key_exists('individual_memory_enabled', $data);
+        if ($hasIndividualMemoryUpdate || array_key_exists('extended_data', $data)) {
+            $extendedDataSource = array_key_exists('extended_data', $data)
+                ? $data['extended_data']
+                : ($existingNpcData['extended_data'] ?? null);
+            $extendedData = $this->decodeJsonObjectForPersistence($extendedDataSource, 'extended_data');
+
+            if ($hasIndividualMemoryUpdate) {
+                if (!empty($data['individual_memory_enabled'])) {
+                    $extendedData['individual_memory_enabled'] = 1;
+                } else {
+                    unset($extendedData['individual_memory_enabled']);
+                }
+            } elseif (is_array($existingNpcData)) {
+                // This NPC-only setting belongs to the profile UI, not stale telemetry or background row snapshots.
+                $storedExtendedData = $this->getExtendedData($existingNpcData);
+                if (array_key_exists('individual_memory_enabled', $storedExtendedData)) {
+                    $extendedData['individual_memory_enabled'] = $storedExtendedData['individual_memory_enabled'];
+                } else {
+                    unset($extendedData['individual_memory_enabled']);
+                }
+            }
+
+            $data['extended_data'] = $this->encodeJsonObjectForPersistence($extendedData, 'extended_data');
+        }
+        unset($data['individual_memory_enabled']);
 
         $aliasMap = [
             'npc_misc' => 'worldknowledge_tags',
