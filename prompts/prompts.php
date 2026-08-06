@@ -35,6 +35,7 @@ function shouldTriggerRPGComment($eventType) {
 }
 
 $dialecticVisionPrompt = "Describe only what is present in the provided current-scene context.";
+$dialecticCombatBarkContextRule = "Use only the supplied combat event to identify the current enemy. If it does not name an enemy, do not invent one.";
 
 $PROMPTS=array(
     "narration"=>[ 
@@ -126,21 +127,21 @@ $PROMPTS=array(
     // Database Prompt (Combat Bark)
     "combatbark"=>[
         "cue"=>[
-            "({$GLOBALS["DIALECTIC_NAME"]} shouts a battle cry) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} taunts their enemy) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} yells a war cry) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} shouts encouragement to allies) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} curses at their foe) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} makes an intimidating threat) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} yells about their weapon striking true) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} shouts about the enemy's weakness) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} roars in fury) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} calls out enemy positions) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} shouts tactical advice) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} makes a vengeful declaration) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} yells about defending their allies) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} shouts about their honor in battle) {$GLOBALS["TEMPLATE_DIALOG"]}",
-            "({$GLOBALS["DIALECTIC_NAME"]} makes a boastful combat comment) {$GLOBALS["TEMPLATE_DIALOG"]}"
+            "({$GLOBALS["DIALECTIC_NAME"]} shouts a battle cry) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} taunts their enemy) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} yells a war cry) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} shouts encouragement to allies) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} curses at their foe) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} makes an intimidating threat) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} yells about their weapon striking true) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} shouts about the enemy's weakness) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} roars in fury) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} calls out enemy positions) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} shouts tactical advice) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} makes a vengeful declaration) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} yells about defending their allies) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} shouts about their honor in battle) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}",
+            "({$GLOBALS["DIALECTIC_NAME"]} makes a boastful combat comment) {$GLOBALS["TEMPLATE_DIALOG"]} {$dialecticCombatBarkContextRule}"
         ]
     ],
     // Database Prompt (Good Morning)
