@@ -44,6 +44,80 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
         $this->assertStringNotContainsString('\\u2019', (string)$row['extended_data']);
     }
 
+    public function testDetectedVoiceDoesNotReplaceSavedProfileVoice(): void
+    {
+        $this->assertTrue($this->npcMaster->create([
+            'npc_name' => 'Sunny Manual Voice Test',
+            'voiceid' => 'custom_sunny_voice',
+            'refid' => '0x00123456',
+        ]));
+
+        dialectic_ensure_npc($GLOBALS['db'], 'Sunny Manual Voice Test', '0x00123456', [
+            'voice' => 'femaleadult04',
+            'voice_formid' => '0x0000ABCD',
+            'voice_name' => 'FemaleAdult04',
+        ]);
+
+        $row = $this->npcMaster->getByName('Sunny Manual Voice Test');
+        $extended = json_decode((string)$row['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+
+        $this->assertSame('custom_sunny_voice', $row['voiceid']);
+        $this->assertSame('femaleadult04', $extended['voice_metadata']['voiceid']);
+        $this->assertSame('0x0000ABCD', $extended['voice_metadata']['voice_formid']);
+    }
+
+    public function testDetectedVoicePopulatesNewNpcProfile(): void
+    {
+        dialectic_ensure_npc($GLOBALS['db'], 'New Detected Voice Test', '0x00654321', [
+            'voice' => 'maleadult03',
+        ]);
+
+        $row = $this->npcMaster->getByName('New Detected Voice Test');
+
+        $this->assertNotEmpty($row);
+        $this->assertSame('maleadult03', $row['voiceid']);
+    }
+
+    public function testUnrelatedStaleUpdatePreservesIndividualMemorySetting(): void
+    {
+        $this->assertTrue($this->npcMaster->create([
+            'npc_name' => 'Sunny Individual Memory Test',
+            'extended_data' => ['inventory' => ['Varmint rifle']],
+        ]));
+        $staleRow = $this->npcMaster->getByName('Sunny Individual Memory Test');
+
+        $this->assertNotFalse($this->npcMaster->update((int)$staleRow['id'], [
+            'individual_memory_enabled' => 1,
+        ]));
+
+        $staleRow['metadata'] = ['actor_profile_updated' => time()];
+        $this->assertNotFalse($this->npcMaster->updateByArray($staleRow));
+
+        $row = $this->npcMaster->getByName('Sunny Individual Memory Test');
+        $extended = json_decode((string)$row['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(1, $extended['individual_memory_enabled']);
+        $this->assertSame(['Varmint rifle'], $extended['inventory']);
+    }
+
+    public function testExplicitIndividualMemoryDisableRemovesSetting(): void
+    {
+        $this->assertTrue($this->npcMaster->create([
+            'npc_name' => 'Sunny Disable Individual Memory Test',
+            'individual_memory_enabled' => 1,
+            'extended_data' => ['inventory' => ['Gecko meat']],
+        ]));
+        $row = $this->npcMaster->getByName('Sunny Disable Individual Memory Test');
+
+        $this->assertNotFalse($this->npcMaster->update((int)$row['id'], [
+            'individual_memory_enabled' => 0,
+            'extended_data' => $row['extended_data'],
+        ]));
+
+        $updated = $this->npcMaster->getByName('Sunny Disable Individual Memory Test');
+        $extended = json_decode((string)$updated['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertArrayNotHasKey('individual_memory_enabled', $extended);
+    }
+
     public function testInvalidJsonDoesNotOverwriteExistingExtendedData(): void
     {
         $this->assertTrue($this->npcMaster->create([
