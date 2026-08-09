@@ -5244,7 +5244,8 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
                     'audit_memory',
                     array(
                         'input' => $TEST_TEXT,
-                        'keywords' =>'text2vec search / (input plus "'.$contextKeywords.'"',
+                        'keywords' =>(!empty($GLOBALS['PATCH_BYPASS_MINIME_EXTRACT']) ? 'strict semantic fallback / ' : 'text2vec search / ')
+                            . '(input plus "'.$contextKeywords.'"',
                         'rank_any'=> (1.40 - floatval($singleMemory["mixed_distance"] ?? $singleMemory["distance"] ?? 0)),// Try to mimic FTS query rank
                         'rank_all'=> (1.40 - floatval($singleMemory["distance"] ?? 0)),// Try to mimic FTS query rank
                         'memory'=>$singleMemory["summary"],
