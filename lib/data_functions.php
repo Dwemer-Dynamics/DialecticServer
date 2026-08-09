@@ -3255,19 +3255,43 @@ function DataLastDataExpandedFor($actor, $lastNelements = -10,$sqlfilter="")
 
 }
 
-function DataSpeechJournal($topic,$limit=50) 
+function DataSpeechJournal($topic,$limit=50,$excludedSourceEvents=[])
 {
 
     global $db;
 
     $lastDialogFull = [];
     $tn=$db->escape($topic);
-    $results = $db->fetchAll("SElECT  speaker,speech,location,listener,topic as quest, convert_gamets2fallout_date(gamets) AS fallout_date, gamets FROM speech
-     where (speaker like '%$tn%' or  listener like '%$tn%' or location like '%$tn%' or  
-      companions like '%|$tn|%' or  companions like '%$tn%' OR companions LIKE '%|$tn (busy)|%' 
-      OR companions LIKE '%|$tn (hostile)|%' OR companions LIKE '%|$tn (restrained)|%' ) 
-      and listener<>'unknown' 
-      order by rowid desc");
+    $excludedSourceEvents = is_array($excludedSourceEvents) ? $excludedSourceEvents : [];
+    $excludedSourceEvents = array_values(array_filter(array_map(
+        static fn($eventType) => strtolower(trim((string)$eventType)),
+        $excludedSourceEvents
+    )));
+    $sourceEventFilter = '';
+    if (!empty($excludedSourceEvents)) {
+        $excludedSql = implode(',', array_map(
+            static fn($eventType) => "'" . $GLOBALS['db']->escape($eventType) . "'",
+            $excludedSourceEvents
+        ));
+        $sourceEventFilter = "and coalesce(origin.source_event, '') not in ($excludedSql)";
+    }
+
+    $results = $db->fetchAll("SElECT s.speaker,s.speech,s.location,s.listener,s.topic as quest, convert_gamets2fallout_date(s.gamets) AS fallout_date, s.gamets FROM speech s
+     LEFT JOIN LATERAL (
+       SELECT lower(coalesce(e.source_event, '')) AS source_event
+       FROM eventlog e
+       WHERE nullif(s.utterance_id, '') IS NOT NULL
+         AND e.utterance_id=s.utterance_id
+         AND e.type='chat'
+       ORDER BY e.rowid DESC
+       LIMIT 1
+     ) origin ON true
+     where (s.speaker like '%$tn%' or  s.listener like '%$tn%' or s.location like '%$tn%' or
+      s.companions like '%|$tn|%' or  s.companions like '%$tn%' OR s.companions LIKE '%|$tn (busy)|%'
+      OR s.companions LIKE '%|$tn (hostile)|%' OR s.companions LIKE '%|$tn (restrained)|%' )
+      and s.listener<>'unknown'
+      $sourceEventFilter
+      order by s.rowid desc");
     if (!$results) {
         return json_encode([]);
     }

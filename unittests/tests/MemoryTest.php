@@ -6,6 +6,57 @@ require_once 'CallableMock.php';
 // setUp and tearDown for the test database are in DatabaseTestCase.php
 final class MemoryTest extends DatabaseTestCase
 {
+    public function testSpeechJournalCanExcludeCombatBarkSourceEvents(): void
+    {
+        require_once dirname(__DIR__, 2) . '/lib/data_functions.php';
+
+        $GLOBALS['db'] = new sql();
+        foreach ([
+            ['utterance_id' => 'utt_normal', 'source_event' => 'inputtext', 'speech' => 'Ordinary conversation.'],
+            ['utterance_id' => 'utt_bark', 'source_event' => 'combatbark', 'speech' => 'Aggressive battle cry.'],
+        ] as $index => $fixture) {
+            $this->assertTrue($GLOBALS['db']->insert('eventlog', [
+                'type' => 'chat',
+                'data' => 'Veronica: ' . $fixture['speech'],
+                'sess' => 'pending',
+                'gamets' => 100 + $index,
+                'localts' => 100 + $index,
+                'ts' => 100 + $index,
+                'people' => '|Veronica|Courier|',
+                'location' => 'Goodsprings',
+                'party' => '[]',
+                'utterance_id' => $fixture['utterance_id'],
+                'delivery_state' => 'played',
+                'source_event' => $fixture['source_event'],
+            ]));
+            $this->assertTrue($GLOBALS['db']->insert('speech', [
+                'sess' => 'pending',
+                'speaker' => 'Veronica',
+                'speech' => $fixture['speech'],
+                'location' => 'Goodsprings',
+                'listener' => 'Courier',
+                'topic' => '',
+                'localts' => 100 + $index,
+                'gamets' => 100 + $index,
+                'ts' => 100 + $index,
+                'companions' => '|Veronica|Courier|',
+                'utterance_id' => $fixture['utterance_id'],
+            ]));
+        }
+
+        $allSpeech = json_decode(DataSpeechJournal('Veronica', 10), true, 512, JSON_THROW_ON_ERROR);
+        $profileSpeech = json_decode(
+            DataSpeechJournal('Veronica', 10, ['combatbark']),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+
+        $this->assertCount(2, $allSpeech);
+        $this->assertCount(1, $profileSpeech);
+        $this->assertSame('Ordinary conversation.', $profileSpeech[0]['speech']);
+    }
+
     public function testMemorySearchInputRemovesConversationRoutingLabels(): void
     {
         require_once dirname(__DIR__, 2) . '/lib/data_functions.php';

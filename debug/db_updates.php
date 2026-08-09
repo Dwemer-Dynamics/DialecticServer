@@ -4575,4 +4575,17 @@ if ($checkVersion('itt_connector_defaults') < 20260731002) {
     }
 }
 
+if ($checkVersion('eventlog_source_event') < 20260809001) {
+    Logger::debug('Applying eventlog_source_event 20260809001 - preserve originating request type for emitted dialogue');
+    $migrationOk = $db->execQuery(
+        'ALTER TABLE public.eventlog ADD COLUMN IF NOT EXISTS source_event TEXT'
+    ) !== false;
+    if ($migrationOk) {
+        $updateVersion('eventlog_source_event', 20260809001);
+        Logger::info('Applied patch eventlog_source_event 20260809001');
+    } else {
+        Logger::error('Failed to apply patch eventlog_source_event 20260809001');
+    }
+}
+
 Logger::info(__FILE__." update file processed. This file has ".__LINE__." lines.");

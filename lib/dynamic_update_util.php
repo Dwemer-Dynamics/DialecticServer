@@ -1307,7 +1307,7 @@ function getDynamicProfileHistoryData($npcName) {
         $dynamicProfileContextHistory = $GLOBALS["CONTEXT_HISTORY"];
     }
     
-    foreach (json_decode(DataSpeechJournal($npcName, $dynamicProfileContextHistory), true) as $element) {
+    foreach (json_decode(DataSpeechJournal($npcName, $dynamicProfileContextHistory, ['combatbark']), true) as $element) {
         $listenerName = trim((string)($element["listener"] ?? ""));
         $speakerName = trim((string)($element["speaker"] ?? ""));
         if (!$isNarratorTarget && ($listenerName == "The Narrator" || $speakerName == "The Narrator")) {

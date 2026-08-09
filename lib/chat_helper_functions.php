@@ -2057,6 +2057,7 @@ function returnLines($lines,$writeOutput=true)
             
             // RECHAT
             $originalRequest=$GLOBALS["gameRequest"];
+            $sourceEventType = strtolower(trim((string)($originalRequest[0] ?? "")));
             $originalRequest[0]="prechat";
             $originalRequest[1]++;
             $originalRequest[2]++;
@@ -2099,7 +2100,8 @@ function returnLines($lines,$writeOutput=true)
             $originalRequest[3]="{$outBuffer["actor"]}: $responseForContext $addonlistener";
             $originalRequest[5] = [
                 'utterance_id' => $GLOBALS["SCRIPTLINE_UTTERANCE_ID"] ?? dialecticGenerateUtteranceId(),
-                'delivery_state' => 'emitted'
+                'delivery_state' => 'emitted',
+                'source_event' => $sourceEventType,
             ];
             logEvent($originalRequest);
         }

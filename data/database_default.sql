@@ -576,7 +576,8 @@ CREATE TABLE public.eventlog (
     location text,
     party text,
     utterance_id text,
-    delivery_state text
+    delivery_state text,
+    source_event text
 );
 
 
