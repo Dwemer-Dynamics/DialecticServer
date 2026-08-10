@@ -1146,12 +1146,13 @@ class NpcMaster
             throw new InvalidArgumentException("Invalid timestamp value.");
         }
         $startTime = time();
+        // Preserve the NPC-only memory-bank preference while rolling back save-scoped profile history.
         $query     =
             "WITH deleted AS (
     DELETE FROM core_npc_master
     WHERE npc_name<>'The Narrator' and COALESCE(lock_profile,0)=0
     and COALESCE(gamets_last_updated,0)>0
-    RETURNING id
+    RETURNING id, extended_data AS current_extended_data
 ),
 restore AS (
     SELECT DISTINCT ON (h.npc_id)
@@ -1176,7 +1177,14 @@ restore AS (
         h.refid,
         h.profile_id,
         h.dynamic_profile,
-        h.extended_data,
+        CASE
+            WHEN COALESCE(d.current_extended_data, '{}'::jsonb) ? 'individual_memory_enabled'
+                THEN COALESCE(h.extended_data, '{}'::jsonb) || jsonb_build_object(
+                    'individual_memory_enabled',
+                    d.current_extended_data->'individual_memory_enabled'
+                )
+            ELSE COALESCE(h.extended_data, '{}'::jsonb) - 'individual_memory_enabled'
+        END AS extended_data,
         h.md5,
         h.gamets_last_updated,
         h.core,
