@@ -973,10 +973,6 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
                         <div class="stat-value"><?php echo dialectic_home_number($diaryCount); ?></div>
                         <div class="stat-label">Diary Entries</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-value"><?php echo dialectic_home_number(((int)$ttsConnectorCount + (int)$llmConnectorCount)); ?></div>
-                        <div class="stat-label"><?php echo dialectic_home_number($llmConnectorCount); ?> LLM / <?php echo dialectic_home_number($ttsConnectorCount); ?> TTS</div>
-                    </div>
                     <div class="stat-card action-card" role="button" tabindex="0" data-dashboard-modal-target="locationsModal">
                         <div class="stat-value"><?php echo dialectic_home_number($locationCount); ?></div>
                         <div class="stat-label">Travel To Locations</div>
