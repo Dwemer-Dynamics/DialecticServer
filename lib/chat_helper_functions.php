@@ -2648,6 +2648,37 @@ function offerMemory($gameRequest)
         } else {
             $resFinal = isset($res[0]['rank_any']) ? $res : (isset($res2[0]['rank_any']) ? $res2 : []);
         }
+
+        // Recover only strong semantic matches when MiniMe suppresses the primary recall.
+        $strictSemanticFallback = false;
+        $hasPrimaryCandidate = isset($resFinal[0])
+            && is_array($resFinal[0])
+            && trim((string)($resFinal[0]['summary'] ?? '')) !== '';
+        if (!$hasPrimaryCandidate && isMinimeT5Enabled()) {
+            $GLOBALS['MEMORY_STRICT_FALLBACK_ATTEMPTED'] = true;
+            $hadBypassSetting = array_key_exists('PATCH_BYPASS_MINIME_EXTRACT', $GLOBALS);
+            $previousBypassSetting = $GLOBALS['PATCH_BYPASS_MINIME_EXTRACT'] ?? null;
+            try {
+                $GLOBALS['PATCH_BYPASS_MINIME_EXTRACT'] = true;
+                $fallbackResult = DataSearchMemoryByVector($memorySearchInput, $npc, false, $timeThreshold);
+            } finally {
+                if ($hadBypassSetting) {
+                    $GLOBALS['PATCH_BYPASS_MINIME_EXTRACT'] = $previousBypassSetting;
+                } else {
+                    unset($GLOBALS['PATCH_BYPASS_MINIME_EXTRACT']);
+                }
+            }
+
+            if (isset($fallbackResult[0])
+                && is_array($fallbackResult[0])
+                && trim((string)($fallbackResult[0]['summary'] ?? '')) !== '') {
+                $resFinal = $fallbackResult;
+                $strictSemanticFallback = true;
+                Logger::info('[MEMORY] Primary recall produced no candidate; evaluating strict semantic fallback');
+            } else {
+                Logger::info('[MEMORY] Primary recall produced no candidate and strict semantic fallback found no candidate');
+            }
+        }
         $memories = $resFinal;
         
     } else {
@@ -2655,14 +2686,19 @@ function offerMemory($gameRequest)
     }
    
     
+    $thresholdModifier = floatval($GLOBALS["MEMORY_THRESHOLD_MODIFIER"] ?? 0);
+    if (!empty($strictSemanticFallback)) {
+        $thresholdModifier = max($thresholdModifier, 0.5);
+    }
+
     if (isset($memories[0])) {
         Logger::trace(print_r($memories[0],true));
 
-        if (($memories[0]["rank_any"]==$memories[0]["rank_all"])&&($memories[0]["rank_any"]> (0.25+$GLOBALS["MEMORY_THRESHOLD_MODIFIER"]) )) {
+        if (($memories[0]["rank_any"]==$memories[0]["rank_all"])&&($memories[0]["rank_any"]> (0.25+$thresholdModifier) )) {
             
             $memory=(isset($memories[0]["summary"])?$memories[0]["summary"]:"");
             
-        } else if ((($memories[0]["rank_all"]+$memories[0]["rank_any"])/2)> (0.25+ $GLOBALS["MEMORY_THRESHOLD_MODIFIER"])) {
+        } else if ((($memories[0]["rank_all"]+$memories[0]["rank_any"])/2)> (0.25+ $thresholdModifier)) {
             
             $memory=(isset($memories[0]["summary"])?$memories[0]["summary"]:"");
             
@@ -2670,13 +2706,19 @@ function offerMemory($gameRequest)
             
             $memory=(isset($memories[0]["summary"])?$memories[0]["summary"]:"");
             
-        } else if (($memories[0]["rank_any"]> (0.50 + $GLOBALS["MEMORY_THRESHOLD_MODIFIER"])) && isset($memories[0]["mixed_distance"])) {// Search by mixed vector/fts .
+        } else if (($memories[0]["rank_any"]> (0.50 + $thresholdModifier)) && isset($memories[0]["mixed_distance"])) {// Search by mixed vector/fts .
             
             $memory=(isset($memories[0]["summary"])?$memories[0]["summary"]:"");
             
         } else {
-           Logger::trace("[MEMORY] Memory discarded by scoring");
-           error_log("[MEMORY] Memory discarded by scoring");
+           $decisionContext = Logger::formatContext([
+               'rank_any' => $memories[0]['rank_any'] ?? null,
+               'rank_all' => $memories[0]['rank_all'] ?? null,
+               'threshold_modifier' => $thresholdModifier,
+               'strict_fallback' => !empty($strictSemanticFallback) ? 1 : 0,
+           ]);
+           Logger::trace("[MEMORY] Memory discarded by scoring" . $decisionContext);
+           error_log("[MEMORY] Memory discarded by scoring" . $decisionContext);
            return "";
         }
     } else {
