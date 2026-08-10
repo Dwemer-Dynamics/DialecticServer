@@ -2,6 +2,7 @@
     --log-accent: #ffb641;
     --log-accent-hover: #d48e20;
     --log-accent-soft: rgba(255, 182, 65, 0.2);
+    --log-accent-text: #000000;
     --log-button-text: #ffffff;
 }
 /* ==========================================================================
@@ -58,7 +59,7 @@
 
 .calendar td.has-event a {
     background-color: var(--log-accent);
-    color: var(--log-button-text);
+    color: var(--log-accent-text) !important;
     border: 2px solid var(--log-accent-hover);
     border-radius: 5px;
     box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
@@ -76,7 +77,7 @@
     background-color: var(--log-accent-hover);
     transform: translateY(-2px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-    color: var(--log-button-text);
+    color: var(--log-accent-text) !important;
 }
 
 .calendar td.has-event a:hover::after {
@@ -203,13 +204,13 @@ body .csv-buttons button.log-action-button[type="submit"] {
     background: var(--log-accent) !important;
     background-image: none !important;
     border-color: var(--log-accent-hover) !important;
-    color: var(--log-button-text) !important;
+    color: var(--log-accent-text) !important;
 }
 
 .csv-buttons .btn-save:hover,
 body .csv-buttons button.log-action-button[type="submit"]:hover {
     background: var(--log-accent-hover) !important;
-    color: var(--log-button-text) !important;
+    color: var(--log-accent-text) !important;
 }
 
 /* Event Table Styles */
