@@ -118,6 +118,42 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
         $this->assertArrayNotHasKey('individual_memory_enabled', $extended);
     }
 
+    public function testHistoryRestorePreservesCurrentIndividualMemorySetting(): void
+    {
+        $this->assertTrue($this->npcMaster->create([
+            'npc_name' => 'Enable Memory After Snapshot Test',
+            'extended_data' => ['inventory' => ['Varmint rifle']],
+        ]));
+        $this->assertTrue($this->npcMaster->create([
+            'npc_name' => 'Disable Memory After Snapshot Test',
+            'individual_memory_enabled' => 1,
+            'extended_data' => ['inventory' => ['Gecko meat']],
+        ]));
+
+        $this->assertTrue($this->npcMaster->backupAllNpcs(100));
+
+        $enabledRow = $this->npcMaster->getByName('Enable Memory After Snapshot Test');
+        $disabledRow = $this->npcMaster->getByName('Disable Memory After Snapshot Test');
+        $this->assertNotFalse($this->npcMaster->update((int)$enabledRow['id'], [
+            'individual_memory_enabled' => 1,
+        ]));
+        $this->assertNotFalse($this->npcMaster->update((int)$disabledRow['id'], [
+            'individual_memory_enabled' => 0,
+        ]));
+
+        $this->assertTrue($this->npcMaster->restoreNPC(100));
+
+        $restoredEnabled = $this->npcMaster->getByName('Enable Memory After Snapshot Test');
+        $enabledExtended = json_decode((string)$restoredEnabled['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(1, $enabledExtended['individual_memory_enabled']);
+        $this->assertSame(['Varmint rifle'], $enabledExtended['inventory']);
+
+        $restoredDisabled = $this->npcMaster->getByName('Disable Memory After Snapshot Test');
+        $disabledExtended = json_decode((string)$restoredDisabled['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertArrayNotHasKey('individual_memory_enabled', $disabledExtended);
+        $this->assertSame(['Gecko meat'], $disabledExtended['inventory']);
+    }
+
     public function testInvalidJsonDoesNotOverwriteExistingExtendedData(): void
     {
         $this->assertTrue($this->npcMaster->create([
