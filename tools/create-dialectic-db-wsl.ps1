@@ -49,7 +49,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $eventlogExists = (& wsl.exe -- env "PGPASSWORD=$password" psql -h 127.0.0.1 -U $owner -d $database -Atqc "SELECT to_regclass('public.eventlog') IS NOT NULL;").Trim()
 if ($eventlogExists -ne "t") {
-    Write-Host "Importing Dialectic baseline schema into '$database'."
+    Write-Host "Importing DIALECTIC baseline schema into '$database'."
     & wsl.exe -- env "PGPASSWORD=$password" psql -h 127.0.0.1 -U $owner -d $database -v ON_ERROR_STOP=1 -f $baselineLinux
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to import baseline schema into '$database'."
@@ -60,10 +60,10 @@ if ($eventlogExists -ne "t") {
     }
 }
 
-Write-Host "Running Dialectic database updates."
+Write-Host "Running DIALECTIC database updates."
 & wsl.exe -- php $bootstrapLinux
 if ($LASTEXITCODE -ne 0) {
-    throw "Dialectic database updates failed."
+    throw "DIALECTIC database updates failed."
 }
 
 Write-Host "Database '$database' is ready."

@@ -48,7 +48,7 @@ main { padding: <?php echo $isEmbedded ? '24px' : '80px 12px 32px'; ?>; }
     <div class="plugin-shell">
         <header class="plugin-heading">
             <h1>Server Plugins</h1>
-            <p>Dialectic installs bundled server-plugin packages when the game loads. Existing settings and package data are preserved during updates.</p>
+            <p>DIALECTIC installs bundled server-plugin packages when the game loads. Existing settings and package data are preserved during updates.</p>
         </header>
         <div class="plugin-toolbar">
             <h2>Installed Packages</h2>

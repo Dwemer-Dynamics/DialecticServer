@@ -1,5 +1,5 @@
 <?php
-$title = "DialecticServer Setup";
+$title = "DIALECTIC Server Setup";
 ?>
 <!doctype html>
 <html lang="en">
@@ -30,14 +30,14 @@ $title = "DialecticServer Setup";
 </head>
 <body>
 <main>
-    <h1>DialecticServer setup required</h1>
-    <p>DialecticServer requires the PHP PostgreSQL extension and database bootstrap before it can render the full settings and profile pages.</p>
-    <p>The in-game Dialectic endpoint is available at <code>main.php</code> under your DialecticServer install path once configuration and database setup are complete.</p>
+    <h1>DIALECTIC Server setup required</h1>
+    <p>DIALECTIC Server requires the PHP PostgreSQL extension and database bootstrap before it can render the full settings and profile pages.</p>
+    <p>The in-game DIALECTIC endpoint is available at <code>main.php</code> under your server install path once configuration and database setup are complete.</p>
     <h2>Required next pieces</h2>
     <ul>
         <li>Enable/load PHP's PostgreSQL extension so <code>pg_connect()</code> exists.</li>
-        <li>Create or point DialecticServer at its PostgreSQL database.</li>
-        <li>Run the DialecticServer database bootstrap/update path.</li>
+        <li>Create or point DIALECTIC Server at its PostgreSQL database.</li>
+        <li>Run the DIALECTIC Server database bootstrap/update path.</li>
     </ul>
 </main>
 </body>

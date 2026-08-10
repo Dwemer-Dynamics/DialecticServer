@@ -1584,7 +1584,7 @@ function queueFunctionExecutionCommand(&$commandBuffer, &$alreadySent, $executio
 
     dialecticEnrichTravelToExecutionContext($executionContext);
 
-    $actorName = ($actorName !== null && trim(strval($actorName)) !== "") ? strval($actorName) : strval($GLOBALS["DIALECTIC_NAME"] ?? "Dialectic");
+    $actorName = ($actorName !== null && trim(strval($actorName)) !== "") ? strval($actorName) : strval($GLOBALS["DIALECTIC_NAME"] ?? "DIALECTIC");
     $commandStr = dialecticEncodeActionLine(
         $actorName,
         strval($executionContext["function_code_name"] ?? ""),

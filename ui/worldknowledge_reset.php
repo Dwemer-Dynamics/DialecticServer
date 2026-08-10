@@ -54,7 +54,7 @@ try {
     pg_close($conn);
 
     // Redirect back to worldknowledge_upload.php with success message
-    header("Location: worldknowledge_upload.php?message=Factory+reset+completed+successfully.+WorldKnowledge+is+empty+and+ready+for+Dialectic-specific+uploads.");
+    header("Location: worldknowledge_upload.php?message=Factory+reset+completed+successfully.+WorldKnowledge+is+empty+and+ready+for+DIALECTIC-specific+uploads.");
     exit;
 
 } catch (Exception $e) {

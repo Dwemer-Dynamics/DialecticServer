@@ -851,19 +851,19 @@ $debugPaneLink = false;
 include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.php");
 ?>
 <main class="container dashboard-shell">
-    <div class="home-version-info" aria-label="Dialectic versions">
+    <div class="home-version-info" aria-label="DIALECTIC versions">
         <span>Server: <?php echo dialectic_home_h($serverVersionDisplay ?? 'N/A'); ?></span>
         <span>Plugin: <?php echo dialectic_home_h($pluginVersionDisplay ?? 'N/A'); ?></span>
     </div>
     <div class="home-heading">
-        <h1>Dialectic Dashboard</h1>
+        <h1>DIALECTIC Dashboard</h1>
         <div class="player-pill">
             <i class="bi bi-person-circle"></i>
             <span><?php echo dialectic_home_h($playerName); ?></span>
         </div>
     </div>
 
-    <section class="dashboard-container" aria-label="Dialectic dashboard">
+    <section class="dashboard-container" aria-label="DIALECTIC dashboard">
         <article class="widget">
             <div class="widget-header">
                 <h3><i class="bi bi-info-circle"></i> Current Playthrough</h3>
@@ -885,7 +885,7 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
                         <?php if ($worldWeather !== ''): ?>
                             <tr><td>Weather</td><td><?php echo dialectic_home_h($worldWeather); ?></td></tr>
                         <?php endif; ?>
-                        <tr><td>Dialectic Mode</td><td><?php echo dialectic_home_h($currentModeLabel); ?></td></tr>
+                        <tr><td>DIALECTIC Mode</td><td><?php echo dialectic_home_h($currentModeLabel); ?></td></tr>
                         <tr><td>Active Model</td><td><?php echo dialectic_home_h($currentModel); ?></td></tr>
                     </table>
                 </div>
@@ -949,7 +949,7 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
 
         <article class="widget widget-wide">
             <div class="widget-header">
-                <h3><i class="bi bi-bar-chart"></i> Dialectic Stats</h3>
+                <h3><i class="bi bi-bar-chart"></i> DIALECTIC Stats</h3>
             </div>
             <div class="widget-content">
                 <div class="widget-stats">

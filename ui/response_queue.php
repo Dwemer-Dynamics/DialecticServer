@@ -119,7 +119,7 @@ $latestLocalTs = intval($summary["latest_localts"] ?? 0);
 <head>
     <meta charset="utf-8">
     <meta http-equiv="refresh" content="5">
-    <title>Dialectic Response Queue</title>
+    <title>DIALECTIC Response Queue</title>
     <link rel="stylesheet" href="css/main.css">
     <style>
         body {

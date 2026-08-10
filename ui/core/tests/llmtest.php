@@ -82,7 +82,7 @@ require_once(__DIR__ . DIRECTORY_SEPARATOR . "../../profile_loader.php");
  ['role' => 'system', 'content' => strtr(($GLOBALS["PROMPT_HEAD"] ?? '') . ($GLOBALS["DIALECTIC_PERS"] ?? ''), ["#PLAYER_NAME#" => ($GLOBALS["PLAYER_NAME"] ?? 'Courier')])]
  ];
  $prompt = [
- ['role' => 'user', 'content' => "Hey, ".($GLOBALS['DIALECTIC_NAME'] ?? 'Dialectic').", attack that monster!!"]
+ ['role' => 'user', 'content' => "Hey, ".($GLOBALS['DIALECTIC_NAME'] ?? 'DIALECTIC').", attack that monster!!"]
  ];
  $contextData = array_merge($head, $prompt);
 
