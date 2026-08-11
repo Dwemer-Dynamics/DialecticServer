@@ -826,7 +826,7 @@ echo '<section class="qs-section">
                     ' . ($generalLlmConnectorListHtml !== '' ? $generalLlmConnectorListHtml : '<div class="qs-general-connector-empty">No additional general-settings connectors are configured.</div>') . '
                 </div>
                 <p class="qs-note warning-text3">
-                    Once done click Save and start Fallout with the Dialectic mod installed. Please read the <a href="https://dwemerdynamics.com/dialectic/index.html" target="_blank" style="color: #ffcc00; text-decoration: underline;">DIALECTIC Wiki</a> to learn more about how DIALECTIC works.
+                    Once done click Save and start Fallout with the DIALECTIC mod installed. Please read the <a href="https://dwemerdynamics.com/dialectic/index.html" target="_blank" style="color: #ffcc00; text-decoration: underline;">DIALECTIC Wiki</a> to learn more about how DIALECTIC works.
                 </p>
                 <div class="qs-actions">
                     <button

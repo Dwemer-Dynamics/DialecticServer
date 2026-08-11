@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 function Fail([string]$Message) {
-    throw "DialecticServer release audit failed: $Message"
+    throw "DIALECTIC Server release audit failed: $Message"
 }
 
 Push-Location $root
@@ -106,7 +106,7 @@ try {
         }
     }
 
-    Write-Host "DialecticServer release audit passed"
+    Write-Host "DIALECTIC Server release audit passed"
     Write-Host "Tracked files: $($tracked.Count)"
     Write-Host "PHP files linted: $($phpFiles.Count)"
     Write-Host "JSON files validated: $($jsonFiles.Count)"

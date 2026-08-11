@@ -24,7 +24,7 @@ $encodingResult = pg_query($conn, 'SHOW server_encoding');
 $encodingRow = $encodingResult ? pg_fetch_assoc($encodingResult) : [];
 $databaseEncoding = strtoupper(trim(strval($encodingRow['server_encoding'] ?? '')));
 if ($databaseEncoding !== 'UTF8') {
-    echo "Database rebuild stopped: Dialectic requires UTF8, but '{$dbname}' uses {$databaseEncoding}.\n";
+    echo "Database rebuild stopped: DIALECTIC requires UTF8, but '{$dbname}' uses {$databaseEncoding}.\n";
     echo "Run sudo bash /var/www/html/DialecticServer/tools/migrate-dialectic-db-utf8-wsl.sh first.\n";
     pg_close($conn);
     exit(1);
@@ -107,12 +107,12 @@ $bootstrapReturnVar = 0;
 exec($bootstrapCommand, $bootstrapOutput, $bootstrapReturnVar);
 
 if ($bootstrapReturnVar !== 0) {
-    echo "Failed to apply or verify Dialectic database migrations.\n";
+    echo "Failed to apply or verify DIALECTIC database migrations.\n";
     echo implode("\n", $bootstrapOutput) . "\n";
     exit;
 }
 
-echo "Dialectic database rebuilt and verified successfully.\n";
+echo "DIALECTIC database rebuilt and verified successfully.\n";
 echo implode("\n", $bootstrapOutput) . "\n";
 
 

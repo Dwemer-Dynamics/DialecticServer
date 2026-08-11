@@ -34,7 +34,7 @@ if (!function_exists('dialecticRuntimeDatabaseEncodingError')) {
     {
         $encoding = dialecticRuntimeDatabaseEncoding();
         $label = $encoding !== '' ? $encoding : 'unknown encoding';
-        return "Dialectic database uses {$label}; UTF8 is required for NPC metadata. "
+        return "DIALECTIC database uses {$label}; UTF8 is required for NPC metadata. "
             . 'Run sudo bash /var/www/html/DialecticServer/tools/migrate-dialectic-db-utf8-wsl.sh.';
     }
 }
@@ -263,12 +263,12 @@ if (!function_exists('dialecticRuntimeEnsureDbUpdates')) {
         $updatesPath = $enginePath . "debug" . DIRECTORY_SEPARATOR . "db_updates.php";
         $db=$GLOBALS["db"] ?? null;
         if (!file_exists($updatesPath)) {
-            throw new \RuntimeException("Dialectic database update file is missing: {$updatesPath}");
+            throw new \RuntimeException("DIALECTIC database update file is missing: {$updatesPath}");
         }
 
         require($updatesPath);
         if (dialecticRuntimeNeedsDbUpdates()) {
-            throw new \RuntimeException("Dialectic database bootstrap completed with pending schema updates.");
+            throw new \RuntimeException("DIALECTIC database bootstrap completed with pending schema updates.");
         }
         $ran = true;
     }

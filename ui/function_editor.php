@@ -1933,7 +1933,7 @@ if (!$isEmbed) {
         <div class="content-section">
             <h2>Action Catalog Unavailable</h2>
             <p style="margin:0; color:#d0d6df; line-height:1.45;">
-                Action catalog tables are not available yet. Run DialecticServer database updates, then reload this page.
+                Action catalog tables are not available yet. Run DIALECTIC Server database updates, then reload this page.
             </p>
         </div>
     <?php else: ?>

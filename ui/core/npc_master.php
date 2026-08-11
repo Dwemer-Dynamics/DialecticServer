@@ -463,7 +463,7 @@ if (!function_exists('dialecticUiSaveAutoLockProfileSettingFromPost')) {
 
   $raw = $_POST['auto_lock_profile'] ?? '0';
   $enabled = in_array(strtolower(trim((string)$raw)), ['1', 'true', 'yes', 'on'], true);
-  $description = 'When enabled, saving an NPC profile in the Dialectic NPC page automatically locks it to prevent history updates from overwriting manual edits.';
+  $description = 'When enabled, saving an NPC profile in the DIALECTIC NPC page automatically locks it to prevent history updates from overwriting manual edits.';
   if (!dialecticSetGeneralSetting('AUTO_LOCK_PROFILE', $enabled, $description)) {
    throw new RuntimeException('Failed to save Auto Lock Profiles setting.');
   }
