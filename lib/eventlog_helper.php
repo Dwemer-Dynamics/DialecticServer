@@ -52,6 +52,24 @@ if (!function_exists('dialecticBuildVisibleEventLogWhereClause')) {
     }
 }
 
+if (!function_exists('dialecticBuildNpcEventLogPeopleWhereClause')) {
+    // Match one NPC token without allowing partial-name matches or far-away audience markers.
+    function dialecticBuildNpcEventLogPeopleWhereClause($db, $npcName, $peopleColumn = 'people')
+    {
+        $peopleColumn = trim((string)$peopleColumn);
+        if (!preg_match('/^(?:[A-Za-z_][A-Za-z0-9_]*\.)?[A-Za-z_][A-Za-z0-9_]*$/', $peopleColumn)) {
+            $peopleColumn = 'people';
+        }
+
+        $escapedNpcName = $db->escape(trim((string)$npcName));
+        return "EXISTS (
+            SELECT 1
+            FROM unnest(string_to_array(trim(BOTH '|' FROM COALESCE({$peopleColumn}, '')), '|')) AS dialectic_person(person_name)
+            WHERE lower(regexp_replace(btrim(dialectic_person.person_name), ' \\((busy|hostile|in combat|restrained)\\)$', '', 'i')) = lower('{$escapedNpcName}')
+        )";
+    }
+}
+
 if (!function_exists('dialecticGetVisibleEventLogTypes')) {
     function dialecticGetVisibleEventLogTypes($db, $additionalExcludedTypes = [])
     {
@@ -163,6 +181,47 @@ if (!function_exists('dialecticDeleteLatestVisibleEventLogRows')) {
             'deleted_count' => count($targetRowids),
             'requested_count' => $deleteCount,
             'message' => 'Deleted latest visible events.',
+        ];
+    }
+}
+
+if (!function_exists('dialecticDeleteEventLogRow')) {
+    function dialecticDeleteEventLogRow($db, $rowId)
+    {
+        $rowId = intval($rowId);
+        if ($rowId <= 0) {
+            return [
+                'ok' => false,
+                'deleted_count' => 0,
+                'message' => 'Invalid event row.',
+            ];
+        }
+
+        $visibleWhereClause = dialecticBuildVisibleEventLogWhereClause($db);
+        $existing = $db->fetchOne("SELECT rowid FROM eventlog WHERE rowid={$rowId} AND {$visibleWhereClause} LIMIT 1");
+        if (!$existing) {
+            return [
+                'ok' => true,
+                'rowid' => $rowId,
+                'deleted_count' => 0,
+                'message' => 'Event is no longer available.',
+            ];
+        }
+
+        if (!$db->delete('eventlog', "rowid={$rowId}")) {
+            return [
+                'ok' => false,
+                'rowid' => $rowId,
+                'deleted_count' => 0,
+                'message' => 'Failed to delete event.',
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'rowid' => $rowId,
+            'deleted_count' => 1,
+            'message' => 'Event deleted.',
         ];
     }
 }

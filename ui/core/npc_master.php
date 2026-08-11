@@ -40,7 +40,7 @@ require_once(__DIR__.DIRECTORY_SEPARATOR."../profile_loader.php");
 $TITLE = "DIALECTIC - NPC Master";
 ob_start();
 include(__DIR__.DIRECTORY_SEPARATOR."../tmpl/head.html");
-?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><style>
+?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/npc_event_history.css"><style>
 /* Core styling alignment */
 @font-face {
  font-family: 'Gothic821';
@@ -1576,14 +1576,14 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  }
  exit;
 }
-?><?php if ($editItem): ?><h2>Edit NPC (ID: <?= htmlspecialchars($editItem["id"]) ?>)</h2><?php endif; ?><?php if (isset($_GET['partial']) && $_GET['partial']=='1') { ob_end_clean(); ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><style>html,body{background:#2a2a2a;margin-bottom:50px;margin-right:5px;} main{background:#2a2a2a; padding:12px;} .form-container{background:#2a2a2a; border:1px solid #4a4a4a; border-radius:8px;}
+?><?php if ($editItem): ?><h2>Edit NPC (ID: <?= htmlspecialchars($editItem["id"]) ?>)</h2><?php endif; ?><?php if (isset($_GET['partial']) && $_GET['partial']=='1') { ob_end_clean(); ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/npc_event_history.css"><style>html,body{background:#2a2a2a;margin-bottom:50px;margin-right:5px;} main{background:#2a2a2a; padding:12px;} .form-container{background:#2a2a2a; border:1px solid #4a4a4a; border-radius:8px;}
 .modal-inline-actions{display:flex; gap:6px; align-items:center; justify-content:flex-end; margin-bottom:8px;}
 .modal-inline-actions .btn-toggle{background:transparent; border:none; padding:6px; color:#e9efff; font-size:22px; line-height:1; text-decoration:none; cursor:pointer;}
 .modal-inline-actions .btn-toggle:hover{color: rgb(255, 182, 65); text-decoration:none;}
 .modal-inline-actions .btn-toggle.active{color:#ffd700; font-weight:700;}
 .modal-inline-actions .btn-toggle[data-lock]{color:#e9efff;}
 .modal-inline-actions .btn-toggle.active[data-lock]{color: rgb(255, 182, 65);}
-</style><div data-npc-profile-loaded="1" data-npc-id="<?= htmlspecialchars((string)($editItem['id'] ?? '')) ?>" hidden></div><form method="post" onsubmit='return false' style='display:block'><?php } else { ?><form method="post" onsubmit='return consolidation()' style='<?= $editItem!=null?"":"display:none"?>'><?php } ?><style>
+</style><div data-npc-profile-loaded="1" data-npc-id="<?= htmlspecialchars((string)($editItem['id'] ?? '')) ?>" hidden></div><form method="post" onsubmit='return false' style='display:block'><?php } else { ?><form method="post" onsubmit='return consolidation()' style='<?= $editItem!=null?"":"display:none"?>'><?php } ?><script src="<?php echo $webRoot; ?>/ui/js/npc_event_history.js"></script><style>
  .form-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px 16px; }
  @media (max-width: 900px){ .form-grid { grid-template-columns: 1fr; } }
  .form-item { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
@@ -1749,7 +1749,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
 <style>
 .npc-editor-tabs {
     display:grid;
-    grid-template-columns:repeat(5, minmax(0, 1fr));
+    grid-template-columns:repeat(6, minmax(0, 1fr));
     gap:8px;
     margin-bottom:14px;
     padding:8px;
@@ -1808,6 +1808,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
         bios: new Set(['core','npc_static_bio','appearance','personality','occupation','skills','speechstyle','goals']),
         relationships: new Set(['relationships','relationships_jsonb','middle_term_latest']),
         actions: new Set([]),
+        history: new Set([]),
         info: new Set(['emote_moods','metadata','extended_data'])
     };
 
@@ -1817,12 +1818,23 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
             const form = tablist.closest('form');
             const grid = form ? form.querySelector('.form-grid') : null;
             if (!form || !grid) return;
+            if (!tablist.querySelector('[data-npc-editor-tab="history"]')) {
+                const historyButton = document.createElement('button');
+                historyButton.type = 'button';
+                historyButton.className = 'npc-editor-tab';
+                historyButton.setAttribute('role', 'tab');
+                historyButton.setAttribute('aria-selected', 'false');
+                historyButton.dataset.npcEditorTab = 'history';
+                historyButton.textContent = '📜 History';
+                tablist.appendChild(historyButton);
+            }
             tablist.dataset.initialized = '1';
 
             const panels = {};
-            ['general','bios','relationships','actions','info'].forEach(function(section){
+            ['general','bios','relationships','actions','info','history'].forEach(function(section){
                 const panel = document.createElement('div');
                 panel.className = 'npc-editor-panel form-grid';
+                if (section === 'history') panel.classList.add('npc-editor-panel-history');
                 panel.dataset.npcEditorPanel = section;
                 panel.id = 'npc-editor-panel-' + section + '-' + index;
                 panel.setAttribute('role', 'tabpanel');
@@ -1885,9 +1897,17 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
                 : null;
             ?>
             const targetId = <?= (int)($editItem['id'] ?? 0) ?>;
+            const targetName = <?= json_encode((string)($editItem['npc_name'] ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
             const savedReturnLocation = <?= json_encode($editorReturnLocation, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
             const initialTeleportAction = savedReturnLocation ? 'return' : 'teleport';
             const initialReturnName = savedReturnLocation && savedReturnLocation.name ? String(savedReturnLocation.name) : '';
+            const historyController = window.dialecticNpcEventHistory
+                ? window.dialecticNpcEventHistory.mount(panels.history, {
+                    npcId: targetId,
+                    npcName: targetName,
+                    apiUrl: '../api/dialectic_npc_manager.php'
+                })
+                : null;
             panels.actions.innerHTML = `
                 <p class="npc-editor-action-note">The game must be running and unpaused for Visit, Teleport, and Return NPC.</p>
                 <div class="npc-editor-action-list">
@@ -1954,6 +1974,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
                     button.tabIndex = active ? 0 : -1;
                 });
                 Object.entries(panels).forEach(function(entry){ entry[1].hidden = entry[0] !== section; });
+                if (section === 'history' && historyController) historyController.load();
                 try { window.localStorage.setItem(storageKey, section); } catch (_e) {}
             }
 
@@ -3162,7 +3183,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  Every time a save game is loaded, DIALECTIC snapshots all NPC profiles and restores <strong>unlocked</strong> NPCs to their state at the save's game timestamp.
  Loading an older save will roll back unlocked profiles to that point in time. NPCs created <em>after</em> the save's timestamp may disappear entirely.
  <br><span style="color:rgb(255, 182, 65);">Lock a profile to protect it from pullback.</span>
- You can view and restore previous versions of any NPC via the <strong>View History</strong> button in the edit modal.
+ You can view and restore previous profile versions via the <strong>Profile Versions</strong> button in the edit modal.
 </div><div class="npc-grid"><?php foreach ($data as $row): ?><?php
  $pid = (string)($row['profile_id'] ?? '');
  $profLabel = $profilesById[$pid] ?? '';
@@ -3782,10 +3803,13 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  })();
 
 
- // View History button wiring
- (function(){
- const btn = document.getElementById('npc_modal_history');
- const overlay = document.getElementById('history_viewer');
+  // Profile Versions button wiring
+  (function(){
+    const btn = document.getElementById('npc_modal_history');
+    const overlay = document.getElementById('history_viewer');
+    if (btn) btn.textContent = 'Profile Versions';
+    const profileVersionsTitle = overlay ? overlay.querySelector('.modal-title') : null;
+    if (profileVersionsTitle) profileVersionsTitle.textContent = 'NPC Profile Versions';
  const listBox = document.getElementById('history_list');
  const detailBox = document.getElementById('history_detail');
  const closeBtn = document.getElementById('history_close');
