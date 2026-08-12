@@ -136,6 +136,16 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
         $disabledRow = $this->npcMaster->getByName('Disable Memory After Snapshot Test');
         $this->assertNotFalse($this->npcMaster->update((int)$enabledRow['id'], [
             'individual_memory_enabled' => 1,
+            'extended_data' => [
+                'inventory' => ['Current inventory should roll back'],
+                'middle_term_enabled' => 1,
+                'auto_diary_enabled' => 1,
+                'auto_diary_wait_enabled' => 1,
+                'relationships_locked' => true,
+                'relationships' => [
+                    'Player' => ['aff' => 42, 'type' => 'friend'],
+                ],
+            ],
         ]));
         $this->assertNotFalse($this->npcMaster->update((int)$disabledRow['id'], [
             'individual_memory_enabled' => 0,
@@ -146,6 +156,11 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
         $restoredEnabled = $this->npcMaster->getByName('Enable Memory After Snapshot Test');
         $enabledExtended = json_decode((string)$restoredEnabled['extended_data'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame(1, $enabledExtended['individual_memory_enabled']);
+        $this->assertSame(1, $enabledExtended['middle_term_enabled']);
+        $this->assertSame(1, $enabledExtended['auto_diary_enabled']);
+        $this->assertSame(1, $enabledExtended['auto_diary_wait_enabled']);
+        $this->assertTrue($enabledExtended['relationships_locked']);
+        $this->assertSame(42, $enabledExtended['relationships']['Player']['aff']);
         $this->assertSame(['Varmint rifle'], $enabledExtended['inventory']);
 
         $restoredDisabled = $this->npcMaster->getByName('Disable Memory After Snapshot Test');
