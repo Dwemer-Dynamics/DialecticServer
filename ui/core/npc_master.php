@@ -3243,6 +3243,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  ?></div></div></div><?php endforeach; ?></div><?php endif; ?><div id="npc_modal" class="modal-backdrop"><div class="modal-container"><div class="modal-header"><h2 class="modal-title">Edit NPC</h2><div class="modal-actions"><button id="npc_modal_save_header" class="btn-save">Save</button><button id="npc_modal_export" class="btn-cancel" title="Export NPC biography to JSON file">Export Bio</button><button id="npc_modal_import_to" class="btn-cancel" title="Import biography from another NPC's export file">Import Bio</button><button id="npc_modal_reset" class="btn-cancel" title="Reimport bio template fields">Reset NPC</button><button id="npc_modal_diary" class="btn-cancel">View Diary</button><button id="npc_modal_history" class="btn-cancel">View History</button><button id="npc_modal_regen" class="btn-cancel" title="Will use AI to regenerate this profile. Intended for custom NPCs without biography descriptions.">AI Generate Profile</button><button id="npc_modal_close" class="btn-cancel">Close</button></div></div><div class="modal-body"><div id="npc_modal_tabs" style="display:flex; gap:8px; padding:8px; border-bottom:1px solid #4a4a4a; background:#2a2a2a; position:sticky; top:0; z-index:2;"><button type="button" class="pf-tab active" data-pane="pane_manual"> Manual</button><button type="button" class="pf-tab" data-pane="pane_bio"> NPC Biographies</button></div><div id="pane_manual" class="pf-pane active" style="padding:0;"><iframe id="npc_modal_iframe" src="about:blank" style="width:100%; height:70vh; border:0; background:transparent;"></iframe></div><div id="pane_bio" class="pf-pane" style="display:none; padding:10px;"><div style="display:flex; gap:12px; align-items:flex-start;"><div style="flex: 0 0 340px; max-width:340px; border:1px solid #4a4a4a; border-radius:8px; padding:8px; background:#2a2a2a;"><div style="display:flex; flex-direction:column; gap:6px; align-items:stretch; margin-bottom:8px;"><select id="bio_letter" style="padding:6px 8px; border:1px solid #4a4a4a; border-radius:6px; background:#2a2a2a; color:#e9efff;"><option value="">All</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option><option>F</option><option>G</option><option>H</option><option>I</option><option>J</option><option>K</option><option>L</option><option>M</option><option>N</option><option>O</option><option>P</option><option>Q</option><option>R</option><option>S</option><option>T</option><option>U</option><option>V</option><option>W</option><option>X</option><option>Y</option><option>Z</option></select><input id="bio_search_input" type="text" placeholder="Search bio database..." style="padding:6px 8px; border:1px solid #4a4a4a; border-radius:6px; background:#2a2a2a; color:#e9efff;"></div><div id="bio_list" style="height:58vh; overflow:auto; display:flex; flex-direction:column; gap:6px;"></div><div id="bio_pager" style="display:flex; gap:6px; align-items:center; justify-content:center; margin-top:6px;"></div></div><div style="flex: 1 1 auto; min-width:0; border:1px solid #4a4a4a; border-radius:8px; padding:8px; background:#2a2a2a;"><div style="margin-bottom:8px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;"><label class="label-with-toggle"><input id="bio_inc_core" type="checkbox" checked> Core</label><label class="label-with-toggle"><input id="bio_inc_ext" type="checkbox" checked> Extended Profile</label><label class="label-with-toggle"><input id="bio_inc_worldknowledge" type="checkbox" checked> Knowledge Tags</label><label class="label-with-toggle"><input id="bio_inc_vm" type="checkbox" checked> Voice & Meta</label><select id="bio_profile_id" title="Assign Profile" style="margin-left:auto; padding:6px 8px; border:1px solid #4a4a4a; border-radius:6px; background:#2a2a2a; color:#e9efff;"><option value=""> Profile </option><?php foreach (($profileRows ?? []) as $pr): $pid=(string)($pr['id']??''); $lbl=$pr['label']??('Profile #'.$pid); $sel = ($firstProfileId === $pid) ? ' selected' : ''; ?><option value="<?= htmlspecialchars($pid) ?>"<?= $sel ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select><button id="bio_use_template" type="button" class="btn-base btn-primary">Use Template</button></div><div id="bio_detail" style="height:58vh; overflow:auto;"><div style="color:#9fb1c9">Select a template on the left</div></div></div></div></div></div></div></div><!-- Gallery picker overlay --><div id="gallery_picker" class="modal-backdrop" style="z-index:10001;"><div class="modal-container" style="max-width:1200px; width:95%;"><div class="modal-header"><h2 class="modal-title">Choose Picture</h2><div class="modal-actions"><button id="gallery_picker_close" class="btn-cancel">Close</button></div></div><div class="modal-body" style="height:80vh;"><iframe id="gallery_picker_iframe" src="about:blank" style="width:100%; height:100%; border:0; background:transparent;"></iframe></div></div></div><!-- NPC History viewer overlay --><div id="history_viewer" class="modal-backdrop" style="z-index:10002;"><div class="modal-container" style="max-width:1100px; width:95%;"><div class="modal-header"><h2 class="modal-title">NPC History</h2><div class="modal-actions"><button id="history_close" class="btn-cancel">Close</button><button id="history_generation" class="btn-cancel" title="Note: Will do a LLM request.">Evolution report (AI request)</button></div></div><div class="modal-body" style="height:75vh; display:flex; gap:10px;"><div id="history_list" style="flex: 0 0 320px; max-width:320px; border-right:1px solid #4a4a4a; overflow:auto; padding:8px;"></div><div id="history_detail" style="flex: 1 1 auto; min-width:0; overflow:auto; padding:8px;"><div style="color:#9fb1c9">Select a snapshot to view details</div></div></div></div></div><script>
 (function(){
  const PROFILES_BY_ID = <?= json_encode($profilesById ?? [], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
+ const PROFILE_META_BY_ID = <?= json_encode($profileMetaById ?? [], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
  const PROFILE_OPTIONS = <?= json_encode($profileOptions ?? [], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
  const modal = document.getElementById('npc_modal');
  const iframe = document.getElementById('npc_modal_iframe');
@@ -4646,12 +4647,14 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  } catch(_){}
  const profId = String(data.profile_id||'');
  setText('.npc-profile', PROFILES_BY_ID[profId] || '');
- // Toggle Middle-term memory icon () based on extended_data.middle_term_enabled
+ const profileMeta = PROFILE_META_BY_ID[profId] || {};
+ let effectiveExtendedData = {};
+ try { effectiveExtendedData = JSON.parse(String(data.extended_data||'').trim() || '{}') || {}; } catch(_e){}
+ // Toggle Middle-term memory icon () using the NPC override or inherited profile setting.
  try {
- const mtm = (function(){
- const raw = String(data.extended_data||'').trim(); if (!raw) return 0;
- try { const o = JSON.parse(raw); return (o && Number(o.middle_term_enabled||0)===1) ? 1 : 0; } catch(_e){ return 0; }
- })();
+ const mtm = Object.prototype.hasOwnProperty.call(effectiveExtendedData, 'middle_term_enabled')
+     ? Number(effectiveExtendedData.middle_term_enabled || 0) === 1
+     : Boolean(profileMeta.mtm);
  const left = card.querySelector('.npc-title-left');
  if (left){
  let icon = left.querySelector('.npc-mtm-icon');
@@ -4672,12 +4675,11 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  else { if (icon){ icon.remove(); } }
  }
  } catch(_e){}
- // Toggle Auto Diary icon () based on extended_data.auto_diary_enabled
+ // Toggle Auto Diary icon () using the NPC override or inherited profile setting.
  try {
- const ad = (function(){
- const raw = String(data.extended_data||'').trim(); if (!raw) return 0;
- try { const o = JSON.parse(raw); return (o && Number(o.auto_diary_enabled||0)===1) ? 1 : 0; } catch(_e){ return 0; }
- })();
+ const ad = Object.prototype.hasOwnProperty.call(effectiveExtendedData, 'auto_diary_enabled')
+     ? Number(effectiveExtendedData.auto_diary_enabled || 0) === 1
+     : Boolean(profileMeta.ad);
  const left = card.querySelector('.npc-title-left');
  if (left){
  let icon = left.querySelector('.npc-ad-icon');
