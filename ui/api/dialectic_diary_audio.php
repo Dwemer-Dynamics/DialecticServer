@@ -70,7 +70,7 @@ try {
     $npcManager = new NpcMaster();
     $npcData = $isNarrator ? $narratorManager->getNarratorData() : $npcManager->getByName($author);
     if (!is_array($npcData) || empty($npcData)) {
-        throw new RuntimeException("No Dialectic NPC profile was found for {$author}.");
+        throw new RuntimeException("No DIALECTIC NPC profile was found for {$author}.");
     }
 
     $profileManager = new CoreProfile();

@@ -1245,7 +1245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     
                     <form action="<?php echo $webRoot; ?>/ui/worldknowledge_reset.php" method="post" style="display: inline;">
                         <input type="submit" class="btn-danger" value="Factory Reset Database" 
-                    onclick="return confirm('Are you sure you want to reset the WorldKnowledge database to factory settings? This will delete all current entries and leave WorldKnowledge empty until you upload Dialectic-specific rows.');">
+                    onclick="return confirm('Are you sure you want to reset the WorldKnowledge database to factory settings? This will delete all current entries and leave WorldKnowledge empty until you upload DIALECTIC-specific rows.');">
                     </form>
                 </div>
                 

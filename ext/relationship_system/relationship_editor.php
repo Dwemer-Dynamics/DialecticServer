@@ -23,7 +23,8 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
             </small>
             <label class="relationship-lock">
                 <input type="checkbox" id="rel_locked" <?= !empty($relationshipExtended['relationships_locked']) ? 'checked' : '' ?>>
-                Lock these relationships so automatic evaluation cannot overwrite manual edits
+                Lock these relationships so automatic evaluation and save pullback cannot overwrite manual edits.
+                Editing an affinity here enables this automatically.
             </label>
 
             <div class="relationship-table-wrap">
@@ -199,6 +200,10 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
         lockedHidden.value = locked.checked ? '1' : '0';
         empty.style.display = Object.keys(relationships).length ? 'none' : 'block';
     }
+    function protectManualEdit() {
+        locked.checked = true;
+        sync();
+    }
     function fillTypeSelect(select, selected) {
         select.textContent = '';
         if (selected && !types.includes(selected)) types.push(selected);
@@ -237,6 +242,7 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
                 if (!next || next === target) return;
                 relationships[next] = data;
                 delete relationships[target];
+                protectManualEdit();
                 render();
             });
             targetCell.appendChild(targetInput);
@@ -249,7 +255,7 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
                 data.aff = Math.max(-100, Math.min(100, Number(affinity.value || 0)));
                 tierCell.textContent = tier(data.aff);
                 tierCell.style.color = tierColor(data.aff);
-                sync();
+                protectManualEdit();
             });
             affinityCell.appendChild(affinity);
 
@@ -259,7 +265,7 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
 
             const typeSelect = document.createElement('select');
             fillTypeSelect(typeSelect, String(data.type || 'neutral'));
-            typeSelect.addEventListener('change', () => { data.type = typeSelect.value; sync(); });
+            typeSelect.addEventListener('change', () => { data.type = typeSelect.value; protectManualEdit(); });
             typeCell.appendChild(typeSelect);
 
             signalsCell.className = 'relationship-signals';
@@ -280,7 +286,7 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
             details.addEventListener('click', () => openDetails(target));
             const remove = document.createElement('button');
             remove.type = 'button'; remove.className = 'relationship-icon-button danger'; remove.textContent = 'X'; remove.title = 'Remove relationship';
-            remove.addEventListener('click', () => { delete relationships[target]; render(); });
+            remove.addEventListener('click', () => { delete relationships[target]; protectManualEdit(); render(); });
             actionsCell.append(details, remove);
             [targetCell, affinityCell, tierCell, typeCell, signalsCell, actionsCell].forEach(cell => row.appendChild(cell));
             tbody.appendChild(row);
@@ -319,6 +325,7 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
             const value = document.getElementById('rel_details_' + field).value.trim();
             if (value) data[field] = value; else delete data[field];
         });
+        protectManualEdit();
         closeModal('rel_details_modal');
         render();
         setStatus('Relationship details updated. Save the NPC to keep them.', false);
@@ -331,6 +338,7 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
             aff: Math.max(-100, Math.min(100, Number(document.getElementById('rel_new_affinity').value || 0))),
             type: document.getElementById('rel_new_type').value || 'neutral'
         };
+        protectManualEdit();
         targetInput.value = '';
         document.getElementById('rel_new_affinity').value = '0';
         render();
@@ -376,6 +384,7 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
     document.getElementById('rel_clear').addEventListener('click', () => {
         if (!window.confirm('Clear every relationship from this NPC? Changes are not permanent until you save.')) return;
         relationships = {};
+        protectManualEdit();
         render();
         setStatus('All relationships cleared. Save the NPC to make this permanent.', false);
     });

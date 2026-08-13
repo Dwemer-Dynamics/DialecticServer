@@ -345,7 +345,7 @@ h1.api-title { margin: 0 0 8px; font-size: 2.2em; color: rgb(255,182,65); text-a
 
         <div class="layout">
             <div class="left-col">
-                <div class="summary-note">This page edits the single global ITT connector. It controls which vision-capable backend DialecticServer uses for PipVision screenshots and image analysis.</div>
+                <div class="summary-note">This page edits the single global ITT connector. It controls which vision-capable backend DIALECTIC Server uses for PipVision screenshots and image analysis.</div>
                 <div class="list-wrap" id="itt_driver_list">
                     <?php foreach ($groupedDriverOptions as $groupLabel => $groupDrivers): ?>
                         <?php if (empty($groupDrivers)) { continue; } ?>
@@ -396,7 +396,7 @@ h1.api-title { margin: 0 0 8px; font-size: 2.2em; color: rgb(255,182,65); text-a
                                         </optgroup>
                                     <?php endforeach; ?>
                                 </select>
-                                <div class="field-help">Choose the image-to-text backend DialecticServer should load globally.</div>
+                                <div class="field-help">Choose the image-to-text backend DIALECTIC Server should load globally.</div>
                             </div>
 
                             <div class="field-block" id="url_block" style="<?php echo $connector->driverSupportsEditableUrl($currentDriver) ? '' : 'display:none;'; ?>">

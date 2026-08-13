@@ -7,7 +7,7 @@ header('Cache-Control: no-store');
 
 $root = __DIR__;
 $response = [
-    'service' => 'DialecticServer',
+    'service' => 'DIALECTIC Server',
     'status' => 'unhealthy',
     'version' => trim((string)@file_get_contents($root . DIRECTORY_SEPARATOR . '.version_number.txt')),
     'build' => trim((string)@file_get_contents($root . DIRECTORY_SEPARATOR . '.version.txt')),

@@ -14,7 +14,7 @@ umask 0002
 # the heartbeat listener has finished binding its port.
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
-    echo "An instance of the Dialectic background processor is already starting or running."
+    echo "An instance of the DIALECTIC background processor is already starting or running."
     exit 1
 fi
 

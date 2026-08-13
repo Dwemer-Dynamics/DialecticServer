@@ -16,6 +16,8 @@ dialecticRuntimeBootstrap($enginePath, [
 
 require_once $enginePath . 'lib' . DIRECTORY_SEPARATOR . 'logger.php';
 require_once $enginePath . 'lib' . DIRECTORY_SEPARATOR . 'dialectic_command_payload.php';
+require_once $enginePath . 'lib' . DIRECTORY_SEPARATOR . 'utils_game_timestamp.php';
+require_once $enginePath . 'lib' . DIRECTORY_SEPARATOR . 'eventlog_helper.php';
 
 function dialecticNpcManagerRespond(array $payload, int $status = 200): void
 {
@@ -66,6 +68,221 @@ function dialecticNpcManagerFindNpc(array $input): array
         throw new InvalidArgumentException('NPC not found');
     }
     return $row;
+}
+
+function dialecticNpcManagerList(): array
+{
+    $page = max(1, intval($_GET['page'] ?? 1));
+    $limit = max(1, min(100, intval($_GET['limit'] ?? 40)));
+    $offset = ($page - 1) * $limit;
+    $conditions = ["npc_name IS NOT NULL", "btrim(npc_name) <> ''"];
+    $search = trim((string)($_GET['search'] ?? ''));
+    if ($search !== '') {
+        $escapedSearch = $GLOBALS['db']->escape('%' . $search . '%');
+        $conditions[] = "(npc_name ILIKE '{$escapedSearch}' OR race ILIKE '{$escapedSearch}' OR refid ILIKE '{$escapedSearch}')";
+    }
+    $where = implode(' AND ', $conditions);
+    $countRow = $GLOBALS['db']->fetchOne("SELECT COUNT(*) AS total FROM core_npc_master WHERE {$where}");
+    $rows = $GLOBALS['db']->fetchAll(
+        "SELECT id, npc_name FROM core_npc_master WHERE {$where} ORDER BY npc_name ASC, id ASC LIMIT {$limit} OFFSET {$offset}"
+    );
+
+    return [
+        'npcs' => array_map(static function ($row) {
+            return [
+                'id' => intval($row['id'] ?? 0),
+                'name' => trim((string)($row['npc_name'] ?? 'Unknown NPC')),
+            ];
+        }, (array)$rows),
+        'pagination' => [
+            'page' => $page,
+            'limit' => $limit,
+            'total' => intval($countRow['total'] ?? 0),
+        ],
+    ];
+}
+
+function dialecticNpcManagerEventRecipients($people): array
+{
+    $recipients = [];
+    foreach (explode('|', trim((string)$people, '|')) as $recipient) {
+        $recipient = trim((string)$recipient);
+        if ($recipient !== '' && !in_array($recipient, $recipients, true)) {
+            $recipients[] = $recipient;
+        }
+    }
+    return $recipients;
+}
+
+function dialecticNpcManagerHistory(array $input): array
+{
+    $npc = dialecticNpcManagerFindNpc($input);
+    $npcName = trim((string)($npc['npc_name'] ?? ''));
+    $limit = max(1, min(100, intval($input['limit'] ?? 100)));
+    $selectedEventType = trim((string)($input['event_type'] ?? ''));
+    $hiddenEventTypes = dialecticGetPersistedEventLogHiddenTypes($GLOBALS['db']);
+    // Keep NPC History aligned with the PHP Adventure Log's default narrative event list.
+    $allowedEventTypes = [
+        'im_alive',
+        'chat',
+        'infoaction',
+        'rpg_lvlup',
+        'rechat',
+        'quest',
+        'itemfound',
+        'inputtext',
+        'goodnight',
+        'goodmorning',
+        'death',
+        'combatendmighty',
+        'combatend',
+        'lockpicked',
+    ];
+    $escapedAllowedEventTypes = array_map(static function ($eventType) {
+        return "'" . $GLOBALS['db']->escape($eventType) . "'";
+    }, $allowedEventTypes);
+    $allowedTypesWhere = 'a.type IN (' . implode(',', $escapedAllowedEventTypes) . ')';
+    $peopleWhere = dialecticBuildNpcEventLogPeopleWhereClause($GLOBALS['db'], $npcName, 'a.people');
+    $visibleWhere = dialecticBuildVisibleEventLogWhereClause(
+        $GLOBALS['db'],
+        $selectedEventType,
+        $hiddenEventTypes
+    );
+    $rows = $GLOBALS['db']->fetchAll(
+        "SELECT a.rowid, a.type, a.data, a.people, a.gamets, a.localts, a.ts, a.sess
+         FROM eventlog a
+         WHERE {$allowedTypesWhere} AND {$visibleWhere} AND {$peopleWhere}
+         ORDER BY a.localts DESC, a.rowid DESC, a.gamets DESC, a.ts DESC
+         LIMIT {$limit}"
+    );
+    $visibleTypesWhere = dialecticBuildVisibleEventLogWhereClause($GLOBALS['db'], '', $hiddenEventTypes);
+    $eventTypes = $GLOBALS['db']->fetchAll(
+        "SELECT a.type, COUNT(*) AS total
+         FROM eventlog a
+         WHERE {$allowedTypesWhere} AND {$visibleTypesWhere} AND {$peopleWhere}
+         GROUP BY a.type
+         ORDER BY a.type ASC"
+    );
+
+    $events = array_map(static function ($row) {
+        $gamets = intval($row['gamets'] ?? 0);
+        return [
+            'rowid' => intval($row['rowid'] ?? 0),
+            'type' => (string)($row['type'] ?? ''),
+            'data' => (string)($row['data'] ?? ''),
+            'recipients' => dialecticNpcManagerEventRecipients($row['people'] ?? ''),
+            'gamets' => $gamets,
+            'fallout_time' => $gamets > 0 ? convert_gamets2fallout_long_date2($gamets) : '',
+            'local_time' => !empty($row['localts']) ? gmdate('d-m-Y H:i:s', intval($row['localts'])) : '',
+            'manual_injection' => strtolower((string)($row['type'] ?? '')) === 'inputtext'
+                && (string)($row['sess'] ?? '') === 'npc_editor',
+        ];
+    }, (array)$rows);
+
+    return [
+        'npc' => ['id' => intval($npc['id'] ?? 0), 'name' => $npcName],
+        'events' => $events,
+        'filters' => [
+            'selected_event_type' => $selectedEventType,
+            'hidden_event_types' => $hiddenEventTypes,
+            'event_types' => array_map(static function ($row) {
+                return [
+                    'type' => (string)($row['type'] ?? ''),
+                    'total' => intval($row['total'] ?? 0),
+                ];
+            }, (array)$eventTypes),
+        ],
+    ];
+}
+
+function dialecticNpcManagerResolveEventRecipients(array $input, array $npc): array
+{
+    $ids = [intval($npc['id'] ?? 0)];
+    $requestedIds = is_array($input['recipient_ids'] ?? null) ? $input['recipient_ids'] : [];
+    foreach ($requestedIds as $requestedId) {
+        $requestedId = intval($requestedId);
+        if ($requestedId > 0 && !in_array($requestedId, $ids, true)) {
+            $ids[] = $requestedId;
+        }
+    }
+    if (count($ids) > 12) {
+        throw new InvalidArgumentException('An event can include at most 12 NPCs');
+    }
+
+    $recipients = [];
+    foreach ($ids as $id) {
+        $row = $id === intval($npc['id'] ?? 0) ? $npc : dialecticNpcManagerFindNpc(['id' => $id]);
+        $name = trim((string)($row['npc_name'] ?? ''));
+        if ($name === '' || strpos($name, '|') !== false) {
+            throw new InvalidArgumentException('One of the selected NPC names cannot be used for event routing');
+        }
+        $recipients[] = ['id' => intval($row['id'] ?? 0), 'name' => $name];
+    }
+    return $recipients;
+}
+
+function dialecticNpcManagerInjectEvent(array $input): array
+{
+    $npc = dialecticNpcManagerFindNpc($input);
+    $eventText = trim((string)($input['event'] ?? ''));
+    if (strlen($eventText) >= 2 && $eventText[0] === '(' && substr($eventText, -1) === ')') {
+        $eventText = trim(substr($eventText, 1, -1));
+    }
+    if ($eventText === '') {
+        throw new InvalidArgumentException('Event text is required');
+    }
+    $eventLength = function_exists('mb_strlen') ? mb_strlen($eventText, 'UTF-8') : strlen($eventText);
+    if ($eventLength > 4000) {
+        throw new InvalidArgumentException('Event text must be 4000 characters or fewer');
+    }
+
+    $recipients = dialecticNpcManagerResolveEventRecipients($input, $npc);
+    $people = '|' . implode('|', array_column($recipients, 'name')) . '|';
+    $rowId = $GLOBALS['db']->insertReturningId('eventlog', [
+        'ts' => max(0, intval(DataLastKnownTS())) + 1,
+        'gamets' => max(0, intval(DataLastKnownGameTS())),
+        'type' => 'inputtext',
+        'data' => '(' . $eventText . ')',
+        'sess' => 'npc_editor',
+        'localts' => time(),
+        'people' => $people,
+        'location' => '',
+        'party' => '[]',
+    ], 'rowid');
+    if ($rowId <= 0) {
+        throw new RuntimeException('Event could not be injected');
+    }
+
+    return [
+        'message' => 'Event injected for ' . implode(', ', array_column($recipients, 'name')) . '.',
+        'rowid' => $rowId,
+        'recipients' => $recipients,
+    ];
+}
+
+function dialecticNpcManagerDeleteEvent(array $input): array
+{
+    $npc = dialecticNpcManagerFindNpc($input);
+    $rowId = intval($input['rowid'] ?? 0);
+    if ($rowId <= 0) {
+        throw new InvalidArgumentException('Invalid event row');
+    }
+
+    $npcName = trim((string)($npc['npc_name'] ?? ''));
+    $peopleWhere = dialecticBuildNpcEventLogPeopleWhereClause($GLOBALS['db'], $npcName, 'a.people');
+    $visibleWhere = dialecticBuildVisibleEventLogWhereClause($GLOBALS['db']);
+    $event = $GLOBALS['db']->fetchOne(
+        "SELECT a.rowid FROM eventlog a WHERE a.rowid = {$rowId} AND {$visibleWhere} AND {$peopleWhere} LIMIT 1"
+    );
+    if (!$event) {
+        throw new InvalidArgumentException('Event is not available in this NPC history');
+    }
+
+    $result = dialecticDeleteEventLogRow($GLOBALS['db'], $rowId);
+    if (empty($result['ok'])) {
+        throw new RuntimeException((string)($result['message'] ?? 'Event could not be deleted'));
+    }
+    return ['message' => 'Event deleted.', 'rowid' => $rowId];
 }
 
 // Resolve the latest tracked NPC position to a stable synchronized location marker.
@@ -234,17 +451,35 @@ function dialecticNpcManagerAction(array $input): array
 }
 
 try {
-    if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
-        throw new InvalidArgumentException('POST is required');
+    $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    if ($method === 'GET') {
+        $operation = strtolower(trim((string)($_GET['operation'] ?? '')));
+        if ($operation === 'list') {
+            dialecticNpcManagerRespond(['success' => true, 'data' => dialecticNpcManagerList()]);
+        }
+        if ($operation === 'history') {
+            dialecticNpcManagerRespond(['success' => true, 'data' => dialecticNpcManagerHistory($_GET)]);
+        }
+        throw new InvalidArgumentException('Unsupported NPC manager operation');
+    }
+    if ($method !== 'POST') {
+        throw new InvalidArgumentException('GET or POST is required');
     }
     $input = json_decode((string)file_get_contents('php://input'), true);
     if (!is_array($input)) {
         throw new InvalidArgumentException('Invalid JSON request');
     }
-    if (strtolower(trim((string)($input['operation'] ?? ''))) !== 'action') {
-        throw new InvalidArgumentException('Unsupported NPC manager operation');
+    $operation = strtolower(trim((string)($input['operation'] ?? '')));
+    if ($operation === 'action') {
+        dialecticNpcManagerRespond(['success' => true, 'data' => dialecticNpcManagerAction($input)]);
     }
-    dialecticNpcManagerRespond(['success' => true, 'data' => dialecticNpcManagerAction($input)]);
+    if ($operation === 'inject_event') {
+        dialecticNpcManagerRespond(['success' => true, 'data' => dialecticNpcManagerInjectEvent($input)]);
+    }
+    if ($operation === 'delete_event') {
+        dialecticNpcManagerRespond(['success' => true, 'data' => dialecticNpcManagerDeleteEvent($input)]);
+    }
+    throw new InvalidArgumentException('Unsupported NPC manager operation');
 } catch (InvalidArgumentException $error) {
     dialecticNpcManagerRespond(['success' => false, 'error' => $error->getMessage()], 400);
 } catch (Throwable $error) {

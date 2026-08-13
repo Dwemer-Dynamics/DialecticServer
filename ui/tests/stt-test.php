@@ -269,7 +269,7 @@ if (php_sapi_name() != "cli") {
  echo '<div class="divider"></div>';
  echo '<div style="font-size: 16px; line-height: 1.5; margin-bottom: 20px;"><span style="font-weight: bold; color: yellow; font-size: 18px;">
  IF TRANSCRIPTION IS SUCCESSFUL, THEN THE STT SERVER WORKS!
- </span><br><b>This test uses a bundled WAV and does not test microphone capture inside Fallout.</b><br><b>Dialectic detects the active microphone automatically during the first in-game recording and remembers the working device.</b></div>';
+ </span><br><b>This test uses a bundled WAV and does not test microphone capture inside Fallout.</b><br><b>DIALECTIC detects the active microphone automatically during the first in-game recording and remembers the working device.</b></div>';
  echo '</div>';
  ?></div></main><?php
  include(__DIR__.DIRECTORY_SEPARATOR."../tmpl/footer.html");

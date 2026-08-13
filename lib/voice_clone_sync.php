@@ -11,7 +11,7 @@ if (!function_exists('dialectic_voice_clone_sync_root')) {
 if (!function_exists('dialectic_voice_clone_sync_log')) {
     function dialectic_voice_clone_sync_log(string $level, string $message): void
     {
-        $message = "[Dialectic Voice Sync] " . $message;
+        $message = "[DIALECTIC Voice Sync] " . $message;
         if (class_exists('Logger') && method_exists('Logger', $level)) {
             Logger::$level($message);
             return;

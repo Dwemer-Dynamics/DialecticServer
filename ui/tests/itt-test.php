@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$TITLE = 'Dialectic ITT Test';
+$TITLE = 'DIALECTIC ITT Test';
 $webRoot = '';
 $scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
 $uiPos = strpos($scriptPath, '/ui/');
@@ -70,7 +70,7 @@ main { padding: 24px; max-width: 920px; margin: 0 auto; }
 </style>
 <main>
     <div class="test-header">
-        <h1>Dialectic Image-to-Text Test</h1>
+        <h1>DIALECTIC Image-to-Text Test</h1>
         <div>Upload an image to test the currently saved global ITT connector.</div>
     </div>
     <div class="status"><strong>Active ITT:</strong> <?php echo htmlspecialchars($activeDriver !== '' ? $connector->getDisplayName($activeDriver) : 'None', ENT_QUOTES, 'UTF-8'); ?></div>

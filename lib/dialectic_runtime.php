@@ -9,7 +9,7 @@ function dialectic_seed_prompt_manager_defaults(object $db): void
     $seedPrompts = [
         'dialectic_system_prompt' => [
             'default_prompt' => "You are {DIALECTIC_NAME}, a person living in the Fallout wasteland. Treat Fallout: New Vegas as your real world, not as a game. Stay psychologically consistent, use your profile and memories, and react to {PLAYER_NAME} from your own motives, relationships, fears, needs, and current situation.",
-            'description' => 'Primary Dialectic NPC system identity prompt. Supports {DIALECTIC_NAME}, {PLAYER_NAME}, and {WORLD_NAME}. Used by lib/dialectic_prompt_manager.php.',
+            'description' => 'Primary DIALECTIC NPC system identity prompt. Supports {DIALECTIC_NAME}, {PLAYER_NAME}, and {WORLD_NAME}. Used by lib/dialectic_prompt_manager.php.',
         ],
         'dialectic_response_rules' => [
             'default_prompt' => "Reply as in-game dialogue for {DIALECTIC_NAME}. Do not mention AI, servers, prompts, mods, databases, or language models. Do not output JSON. Do not include a speaker label. Keep the response concise enough for an in-game subtitle unless the situation clearly needs more.",
@@ -508,7 +508,7 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
     $goals = $templateValue('goals');
 
     if ($personality === '') {
-        $personality = 'A Fallout: New Vegas wasteland resident. Replace this generated Dialectic seed profile with richer character data when available.';
+        $personality = 'A Fallout: New Vegas wasteland resident. Replace this generated DIALECTIC seed profile with richer character data when available.';
     }
     if ($speechstyle === '') {
         $speechstyle = 'Speaks plainly and reacts to the Courier and the current situation.';
@@ -612,7 +612,10 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
             npc_static_bio = COALESCE(NULLIF(public.core_npc_master.npc_static_bio, ''), EXCLUDED.npc_static_bio),
             worldknowledge_tags = COALESCE(NULLIF(public.core_npc_master.worldknowledge_tags, ''), EXCLUDED.worldknowledge_tags),
             personality = CASE
-                WHEN public.core_npc_master.personality = 'A Fallout: New Vegas wasteland resident. Replace this generated Dialectic seed profile with richer character data when available.'
+                WHEN public.core_npc_master.personality IN (
+                    'A Fallout: New Vegas wasteland resident. Replace this generated Dialectic seed profile with richer character data when available.',
+                    'A Fallout: New Vegas wasteland resident. Replace this generated DIALECTIC seed profile with richer character data when available.'
+                )
                     THEN EXCLUDED.personality
                 ELSE COALESCE(NULLIF(public.core_npc_master.personality, ''), EXCLUDED.personality)
             END,

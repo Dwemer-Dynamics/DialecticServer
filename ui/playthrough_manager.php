@@ -46,7 +46,7 @@ if (!$adminConn) {
 } else {
  $metaReady = pts_metadata_schema_ready($adminConn);
  if (!$metaReady) {
-  echo '<div class="message"><p><strong>Error:</strong> Playthrough metadata schema is unavailable. Run the Dialectic database bootstrap and check the server log.</p></div>';
+  echo '<div class="message"><p><strong>Error:</strong> Playthrough metadata schema is unavailable. Run the DIALECTIC database bootstrap and check the server log.</p></div>';
  }
  // Auto-capture current DB as 'default' profile if none exists yet (GET-only)
  $needsDefault = false;

@@ -312,7 +312,7 @@
  },
  "VISUAL_CONTEXT_SCENE_TTL_MINUTES": {"type":"integer","default":10,"userlvl":"basic","scope":"global","description":"Minutes that an unlocked PipVision capture remains available to prompts. Locked location captures do not expire."},
  "VISUAL_CONTEXT_PROMPT_MAX_CHARS": {"type":"integer","default":1800,"userlvl":"basic","scope":"global","description":"Maximum PipVision description characters injected into a prompt."},
- "PIPVISION_IMAGE_QUALITY": {"type":"integer","default":88,"userlvl":"pro","scope":"global","description":"JPEG quality used when DialecticServer stores PipVision screenshots. Range: 45-95."},
+ "PIPVISION_IMAGE_QUALITY": {"type":"integer","default":88,"userlvl":"pro","scope":"global","description":"JPEG quality used when DIALECTIC Server stores PipVision screenshots. Range: 45-95."},
  "PIPVISION_REQUEST_TIMEOUT_SECONDS": {"type":"integer","default":60,"userlvl":"pro","scope":"global","description":"Maximum time allowed for the PipVision image model request. Range: 10-180 seconds."},
  "STT": {
  "_title":"Speech-to-Text Service",

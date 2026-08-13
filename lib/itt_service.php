@@ -135,7 +135,7 @@ if (!function_exists('dialecticIttOpenAiCompatible')) {
         }
         if ($openRouter) {
             $headers[] = 'HTTP-Referer: https://dwemerdynamics.com/';
-            $headers[] = 'X-Title: Dialectic PipVision';
+            $headers[] = 'X-Title: DIALECTIC PipVision';
         }
 
         $response = dialecticIttRequestJson($url, [
