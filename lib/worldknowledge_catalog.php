@@ -23,8 +23,8 @@ const DIALECTIC_WORLDKNOWLEDGE_CATALOG_FIELDS = [
 
 const DIALECTIC_WORLDKNOWLEDGE_CATEGORIES = [
     'artifact', 'armor', 'concept', 'creature', 'culture', 'event', 'faction',
-    'history', 'location', 'medicine', 'organization', 'person', 'technology',
-    'vault', 'weapon',
+    'flora', 'food_drink', 'history', 'item', 'location', 'medicine', 'organization',
+    'person', 'robot', 'technology', 'vault', 'weapon',
 ];
 
 const DIALECTIC_WORLDKNOWLEDGE_CLASSES = [

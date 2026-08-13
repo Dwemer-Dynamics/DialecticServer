@@ -16,6 +16,36 @@
     "gecko": {
       "topic_desc": "Geckos are among the most widespread mutated animals of the Mojave Wasteland, living from the scrublands around Goodsprings to irradiated slopes near the Mojave Outpost. They travel in small packs and attack with bites and lunges. Some varieties developed more dangerous adaptations: fire geckos expel flame, while other specimens spit poisonous liquid. Fire Root Cavern is widely regarded as an origin point for the fire-gecko population, suggesting a localized mutation source. Golden geckos are hardier than common green geckos, and a separate green population inhabits Zion Canyon. Some Zion geckos remain unusually calm around the Sorrows' camp. Gecko hides are valuable to survivalists, who tan them for protective clothing suited to heat, poison, and radiation. Their temperament varies, but travelers should not mistake a motionless or solitary gecko for a harmless one."
     },
+    "mirelurk_king": {
+      "topic_desc": "Mirelurk kings are an apex form of mirelurk found in the Capital Wasteland. Unlike the heavily shelled crustacean forms, they have a more humanoid silhouette and attack at a distance with a powerful sonic burst generated through the head. Injuring that organ prevents the creature from producing the attack, but approaching one remains dangerous because its claws and strength make it formidable at close range. Its torso is protected by dense natural tissue that turns aside part of the force of incoming attacks. A related regional form called the swamplurk queen inhabits Point Lookout. Swamplurk queens spit corrosive material instead of producing a sonic burst and are notably resilient. The differences between the Capital Wasteland and Point Lookout populations suggest that isolated mirelurk groups have adapted to their local environments while retaining a shared vulnerability in the head."
+    },
+    "lobotomite": {
+      "topic_desc": "Lobotomites are former human test subjects altered by the scientists of Big MT. An Auto-Doc programmed by Doctor Mobius removed their brains through laser surgery and replaced missing organs with cybernetic components, including Tesla coils, artificial spines, and mechanical hearts. Doctor Dala supervised procedures in which the extracted organs were preserved in storage tanks. The process left most subjects mentally impaired and unable to speak coherently, although they can still walk, open doors, use weapons, and perform simple tasks. The Think Tank directs them toward cleanup work and further experiments, including biological splicing at the X-8 Research Center. A radar fence surrounding Big MT prevents brainless subjects from escaping, while a pacification field inside the Dome stops them from attacking the Think Tank. Many gather scavenged objects at the Cuckoo's Nest, and fragments such as die or stop can sometimes be heard in their speech. Their replacement organs make them unusually hardy despite their ragged clothing and exposed condition."
+    },
+    "think_tank": {
+      "tags": "big mt scientists,disembodied brains,floating robotic chassis,old world blues,pre-war researchers,robobrain variant"
+    },
+    "thick_red_paste": {
+      "tags": "big mt research,caesar legion ban,crafted healing item,medicinal consumable,vitality augmentation,x-13 testing facility,x-22 botanical garden"
+    },
+    "case_45_auto": {
+      "tags": "45 auto casing,ammunition component,handloading material,mojave trade goods,spent brass cartridge,zion canyon"
+    },
+    "saturnite_alloy_research_facility": {
+      "tags": "big mt facility,cosmic knife,crazed mister handy,lava cave system,saturnite alloy,ulysses old world flag"
+    },
+    "x_7b_boom_town_target_zone": {
+      "tags": "big mt test site,irradiated craters,mock settlement,saturnite artillery shells,ulysses old world flag,weapons testing"
+    },
+    "y_17_medical_facility": {
+      "tags": "auto-doc equipment,big mt facility,christine royce disfigurement,mister orderly robot,old world flag ulysses,sierra madre cloud reference"
+    },
+    "securitron_de_construction_plant": {
+      "tags": "big mt facility,fission batteries cache,old world flag ulysses,robot repair layout,securitron deconstruction,unique securitron one"
+    },
+    "z_14_pepsinae_dna_splicing_lab": {
+      "tags": "big mt facility,cazador creation origin,dna splicing lab,dr borous research,specimen 73 cazador,tarantula hawk wasp"
+    },
     "sudden_death_overtime": {
       "topic_desc": "Sudden-Death Overtime is a small Capital Wasteland mercenary gang whose identity is built around a badly distorted memory of pre-War ice hockey. Goalie Ledoux leads Centre Dubois, Winger Gervais, and Winger Mercier, with every member taking a hockey position as a title. They use terms such as face-off and crossing sticks in ordinary speech, call themselves an ice gang, and believe fighting was the sport's central purpose rather than scoring goals. Their culture shows how pre-War customs can survive for centuries as fragments stripped of their original context. The gang also has an interest in the experimental Nuka-Cola Clear formula, linking its mercenary work to valuable remnants of the old beverage industry. Their hockey obsession gives the group a memorable code and vocabulary, but it does not make them less willing to use violence for profit."
     },

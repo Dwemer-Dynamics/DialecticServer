@@ -48,8 +48,8 @@ OUTPUT_FIELDS = [
 ]
 CATEGORIES = {
     "artifact", "armor", "concept", "creature", "culture", "event", "faction",
-    "history", "location", "medicine", "organization", "person", "technology",
-    "vault", "weapon",
+    "flora", "food_drink", "history", "item", "location", "medicine", "organization",
+    "person", "robot", "technology", "vault", "weapon",
 }
 KNOWLEDGE_CLASSES = {
     "common", "capital_wasteland", "mojave", "wastelander", "historian", "scientist",
@@ -81,6 +81,13 @@ OUT_OF_WORLD_PATTERNS = [
     r"\b(?:Chris Taylor|Chris Avellone|Joshua Sawyer|J\.E\. Sawyer|John Gonzalez)\b",
     r"\b(?:gaming effect|dialogue script notes?|console commands?|reverse-pickpocketed)\b",
     r"\bdislodged from (?:their|the) inventory\b",
+    r"\bif (?:both|either|[A-Z][A-Za-z'-]+) (?:dies|is killed|is destroyed)\b",
+    r"\bwhen (?:traveling|acting|serving) as (?:a |the )?companion\b",
+    r"\bunused (?:variant|version|item|weapon|armor|model)\b",
+    r"\b(?:damage per second|damage per hit|higher damage|lower damage|more damage|less damage)\b",
+    r"\b\d+% damage\b", r"\brequires? (?:a |an )?(?:\w+ )?skill of \d+\b",
+    r"\b(?:can be )?looted from\b", r"\bif siding with\b",
+    r"\bnot for sale\b", r"\bdiscount of \d+ percent\b",
     r"\bappear .* only if\b",
     r"\bonly appears (?:after|if|when)\b", r"\bdepending on quest progress\b",
     r"\b(?:if|when|unless) the (?:Courier|Lone Wanderer)\b",
@@ -230,7 +237,7 @@ def apply_editorial_overrides(rows: list[dict[str, str]], path: Path) -> list[di
         topic = canonical_topic(row["topic"])
         replacement = overrides.get(topic, {})
         if not isinstance(replacement, dict) or any(
-            field not in {"topic", "topic_desc", "topic_desc_basic"} for field in replacement
+            field not in {"topic", "topic_desc", "topic_desc_basic", "tags"} for field in replacement
         ):
             raise RuntimeError(f"Invalid editorial override for {topic}")
         for field, value in replacement.items():
@@ -513,7 +520,11 @@ def normalize_generated(source: dict[str, Any], generated: dict[str, Any]) -> di
     if policy_issue:
         raise RuntimeError(f"Advanced article for {topic} {policy_issue}")
     tags = sorted({normalize_space(str(value)).lower() for value in generated.get("tags", []) if str(value).strip()})
-    if not 4 <= len(tags) <= 8 or any(not 2 <= len(tag.split()) <= 5 for tag in tags):
+    if (
+        not 4 <= len(tags) <= 8
+        or any(not 2 <= len(tag.split()) <= 5 for tag in tags)
+        or any(not re.fullmatch(r"[^\W_](?:[^\W_]|[ .'-])*", tag, flags=re.UNICODE) for tag in tags)
+    ):
         raise RuntimeError(f"Tags for {topic} failed the reviewed tag shape")
     advanced_classes = [str(value).strip().lower() for value in generated.get("advanced_knowledge_classes", [])]
     basic_classes = [str(value).strip().lower() for value in generated.get("basic_knowledge_classes", [])]
@@ -627,8 +638,14 @@ def validate_output(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
             policy_issue = article_policy_issue(row[field])
             if policy_issue:
                 issues.append({"topic": topic, "issue": "article_policy", "field": field, "detail": policy_issue})
-        tags = [normalize_space(value.lower()) for value in row["tags"].split(",") if value.strip()]
-        if not 4 <= len(set(tags)) <= 8 or any(not 2 <= len(tag.split()) <= 5 for tag in tags):
+        raw_tags = [value.strip().lower() for value in row["tags"].split(",") if value.strip()]
+        tags = [normalize_space(value) for value in raw_tags]
+        if (
+            not 4 <= len(set(tags)) <= 8
+            or any(not 2 <= len(tag.split()) <= 5 for tag in tags)
+            or any(tag != raw_tag for tag, raw_tag in zip(tags, raw_tags))
+            or any(not re.fullmatch(r"[^\W_](?:[^\W_]|[ .'-])*", tag, flags=re.UNICODE) for tag in tags)
+        ):
             issues.append({"topic": topic, "issue": "invalid_tags"})
         classes = [
             value.strip().lower()
@@ -859,6 +876,13 @@ def run(args: argparse.Namespace) -> int:
         cache_path = args.cache_dir / "generated" / f"{digest}.json"
         articles: list[dict[str, Any]] = []
         retry_feedback = ""
+        # A resumable run must retain the validator feedback that caused the
+        # previous process to stop, otherwise a restarted model repeats the
+        # same rejected wording without seeing the correction it needs.
+        for previous in reversed(ledger.get("requests", [])):
+            if previous.get("batch_hash") == digest and not previous.get("valid_shape"):
+                retry_feedback = str(previous.get("parse_error", "")).strip()
+                break
         if cache_path.exists() and not args.refresh_generation:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             articles = cached["articles"]

@@ -1,23 +1,23 @@
 {
   "schema": "dialectic.worldknowledge-catalog.v1",
   "catalog_id": "fallout-3-new-vegas-ttw-official",
-  "catalog_version": "parity-v1-2026-08-13",
+  "catalog_version": "parity-v1.1-2026-08-13",
   "display_name": "DIALECTIC Fallout 3, New Vegas, DLC and TTW",
   "csv_file": "fallout_worldknowledge_parity_v1.csv",
-  "checksum_sha256": "14d6cd857612d18d72ab976b647e1f2f13cf7092e8c42456610da0fe9eaf3020",
-  "row_count": 442,
+  "checksum_sha256": "0c525355c9d76783057b4da7d92c3bffa4b324d13eb2a7dcc486fd63a9f69a28",
+  "row_count": 1221,
   "source_snapshot": {
     "file": "fallout_worldknowledge_sources.jsonl",
-    "checksum_sha256": "0ce9ad8deb3df50c27f4814b9165057fc8df07a5ebd74d82a3c1a61d3e6ba1ad",
-    "row_count": 442
+    "checksum_sha256": "5477446d89219c8261242a1e4de168f84823d8d0eae18fb74f1abba89bbb5205",
+    "row_count": 1221
   },
   "generation": {
     "model": "z-ai/glm-5.2",
-    "provider_cost_usd": 2.287091949,
-    "budget_ledger_total_usd": 2.387091949,
+    "provider_cost_usd": 6.937570989,
+    "budget_ledger_total_usd": 7.137570987,
     "authorized_budget_usd": 30.0,
-    "ledger_checksum_sha256": "898cc8387737cfa1d2730419628d66d9c0c623dc836c2f2a17f13a1edae419ba",
-    "editorial_overrides_checksum_sha256": "a02b76869676a1635abd4826311f712f04ecdd4f6a9a8dd2356d083288b3c47b"
+    "ledger_checksum_sha256": "02ac833b239ee8ac72de8511fdf63b146a1698da414269303583f3d87fc3a088",
+    "editorial_overrides_checksum_sha256": "667713c22e8c1db4ff948ba6e5a90322147a2be7087397bf0841e2fc0ba56cf5"
   },
   "coverage": {
     "games": [
@@ -26,30 +26,34 @@
       "official DLC",
       "Tale of Two Wastelands"
     ],
-    "advanced_articles": 442,
-    "tag_assignments": 2811,
+    "advanced_articles": 1221,
+    "tag_assignments": 7401,
     "category_counts": {
-      "armor": 10,
+      "armor": 58,
       "artifact": 1,
-      "concept": 8,
-      "creature": 43,
-      "culture": 6,
-      "event": 30,
-      "faction": 44,
-      "history": 1,
-      "location": 101,
-      "medicine": 19,
-      "organization": 8,
-      "person": 122,
-      "technology": 15,
+      "concept": 11,
+      "creature": 55,
+      "culture": 64,
+      "event": 31,
+      "faction": 83,
+      "flora": 3,
+      "food_drink": 44,
+      "history": 15,
+      "item": 48,
+      "location": 451,
+      "medicine": 40,
+      "organization": 11,
+      "person": 158,
+      "robot": 4,
+      "technology": 25,
       "vault": 14,
-      "weapon": 20
+      "weapon": 105
     }
   },
   "editorial_review": {
     "status": "approved",
     "reviewer": "Codex-assisted Dwemer Dynamics editorial review",
-    "reviewed_at": "2026-08-13T17:44:29Z",
+    "reviewed_at": "2026-08-13T19:38:41Z",
     "method": "source-bound validation, deterministic checks, duplicate and chronology audit, and representative article review"
   }
 }

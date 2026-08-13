@@ -2,6 +2,12 @@
 
 DIALECTIC owns a native Fallout World Knowledge implementation. It shares a behavioral contract with CHIM and ALMSIVI Oghma, but it does not share runtime code, packages, database tables, or game catalogs with either server.
 
+## Shipped Fallout catalog
+
+The reviewed parity catalog contains 1,221 source-backed articles covering Fallout 3, Fallout: New Vegas, their official DLC, and Tale of Two Wastelands. Every article includes both basic and advanced text, and the catalog provides 7,401 semantic tag assignments across 19 categories. Coverage includes people, locations, factions, organizations, history, events, cultures, creatures, robots, flora, food and drink, medicine, weapons, armor, items, artifacts, technology, vaults, and broader concepts.
+
+The 779-article scope expansion was generated with GLM from pinned Fallout Wiki source revisions, then passed deterministic source, chronology, duplicate, alias, article-policy, and tag validation. Invalid or weak generations were excluded instead of being published. The immutable manifest records the exact catalog and source checksums, generation budget, model, category counts, and editorial approval.
+
 ## Retrieval order
 
 For eligible dialogue requests, the server performs one bounded pass in this order:
