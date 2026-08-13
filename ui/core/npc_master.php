@@ -1802,6 +1802,18 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
 @media (max-width:850px) { .npc-editor-action-card { grid-template-columns:minmax(0, 1fr); } }
 </style>
 <script>
+document.addEventListener('DOMContentLoaded', () => {
+  const knowledgeInput = document.getElementById('worldknowledge_tags');
+  const knowledgeLabel = document.querySelector('label[for="worldknowledge_tags"]');
+  if (!knowledgeInput) return;
+  knowledgeInput.placeholder = 'common, mojave, scientist';
+  if (knowledgeLabel) knowledgeLabel.textContent = 'World Knowledge Classes';
+  const hint = knowledgeInput.nextElementSibling;
+  if (hint && hint.classList.contains('hint')) {
+    hint.textContent = 'Comma-separated article access classes, not retrieval tags. Common choices: common, capital_wasteland, mojave, wastelander, historian, scientist, doctor, engineer, merchant, caravaner, tribal, vault_dweller, ghoul, super_mutant, robot, military, ncr, legion, brotherhood, enclave, followers, great_khan, boomers, powder_ganger, raider, courier, or knowall.';
+  }
+});
+
 (function(){
     const fieldSections = {
         general: new Set(['npc_name','profile_id','lock_profile','npc_favorite','gender','race','base','refid','oghma_knowledge_tags','worldknowledge_tags','world_knowledge_tags','voiceid','faction','dynamic_profile','middle_term_enabled','individual_memory_enabled','auto_diary_enabled','auto_diary_wait_enabled','salutation_after_a_while','prompt_head']),

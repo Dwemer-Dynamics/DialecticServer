@@ -165,6 +165,9 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'WORLDKNOWLEDGE_INFINIUM',
             'WORLDKNOWLEDGE_AMOUNT',
             'LOCATION_WORLDKNOWLEDGE',
+            'RACE_WORLDKNOWLEDGE',
+            'FACTION_WORLDKNOWLEDGE',
+            'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK',
             'GLOBAL_ITT_CONNECTOR_ID',
             'VISUAL_CONTEXT_SCENE_TTL_MINUTES',
             'VISUAL_CONTEXT_PROMPT_MAX_CHARS',
@@ -231,10 +234,13 @@ if (!function_exists('dialecticPrettySettingLabel')) {
             'SCENE_CLASSIFIER_ENABLED' => 'Scene Classifier',
             'CORE_CONNECTOR_PROFILES' => 'Dynamic Profile',
             'CORE_CONNECTOR_DIRECTOR' => 'Director Mode',
-            'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 'Custom WorldKnowledge LLM',
+            'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 'World Knowledge Fallback Connector',
             'WORLDKNOWLEDGE_INFINIUM' => 'World Knowledge Enabled',
             'WORLDKNOWLEDGE_AMOUNT' => 'World Knowledge Amount',
             'LOCATION_WORLDKNOWLEDGE' => 'Force Location World Knowledge',
+            'RACE_WORLDKNOWLEDGE' => 'Force Race / Species World Knowledge',
+            'FACTION_WORLDKNOWLEDGE' => 'Force Faction World Knowledge',
+            'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK' => 'Explicit Request Fallback',
             'RELLLM_CONNECTOR' => 'Relationship Management',
             'EMOTEMOODS' => 'Emote Moods',
             'RECHAT_H' => 'Rechat Rounds',
@@ -275,7 +281,7 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingCategory')) {
             return 'PipVision';
         }
 
-        if (in_array($flatId, ['WORLDKNOWLEDGE_INFINIUM', 'WORLDKNOWLEDGE_AMOUNT', 'LOCATION_WORLDKNOWLEDGE', 'WORLDKNOWLEDGE_CUSTOM', 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'], true)) {
+        if (in_array($flatId, ['WORLDKNOWLEDGE_INFINIUM', 'WORLDKNOWLEDGE_AMOUNT', 'LOCATION_WORLDKNOWLEDGE', 'RACE_WORLDKNOWLEDGE', 'FACTION_WORLDKNOWLEDGE', 'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK', 'WORLDKNOWLEDGE_CUSTOM', 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'], true)) {
             return 'World Knowledge';
         }
 

@@ -349,6 +349,9 @@ $FEATURES["MISC"]["JSON_DIALOGUE_FORMAT_REORDER"]=false; //Reorders properties i
 
 $WORLDKNOWLEDGE_INFINIUM=true;
 $LOCATION_WORLDKNOWLEDGE=true; // Force matching current location and worldspace lore into prompts.
+$RACE_WORLDKNOWLEDGE=true; // Force matching NPC race or species lore into prompts.
+$FACTION_WORLDKNOWLEDGE=true; // Force matching active NPC faction lore into prompts.
+$WORLDKNOWLEDGE_EXTRACTOR_FALLBACK=true; // Allow one connector fallback for explicit unmatched lore requests when custom extraction is enabled.
 
 $FEATURES["MISC"]["LIFE_LINK_PLUGIN"]=false; // WIP. Use life link plugin for dynamic profiles
 

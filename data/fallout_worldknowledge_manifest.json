@@ -1,0 +1,55 @@
+{
+  "schema": "dialectic.worldknowledge-catalog.v1",
+  "catalog_id": "fallout-3-new-vegas-ttw-official",
+  "catalog_version": "parity-v1-2026-08-13",
+  "display_name": "DIALECTIC Fallout 3, New Vegas, DLC and TTW",
+  "csv_file": "fallout_worldknowledge_parity_v1.csv",
+  "checksum_sha256": "14d6cd857612d18d72ab976b647e1f2f13cf7092e8c42456610da0fe9eaf3020",
+  "row_count": 442,
+  "source_snapshot": {
+    "file": "fallout_worldknowledge_sources.jsonl",
+    "checksum_sha256": "0ce9ad8deb3df50c27f4814b9165057fc8df07a5ebd74d82a3c1a61d3e6ba1ad",
+    "row_count": 442
+  },
+  "generation": {
+    "model": "z-ai/glm-5.2",
+    "provider_cost_usd": 2.287091949,
+    "budget_ledger_total_usd": 2.387091949,
+    "authorized_budget_usd": 30.0,
+    "ledger_checksum_sha256": "898cc8387737cfa1d2730419628d66d9c0c623dc836c2f2a17f13a1edae419ba",
+    "editorial_overrides_checksum_sha256": "a02b76869676a1635abd4826311f712f04ecdd4f6a9a8dd2356d083288b3c47b"
+  },
+  "coverage": {
+    "games": [
+      "Fallout 3",
+      "Fallout: New Vegas",
+      "official DLC",
+      "Tale of Two Wastelands"
+    ],
+    "advanced_articles": 442,
+    "tag_assignments": 2811,
+    "category_counts": {
+      "armor": 10,
+      "artifact": 1,
+      "concept": 8,
+      "creature": 43,
+      "culture": 6,
+      "event": 30,
+      "faction": 44,
+      "history": 1,
+      "location": 101,
+      "medicine": 19,
+      "organization": 8,
+      "person": 122,
+      "technology": 15,
+      "vault": 14,
+      "weapon": 20
+    }
+  },
+  "editorial_review": {
+    "status": "approved",
+    "reviewer": "Codex-assisted Dwemer Dynamics editorial review",
+    "reviewed_at": "2026-08-13T17:44:29Z",
+    "method": "source-bound validation, deterministic checks, duplicate and chronology audit, and representative article review"
+  }
+}

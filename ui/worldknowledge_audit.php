@@ -26,32 +26,10 @@ function worldknowledgeAuditWebRoot(): string
     return rtrim($root, '/');
 }
 
-function worldknowledgeAuditParseKeyValueString(string $raw, string $separator): array
-{
-    $pairs = [];
-    foreach (explode($separator, $raw) as $part) {
-        $piece = trim($part);
-        if ($piece === '') {
-            continue;
-        }
-        $pos = strpos($piece, '=');
-        if ($pos === false) {
-            continue;
-        }
-        $key = trim(substr($piece, 0, $pos));
-        $value = trim(substr($piece, $pos + 1));
-        if ($key === '') {
-            continue;
-        }
-        $pairs[$key] = $value;
-    }
-    return $pairs;
-}
-
 function worldknowledgeAuditBuildWhereClause(bool $matchedOnly): string
 {
     if ($matchedOnly) {
-        return "WHERE COALESCE(memory, '') LIKE '%selected=%'";
+        return "WHERE status IN ('grounded', 'fallback_succeeded')";
     }
     return '';
 }
@@ -65,7 +43,7 @@ function worldknowledgeAuditCountRows(bool $matchedOnly = false): int
 
     try {
         $whereSql = worldknowledgeAuditBuildWhereClause($matchedOnly);
-        $row = $db->fetchOne('SELECT COUNT(*) AS total FROM audit_memory ' . $whereSql);
+        $row = $db->fetchOne('SELECT COUNT(*) AS total FROM public.worldknowledge_audit ' . $whereSql);
         return intval($row['total'] ?? 0);
     } catch (Throwable $exception) {
         Logger::warn("worldknowledge_audit count failed: " . $exception->getMessage());
@@ -85,8 +63,11 @@ function worldknowledgeAuditFetchRows(int $limit = 50, int $offset = 0, bool $ma
     try {
         $whereSql = worldknowledgeAuditBuildWhereClause($matchedOnly);
         return $db->fetchAll(
-            'SELECT created_at, input, keywords, rank_any, rank_all, memory, "time"
-             FROM audit_memory
+            'SELECT audit_id, created_at, algorithm_version, status, request_type, npc_name,
+                    input_text, normalized_input, catalog_id, catalog_version, grounded_matches,
+                    rejected_candidates, tag_decisions, fallback, forced_signals, access_decisions,
+                    selected_articles, retrieval_elapsed_ms, elapsed_ms
+             FROM public.worldknowledge_audit
              ' . $whereSql . '
              ORDER BY created_at DESC
              LIMIT ' . intval($safeLimit) . '
@@ -113,32 +94,13 @@ function worldknowledgeAuditBuildQuery(array $params): string
     return '?' . http_build_query($filtered);
 }
 
-function worldknowledgeAuditSelectedTopic(array $memoryMap, string $memory): string
+function worldknowledgeAuditJson(mixed $value): array
 {
-    $selected = trim(strval($memoryMap['selected'] ?? ''));
-    if ($selected !== '') {
-        return $selected;
+    if (is_array($value)) {
+        return $value;
     }
-
-    if (preg_match('/=>\s*([^\/]+?)\s*$/', $memory, $matches)) {
-        return trim(strval($matches[1]));
-    }
-
-    return '';
-}
-
-function worldknowledgeAuditSignalTrace(string $signals, string $memory): string
-{
-    if (trim($signals) !== '') {
-        return $signals;
-    }
-
-    $arrowPos = strrpos($memory, '=>');
-    if ($arrowPos !== false) {
-        return trim(substr($memory, 0, $arrowPos));
-    }
-
-    return '';
+    $decoded = json_decode(strval($value), true);
+    return is_array($decoded) ? $decoded : [];
 }
 
 $isEmbed = (isset($_GET['embed']) && strval($_GET['embed']) === '1');
@@ -284,7 +246,7 @@ $rangeEnd = min($offset + $perPage, $totalRows);
 <main class="page-wrap container-fluid">
     <div class="page-header">
         <h1>WorldKnowledge Audit</h1>
-        <div>Review WorldKnowledge retrieval attempts, selected topics, ranks, and captured search signals.</div>
+        <div>Review deterministic matches, rejections, access decisions, forced context, and bounded fallback activity.</div>
     </div>
 
     <div class="toolbar-wrap">
@@ -335,66 +297,59 @@ $rangeEnd = min($offset + $perPage, $totalRows);
     </div>
 
     <?php if (count($rows) === 0): ?>
-        <div class="audit-card empty-state">No rows in audit_memory yet.</div>
+        <div class="audit-card empty-state">No structured World Knowledge traces yet.</div>
     <?php else: ?>
         <?php foreach ($rows as $row): ?>
             <?php
-                $input = strval($row['input'] ?? '');
-                $keywords = strval($row['keywords'] ?? '');
-                $memory = strval($row['memory'] ?? '');
-                $rank = strval($row['rank_any'] ?? '0');
-                $elapsed = strval($row['time'] ?? '');
+                $input = strval($row['input_text'] ?? '');
+                $normalizedInput = strval($row['normalized_input'] ?? '');
+                $elapsed = strval($row['elapsed_ms'] ?? '');
                 $created = strval($row['created_at'] ?? '');
-                $keywordMap = worldknowledgeAuditParseKeyValueString($keywords, ' | ');
-                $memoryMap = worldknowledgeAuditParseKeyValueString($memory, ' / ');
-                $selected = worldknowledgeAuditSelectedTopic($memoryMap, $memory);
-                $selectedMode = strval($memoryMap['mode'] ?? '');
-                $entryId = strval($memoryMap['entry_id'] ?? '');
-                $npcName = strval($keywordMap['npc'] ?? ($memoryMap['npc'] ?? ''));
-                $eventType = strval($keywordMap['event'] ?? ($memoryMap['event'] ?? ''));
-                $topics = strval($keywordMap['topics'] ?? '');
-                $notes = strval($keywordMap['notes'] ?? '');
-                $signals = worldknowledgeAuditSignalTrace(strval($keywordMap['signals'] ?? ($memoryMap['signals'] ?? '')), $memory);
-                $context = strval($memoryMap['context'] ?? '');
-                $location = strval($memoryMap['location'] ?? '');
-                $status = $selected !== '' ? 'Matched' : 'No Match';
-                $searchBlob = strtolower(implode(' ', [$input, $selected, $topics, $notes, $signals, $context, $location, $created, $npcName, $eventType]));
+                $status = strval($row['status'] ?? 'no_match');
+                $npcName = strval($row['npc_name'] ?? '');
+                $requestType = strval($row['request_type'] ?? '');
+                $catalog = trim(strval($row['catalog_id'] ?? '') . '/' . strval($row['catalog_version'] ?? ''), '/');
+                $matches = worldknowledgeAuditJson($row['grounded_matches'] ?? []);
+                $rejections = worldknowledgeAuditJson($row['rejected_candidates'] ?? []);
+                $tagDecisions = worldknowledgeAuditJson($row['tag_decisions'] ?? []);
+                $fallback = worldknowledgeAuditJson($row['fallback'] ?? []);
+                $forced = worldknowledgeAuditJson($row['forced_signals'] ?? []);
+                $access = worldknowledgeAuditJson($row['access_decisions'] ?? []);
+                $selected = worldknowledgeAuditJson($row['selected_articles'] ?? []);
+                $jsonFlags = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+                $searchBlob = strtolower(implode(' ', [
+                    $input, $normalizedInput, $status, $npcName, $requestType, $catalog,
+                    json_encode([$matches, $rejections, $tagDecisions, $fallback, $forced, $access, $selected], $jsonFlags),
+                ]));
             ?>
             <section class="audit-card" data-search="<?= h($searchBlob) ?>">
                 <div class="meta-grid">
-                    <div class="meta-pill"><div class="meta-label">Status</div><div class="meta-value"><?= h($status) ?></div></div>
+                    <div class="meta-pill"><div class="meta-label">Status</div><div class="meta-value"><?= h(ucwords(str_replace('_', ' ', $status))) ?></div></div>
                     <div class="meta-pill"><div class="meta-label">NPC</div><div class="meta-value"><?= h($npcName !== '' ? $npcName : '(unknown)') ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">Event</div><div class="meta-value"><?= h($eventType !== '' ? $eventType : '(unknown)') ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">Selected Topic</div><div class="meta-value"><?= h($selected !== '' ? $selected : '(none)') ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">Rank</div><div class="meta-value"><?= h($rank) ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">Mode</div><div class="meta-value"><?= h($selectedMode !== '' ? $selectedMode : '(n/a)') ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">Entry ID</div><div class="meta-value"><?= h($entryId !== '' ? $entryId : '(n/a)') ?></div></div>
+                    <div class="meta-pill"><div class="meta-label">Request</div><div class="meta-value"><?= h($requestType !== '' ? $requestType : '(unknown)') ?></div></div>
+                    <div class="meta-pill"><div class="meta-label">Catalog</div><div class="meta-value"><?= h($catalog !== '' ? $catalog : '(custom only)') ?></div></div>
+                    <div class="meta-pill"><div class="meta-label">Algorithm</div><div class="meta-value"><?= h($row['algorithm_version'] ?? '') ?></div></div>
+                    <div class="meta-pill"><div class="meta-label">Audit ID</div><div class="meta-value"><?= h($row['audit_id'] ?? '') ?></div></div>
                     <div class="meta-pill"><div class="meta-label">Created</div><div class="meta-value"><?= h($created) ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">Elapsed</div><div class="meta-value"><?= h($elapsed) ?></div></div>
+                    <div class="meta-pill"><div class="meta-label">Elapsed</div><div class="meta-value"><?= h($elapsed) ?> ms</div></div>
+                    <div class="meta-pill"><div class="meta-label">Retrieval</div><div class="meta-value"><?= h($row['retrieval_elapsed_ms'] ?? '0') ?> ms</div></div>
                 </div>
 
                 <div class="section-label">Input</div>
                 <div class="trace-box"><?= h($input) ?></div>
 
-                <div class="section-label" style="margin-top:10px;">Extracted Topics</div>
-                <div class="trace-box"><?= h($topics !== '' ? $topics : '(none)') ?></div>
-
-                <div class="section-label" style="margin-top:10px;">Signals Used For Ranking</div>
-                <div class="trace-box"><?= h($signals !== '' ? $signals : '(not captured)') ?></div>
-
-                <div class="section-label" style="margin-top:10px;">Ranking Notes</div>
-                <div class="trace-box"><?= h($notes !== '' ? $notes : '(none)') ?></div>
-
-                <div class="section-label" style="margin-top:10px;">Context Snapshot</div>
-                <div class="trace-box"><?php
-                    $contextParts = [];
-                    if ($location !== '') { $contextParts[] = 'location=' . $location; }
-                    if ($context !== '') { $contextParts[] = 'context=' . $context; }
-                    if (isset($memoryMap['before'])) { $contextParts[] = 'before=' . strval($memoryMap['before']); }
-                    if (isset($memoryMap['after'])) { $contextParts[] = 'after=' . strval($memoryMap['after']); }
-                    if (isset($memoryMap['tags'])) { $contextParts[] = 'tags=' . strval($memoryMap['tags']); }
-                    echo h(count($contextParts) > 0 ? implode("\n", $contextParts) : '(none)');
-                ?></div>
+                <?php foreach ([
+                    'Selected Articles' => $selected,
+                    'Grounded Matches' => $matches,
+                    'Access Decisions' => $access,
+                    'Rejected Candidates' => $rejections,
+                    'Tag Decisions' => $tagDecisions,
+                    'Forced Context' => $forced,
+                    'Fallback' => $fallback,
+                ] as $label => $payload): ?>
+                    <div class="section-label" style="margin-top:10px;"><?= h($label) ?></div>
+                    <pre class="trace-box"><?= h($payload ? json_encode($payload, $jsonFlags) : '(none)') ?></pre>
+                <?php endforeach; ?>
             </section>
         <?php endforeach; ?>
     <?php endif; ?>

@@ -1,6 +1,7 @@
 <?php
 
 require_once(__DIR__.DIRECTORY_SEPARATOR.'worldknowledge_topic.php');
+require_once(__DIR__.DIRECTORY_SEPARATOR.'worldknowledge_runtime.php');
 
 if (!function_exists('dialecticWorldKnowledgeNormalizeLookupLabel')) {
     function dialecticWorldKnowledgeNormalizeLookupLabel($value): string
@@ -78,6 +79,75 @@ if (!function_exists('dialecticWorldKnowledgeBuildLocationSignalGroups')) {
     }
 }
 
+if (!function_exists('dialecticWorldKnowledgeCurrentNpcSignals')) {
+    /** Collect grounded race/species and faction labels from the active NPC profile. */
+    function dialecticWorldKnowledgeCurrentNpcSignals($db): array
+    {
+        $npc = $GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA'] ?? [];
+        if (!is_array($npc)) {
+            return ['race' => [], 'faction' => []];
+        }
+
+        $race = trim((string)($npc['race'] ?? ''));
+        $raceSignals = [$race];
+        $normalizedRace = dialecticWorldKnowledgeNormalizeLookupLabel($race);
+        foreach ([' race', ' species'] as $suffix) {
+            if ($normalizedRace !== '' && str_ends_with($normalizedRace, $suffix)) {
+                $raceSignals[] = trim(substr($normalizedRace, 0, -strlen($suffix)));
+            }
+        }
+
+        $extended = json_decode((string)($npc['extended_data'] ?? '{}'), true);
+        $factions = is_array($extended) && is_array($extended['factions'] ?? null)
+            ? $extended['factions']
+            : [];
+        $factionSignals = [];
+        $formIds = [];
+        foreach ($factions as $faction) {
+            if (!is_array($faction) || (isset($faction['rank']) && intval($faction['rank']) < 0)) {
+                continue;
+            }
+            foreach (['name', 'faction_name', 'label'] as $nameKey) {
+                if (trim((string)($faction[$nameKey] ?? '')) !== '') {
+                    $factionSignals[] = (string)$faction[$nameKey];
+                }
+            }
+            $formId = trim((string)($faction['formid'] ?? ''));
+            if ($formId !== '') {
+                $formIds[] = $formId;
+                if (function_exists('lookupDescriptionByFormID')) {
+                    $record = lookupDescriptionByFormID($formId);
+                    if (is_array($record) && trim((string)($record['name'] ?? '')) !== '') {
+                        $factionSignals[] = (string)$record['name'];
+                    }
+                }
+            }
+        }
+
+        if ($db && method_exists($db, 'fetchAll') && method_exists($db, 'escape') && $formIds !== []) {
+            $quoted = array_map(
+                static fn(string $formId): string => "'" . $db->escape(strtoupper($formId)) . "'",
+                array_values(array_unique($formIds))
+            );
+            try {
+                $rows = $db->fetchAll(
+                    'SELECT name FROM public.factions WHERE upper(formid) IN (' . implode(',', $quoted) . ')'
+                );
+                foreach ((array)$rows as $row) {
+                    $factionSignals[] = (string)($row['name'] ?? '');
+                }
+            } catch (Throwable) {
+                // Older installs can reach this code before the factions table migration runs.
+            }
+        }
+
+        return [
+            'race' => dialecticWorldKnowledgeUniqueSignals($raceSignals),
+            'faction' => dialecticWorldKnowledgeUniqueSignals($factionSignals),
+        ];
+    }
+}
+
 if (!function_exists('dialecticWorldKnowledgeCollectLocationSignalGroups')) {
     function dialecticWorldKnowledgeCollectLocationSignalGroups($db): array
     {
@@ -136,16 +206,31 @@ if (!function_exists('dialecticWorldKnowledgeFindRowsForSignals')) {
         }
 
         $quoted = array_map(static fn($signal) => "'" . $db->escape($signal) . "'", $signals);
-        $rows = $db->fetchAll(
-            "SELECT topic, topic_desc, knowledge_class, topic_desc_basic, knowledge_class_basic
-               FROM public.worldknowledge
-              WHERE EXISTS (
-                    SELECT 1
-                      FROM regexp_split_to_table(topic, E'\\\\s*,\\\\s*') AS topic_alias
-                     WHERE btrim(regexp_replace(replace(lower(topic_alias), '_', ' '), '[^a-z0-9]+', ' ', 'g'))
-                           IN (" . implode(',', $quoted) . ")
-              )"
-        );
+        try {
+            $rows = $db->fetchAll(
+                "SELECT topic, canonical_topic, topic_desc, knowledge_class, topic_desc_basic,
+                        knowledge_class_basic, category, source_kind, catalog_id, catalog_version,
+                        valid_from_year, valid_to_year
+                   FROM public.worldknowledge_effective
+                  WHERE EXISTS (
+                        SELECT 1
+                          FROM regexp_split_to_table(topic, E'\\\\s*,\\\\s*') AS topic_alias
+                         WHERE btrim(regexp_replace(replace(lower(topic_alias), '_', ' '), '[^a-z0-9]+', ' ', 'g'))
+                               IN (" . implode(',', $quoted) . ")
+                  )"
+            );
+        } catch (Throwable) {
+            $rows = $db->fetchAll(
+                "SELECT topic, topic_desc, knowledge_class, topic_desc_basic, knowledge_class_basic
+                   FROM public.worldknowledge
+                  WHERE EXISTS (
+                        SELECT 1
+                          FROM regexp_split_to_table(topic, E'\\\\s*,\\\\s*') AS topic_alias
+                         WHERE btrim(regexp_replace(replace(lower(topic_alias), '_', ' '), '[^a-z0-9]+', ' ', 'g'))
+                               IN (" . implode(',', $quoted) . ")
+                  )"
+            );
+        }
 
         $rows = is_array($rows) ? $rows : [];
         $priorities = array_flip($signals);
@@ -238,21 +323,33 @@ if (!function_exists('dialecticWorldKnowledgeAppendForcedRows')) {
     {
         $added = 0;
         foreach ($rows as $row) {
-            if ($added >= $limit || dialecticWorldKnowledgeTopicWasInjected($row['topic'] ?? '')) {
+            $remaining = intval($GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING'] ?? PHP_INT_MAX);
+            if ($added >= $limit || $remaining <= 0 || dialecticWorldKnowledgeTopicWasInjected($row['topic'] ?? '')) {
                 continue;
             }
-            $payload = dialecticWorldKnowledgeResolveKnowledgePayload($row, $knowledgeTags);
-            if ($payload === null) {
+            if (!dialecticWorldKnowledgeChronologyAllows($row, dialecticWorldKnowledgeCurrentYear())) {
                 continue;
             }
 
             $topic = dialecticWorldKnowledgeCanonicalTopic($row['topic'] ?? '');
-            $levelText = $payload['level'] === 'advanced'
-                ? 'You have advanced knowledge on this subject, you can use it in your dialogue'
-                : 'You only have basic knowledge on this subject, you can use it in your dialogue';
-            $GLOBALS['WORLDKNOWLEDGE_HINT'] .= " \n#World Knowledge ({$levelText}): {$topic}\n\"{$payload['description']}\"";
+            $decision = dialecticWorldKnowledgeAccessDecision($row, $knowledgeTags);
+            $GLOBALS['WORLDKNOWLEDGE_FORCED_SIGNALS'][] = [
+                'source' => $source,
+                'topic' => $topic,
+                'level' => $decision['level'],
+                'reason' => $decision['reason'],
+            ];
+            if ($decision['level'] === 'denied') {
+                dialecticWorldKnowledgeMarkTopicInjected($row['topic'] ?? '');
+                continue;
+            }
+            $GLOBALS['WORLDKNOWLEDGE_HINT'] .= ($GLOBALS['WORLDKNOWLEDGE_HINT'] === '' ? '' : "\n")
+                . dialecticWorldKnowledgeRenderArticleXml($row, $decision, $source);
             dialecticWorldKnowledgeMarkTopicInjected($row['topic'] ?? '');
             $added++;
+            if (isset($GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING'])) {
+                $GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING'] = max(0, $remaining - 1);
+            }
             if (class_exists('Logger')) {
                 Logger::info("[WORLDKNOWLEDGE] Forced {$source} article: {$topic}");
             }
@@ -291,6 +388,35 @@ if (!function_exists('dialecticWorldKnowledgeInjectForcedLocationContext')) {
             1
         );
 
+        return $added;
+    }
+}
+
+if (!function_exists('dialecticWorldKnowledgeInjectForcedActorContext')) {
+    function dialecticWorldKnowledgeInjectForcedActorContext($db): int
+    {
+        $signals = dialecticWorldKnowledgeCurrentNpcSignals($db);
+        $knowledgeTags = dialecticWorldKnowledgeKnowledgeTags();
+        $added = 0;
+        $isEnabled = static fn($value): bool => function_exists('isWorldKnowledgeEnabled')
+            ? isWorldKnowledgeEnabled($value)
+            : !in_array($value, [false, 0, '0', 'false', 'off', 'no', null], true);
+        if ($isEnabled($GLOBALS['RACE_WORLDKNOWLEDGE'] ?? true)) {
+            $added += dialecticWorldKnowledgeAppendForcedRows(
+                dialecticWorldKnowledgeFindRowsForSignals($db, $signals['race']),
+                $knowledgeTags,
+                'race',
+                1
+            );
+        }
+        if ($isEnabled($GLOBALS['FACTION_WORLDKNOWLEDGE'] ?? true)) {
+            $added += dialecticWorldKnowledgeAppendForcedRows(
+                dialecticWorldKnowledgeFindRowsForSignals($db, $signals['faction']),
+                $knowledgeTags,
+                'faction',
+                3
+            );
+        }
         return $added;
     }
 }

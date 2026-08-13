@@ -3,6 +3,7 @@
 require_once 'DatabaseTestCase.php';
 require_once 'CallableMock.php';
 require_once dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'worldknowledge_topic.php';
+require_once dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'worldknowledge_catalog.php';
 
 // setUp and tearDown for the test database are in DatabaseTestCase.php
 final class WorldKnowledgeTest extends DatabaseTestCase
@@ -10,30 +11,13 @@ final class WorldKnowledgeTest extends DatabaseTestCase
     public function testShippedFalloutWorldKnowledgeDatasetContract(): void
     {
         $root = dirname(__DIR__, 2);
-        $csvPath = $root.DIRECTORY_SEPARATOR.'data'.DIRECTORY_SEPARATOR.'fallout_worldknowledge_basic.csv';
         $sourcesPath = $root.DIRECTORY_SEPARATOR.'data'.DIRECTORY_SEPARATOR.'fallout_worldknowledge_sources.jsonl';
-        $handle = fopen($csvPath, 'rb');
-        $this->assertNotFalse($handle);
-
-        $expectedHeader = [
-            'topic',
-            'topic_desc',
-            'knowledge_class',
-            'topic_desc_basic',
-            'knowledge_class_basic',
-            'tags',
-            'category',
-        ];
-        $this->assertSame($expectedHeader, fgetcsv($handle, 0, ',', '"', '\\'));
-
+        $catalog = dialecticWorldKnowledgeLoadFactoryCatalog($root);
         $topics = [];
         $aliasCount = 0;
         $categoryCounts = [];
-        while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
-            $this->assertCount(count($expectedHeader), $row);
-            $data = array_combine($expectedHeader, $row);
-            $this->assertIsArray($data);
-            $topicList = strval($data['topic']);
+        foreach ($catalog['rows'] as $data) {
+            $topicList = strval($data['topic'] ?? '');
             $topic = dialecticWorldKnowledgeCanonicalTopic($topicList);
             $this->assertMatchesRegularExpression('/^[a-z0-9_]+$/', $topic);
             $this->assertArrayNotHasKey($topic, $topics);
@@ -45,24 +29,21 @@ final class WorldKnowledgeTest extends DatabaseTestCase
                 count(array_unique(array_map('dialecticWorldKnowledgeComparableTopic', $parts)))
             );
             $aliasCount += max(0, count($parts) - 1);
-            $this->assertSame('', $data['topic_desc']);
-            $this->assertSame('', $data['knowledge_class']);
-            $this->assertSame('', $data['knowledge_class_basic']);
-            $this->assertSame('', $data['tags']);
-            $wordCount = count(preg_split('/\s+/', trim(strval($data['topic_desc_basic']))));
-            $this->assertGreaterThanOrEqual(40, $wordCount);
-            $this->assertLessThanOrEqual(260, $wordCount);
+            $this->assertNotEmpty($data['topic_desc']);
+            $this->assertNotEmpty($data['topic_desc_basic']);
+            $this->assertGreaterThanOrEqual(4, count(array_filter(array_map('trim', explode(',', $data['tags'])))));
+            $this->assertNotEmpty($data['source_url']);
+            $this->assertMatchesRegularExpression('/^\d+$/', $data['source_revision']);
             $category = strval($data['category']);
             $categoryCounts[$category] = intval($categoryCounts[$category] ?? 0) + 1;
         }
-        fclose($handle);
 
-        $this->assertCount(350, $topics);
+        $this->assertGreaterThanOrEqual(350, count($topics));
         $this->assertGreaterThanOrEqual(100, $aliasCount);
-        $this->assertSame(
-            ['creature' => 40, 'event' => 30, 'faction' => 45, 'location' => 110, 'person' => 125],
-            $categoryCounts
-        );
+        $this->assertGreaterThanOrEqual(10, count(array_filter($categoryCounts)));
+        $this->assertSame('approved', $catalog['manifest']['editorial_review']['status'] ?? null);
+        $this->assertContains('Fallout 3', $catalog['manifest']['coverage']['games'] ?? []);
+        $this->assertContains('Fallout: New Vegas', $catalog['manifest']['coverage']['games'] ?? []);
 
         $sourceTopics = [];
         foreach (file($sourcesPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
@@ -74,47 +55,50 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $this->assertSame(array_keys($topics), array_keys($sourceTopics));
     }
 
-    public function testWorldKnowledgeSchemaSupportsUniqueBasicOnlyTopics(): void
+    public function testWorldKnowledgeSchemaSupportsCustomOverridesWithoutChangingFactoryRows(): void
     {
         $testDb = new sql();
-        $column = $testDb->fetchOne("
-            SELECT is_nullable
-              FROM information_schema.columns
-             WHERE table_schema = 'public'
-               AND table_name = 'worldknowledge'
-               AND column_name = 'topic_desc'
-        ");
         $uniqueIndex = $testDb->fetchOne("
             SELECT COUNT(*) AS total
               FROM pg_indexes
              WHERE schemaname = 'public'
                AND tablename = 'worldknowledge'
-               AND indexname = 'worldknowledge_canonical_topic_unique_idx'
+               AND indexname = 'worldknowledge_custom_topic_unique_idx'
+        ");
+        $factoryBefore = $testDb->fetchOne("
+            SELECT COUNT(*) AS total
+              FROM worldknowledge
+             WHERE source_kind = 'factory'
         ");
         $firstImport = $testDb->execQuery("
-            INSERT INTO worldknowledge (topic, topic_desc_basic, category)
-            VALUES ('megaton,The Town of Megaton', 'Megaton is a fortified Capital Wasteland settlement.', 'location')
-            ON CONFLICT ((lower(btrim(split_part(topic, ',', 1))))) DO UPDATE
+            INSERT INTO worldknowledge (topic, canonical_topic, topic_desc_basic, category, source_kind, is_active)
+            VALUES ('megaton,The Town of Megaton', 'megaton', 'Megaton is a fortified Capital Wasteland settlement.', 'location', 'custom', TRUE)
+            ON CONFLICT (canonical_topic) WHERE source_kind='custom' AND is_active DO UPDATE
                 SET topic = EXCLUDED.topic,
                     topic_desc_basic = EXCLUDED.topic_desc_basic,
                     category = EXCLUDED.category
         ");
         $secondImport = $testDb->execQuery("
-            INSERT INTO worldknowledge (topic, topic_desc_basic, category)
-            VALUES ('megaton,Atom Town', 'Megaton is built around an undetonated atomic bomb.', 'location')
-            ON CONFLICT ((lower(btrim(split_part(topic, ',', 1))))) DO UPDATE
+            INSERT INTO worldknowledge (topic, canonical_topic, topic_desc_basic, category, source_kind, is_active)
+            VALUES ('megaton,Atom Town', 'megaton', 'Megaton is built around an undetonated atomic bomb.', 'location', 'custom', TRUE)
+            ON CONFLICT (canonical_topic) WHERE source_kind='custom' AND is_active DO UPDATE
                 SET topic_desc_basic = EXCLUDED.topic_desc_basic,
                     topic = EXCLUDED.topic,
                     category = EXCLUDED.category
         ");
         $imported = $testDb->fetchOne("
-            SELECT COUNT(*) AS total, MAX(topic) AS topic, MAX(topic_desc_basic) AS topic_desc_basic
+            SELECT COUNT(*) AS total, MAX(topic) AS topic, MAX(topic_desc_basic) AS topic_desc_basic,
+                   MAX(source_kind) AS source_kind
+              FROM worldknowledge_effective
+             WHERE canonical_topic = 'megaton'
+        ");
+        $factoryAfter = $testDb->fetchOne("
+            SELECT COUNT(*) AS total
               FROM worldknowledge
-             WHERE lower(split_part(topic, ',', 1)) = 'megaton'
+             WHERE source_kind = 'factory'
         ");
         $testDb->close();
 
-        $this->assertSame('YES', $column['is_nullable'] ?? null);
         $this->assertSame(1, intval($uniqueIndex['total'] ?? 0));
         $this->assertNotFalse($firstImport);
         $this->assertNotFalse($secondImport);
@@ -124,6 +108,136 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             'Megaton is built around an undetonated atomic bomb.',
             $imported['topic_desc_basic'] ?? null
         );
+        $this->assertSame('custom', $imported['source_kind'] ?? null);
+        $this->assertSame(intval($factoryBefore['total'] ?? 0), intval($factoryAfter['total'] ?? -1));
+    }
+
+    public function testFactoryCatalogReprovisionIsIdempotentAndPreservesCustomArticles(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $testDb = new sql();
+        $testDb->execQuery("
+            INSERT INTO worldknowledge
+                (topic, canonical_topic, topic_desc_basic, category, source_kind, is_active)
+            VALUES
+                ('codex_custom_lore,Codex Custom Lore', 'codex_custom_lore',
+                 'A deliberately user-authored article that must survive factory reprovisioning.',
+                 'history', 'custom', TRUE)
+        ");
+        $before = $testDb->fetchAll("
+            SELECT entry_id, canonical_topic, content_hash
+              FROM worldknowledge
+             WHERE source_kind = 'factory'
+             ORDER BY canonical_topic
+        ");
+        $activationBefore = $testDb->fetchOne("
+            SELECT activated_at FROM worldknowledge_catalogs WHERE is_active LIMIT 1
+        ");
+
+        $first = dialecticWorldKnowledgeInstallFactoryCatalog($testDb, $root, true);
+        $second = dialecticWorldKnowledgeInstallFactoryCatalog($testDb, $root, true);
+        $after = $testDb->fetchAll("
+            SELECT entry_id, canonical_topic, content_hash
+              FROM worldknowledge
+             WHERE source_kind = 'factory'
+             ORDER BY canonical_topic
+        ");
+        $activationAfter = $testDb->fetchOne("
+            SELECT activated_at FROM worldknowledge_catalogs WHERE is_active LIMIT 1
+        ");
+        $custom = $testDb->fetchOne("
+            SELECT topic_desc_basic
+              FROM worldknowledge_effective
+             WHERE canonical_topic = 'codex_custom_lore'
+        ");
+        $testDb->close();
+
+        $this->assertSame($before, $after);
+        $this->assertSame($activationBefore, $activationAfter);
+        $this->assertSame($first['checksum_sha256'], $second['checksum_sha256']);
+        $this->assertSame(
+            'A deliberately user-authored article that must survive factory reprovisioning.',
+            $custom['topic_desc_basic'] ?? null
+        );
+    }
+
+    public function testCatalogActivationCanRollBackWithoutDeletingInstalledVersions(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $catalog = dialecticWorldKnowledgeLoadFactoryCatalog($root);
+        $catalogId = strval($catalog['manifest']['catalog_id']);
+        $catalogVersion = strval($catalog['manifest']['catalog_version']);
+        $testDb = new sql();
+        $testDb->execQuery("
+            INSERT INTO worldknowledge_catalogs
+                (catalog_id, catalog_version, display_name, checksum_sha256, row_count, manifest, is_active)
+            VALUES
+                ('{$catalogId}', 'rollback-fixture', 'Rollback fixture', '" . str_repeat('0', 64) . "', 0, '{}'::jsonb, FALSE)
+        ");
+
+        dialecticWorldKnowledgeActivateCatalog($testDb, $catalogId, 'rollback-fixture');
+        $rolledBack = $testDb->fetchOne("
+            SELECT catalog_version FROM worldknowledge_catalogs WHERE is_active LIMIT 1
+        ");
+        $hiddenFactory = $testDb->fetchOne("
+            SELECT COUNT(*) AS total FROM worldknowledge_effective WHERE source_kind = 'factory'
+        ");
+        dialecticWorldKnowledgeActivateCatalog($testDb, $catalogId, $catalogVersion);
+        $restored = $testDb->fetchOne("
+            SELECT catalog_version FROM worldknowledge_catalogs WHERE is_active LIMIT 1
+        ");
+        $installedVersions = $testDb->fetchOne("
+            SELECT COUNT(*) AS total FROM worldknowledge_catalogs WHERE catalog_id = '{$catalogId}'
+        ");
+        $testDb->close();
+
+        $this->assertSame('rollback-fixture', $rolledBack['catalog_version'] ?? null);
+        $this->assertSame(0, intval($hiddenFactory['total'] ?? -1));
+        $this->assertSame($catalogVersion, $restored['catalog_version'] ?? null);
+        $this->assertSame(2, intval($installedVersions['total'] ?? 0));
+    }
+
+    public function testLegacySeedCleanupRemovesOnlyUneditedSeedRows(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $handle = fopen($root.DIRECTORY_SEPARATOR.'data'.DIRECTORY_SEPARATOR.'fallout_worldknowledge_basic.csv', 'rb');
+        $this->assertNotFalse($handle);
+        $header = fgetcsv($handle, 0, ',', '"', '\\');
+        $values = fgetcsv($handle, 0, ',', '"', '\\');
+        fclose($handle);
+        $this->assertIsArray($header);
+        $this->assertIsArray($values);
+        $seed = array_combine($header, $values);
+        $this->assertIsArray($seed);
+        $canonical = dialecticWorldKnowledgeCanonicalTopic(strval($seed['topic']));
+
+        $testDb = new sql();
+        dialecticWorldKnowledgeRemoveLegacyFactorySeed($testDb, $root);
+        $testDb->execQuery("DELETE FROM worldknowledge WHERE source_kind='custom' AND canonical_topic=" . $testDb->escapeLiteral($canonical));
+        $columns = ['topic', 'canonical_topic', 'topic_desc', 'knowledge_class', 'topic_desc_basic', 'knowledge_class_basic', 'tags', 'category'];
+        $valuesSql = [
+            $testDb->escapeLiteral(trim(strval($seed['topic']))),
+            $testDb->escapeLiteral($canonical),
+            $testDb->escapeLiteral(trim(strval($seed['topic_desc']))),
+            $testDb->escapeLiteral(trim(strval($seed['knowledge_class']))),
+            $testDb->escapeLiteral(trim(strval($seed['topic_desc_basic']))),
+            $testDb->escapeLiteral(trim(strval($seed['knowledge_class_basic']))),
+            $testDb->escapeLiteral(trim(strval($seed['tags']))),
+            $testDb->escapeLiteral(trim(strval($seed['category']))),
+        ];
+        $testDb->execQuery('INSERT INTO worldknowledge (' . implode(',', $columns) . ') VALUES (' . implode(',', $valuesSql) . ')');
+        $this->assertSame(1, dialecticWorldKnowledgeRemoveLegacyFactorySeed($testDb, $root));
+
+        $valuesSql[4] = $testDb->escapeLiteral(trim(strval($seed['topic_desc_basic'])) . ' User edit.');
+        $testDb->execQuery('INSERT INTO worldknowledge (' . implode(',', $columns) . ') VALUES (' . implode(',', $valuesSql) . ')');
+        $this->assertSame(0, dialecticWorldKnowledgeRemoveLegacyFactorySeed($testDb, $root));
+        $preserved = $testDb->fetchOne(
+            'SELECT topic_desc_basic FROM worldknowledge WHERE source_kind=\'custom\' AND canonical_topic='
+            . $testDb->escapeLiteral($canonical)
+        );
+        $testDb->close();
+
+        $this->assertStringEndsWith('User edit.', strval($preserved['topic_desc_basic'] ?? ''));
     }
 
     public function testWorldKnowledge_WhenNoKeywordMatch_ContextShouldNotContainLore(): void
@@ -149,7 +263,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $this->equalTo('https://openrouter.ai/api/v1/chat/completions'),
             $this->callback(function ($streamContext) {
                 $options = stream_context_get_options($streamContext);
-                $this->assertStringNotContainsString("World Knowledge", $options['http']['content']);
+                $this->assertStringNotContainsString('<knowledge>', $options['http']['content']);
                 return true;
             })
         )
@@ -179,7 +293,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $this->equalTo('https://openrouter.ai/api/v1/chat/completions'),
             $this->callback(function ($streamContext) {
                 $options = stream_context_get_options($streamContext);
-                $this->assertStringContainsString("World Knowledge (You have advanced knowledge on this subject", $options['http']['content']);
+                $this->assertStringContainsString('topic=\\"stimpack_seller\\" level=\\"advanced\\"', $options['http']['content']);
                 $this->assertStringContainsString("The stimpack vendor is a wasteland medic who buys and sells stimpaks", $options['http']['content']);
                 return true;
             })
@@ -196,11 +310,13 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         require("conf.php");
 
         $testDb = new sql();
-        $testDb->execQuery("DELETE FROM worldknowledge WHERE lower(split_part(topic, ',', 1)) = 'new_california_republic'");
+        $testDb->execQuery("DELETE FROM worldknowledge WHERE canonical_topic = 'new_california_republic' AND source_kind = 'custom'");
         $testDb->insert(
             'worldknowledge',
             array(
                 'topic' => 'new_california_republic,NCR',
+                'canonical_topic' => 'new_california_republic',
+                'source_kind' => 'custom',
                 'topic_desc_basic' => 'The New California Republic, commonly called the NCR, is a large republic expanding east from California.'
             )
         );
@@ -229,10 +345,10 @@ final class WorldKnowledgeTest extends DatabaseTestCase
                 $this->equalTo('https://openrouter.ai/api/v1/chat/completions'),
                 $this->callback(function ($streamContext) {
                     $options = stream_context_get_options($streamContext);
-                    $this->assertStringContainsString('World Knowledge (You only have basic knowledge on this subject', $options['http']['content']);
+                    $this->assertStringContainsString('topic=\\"new_california_republic\\" level=\\"basic\\"', $options['http']['content']);
                     $this->assertStringContainsString('The New California Republic, commonly called the NCR', $options['http']['content']);
                     $this->assertStringNotContainsString('new_california_republic,NCR', $options['http']['content']);
-                    $this->assertStringNotContainsString('World Knowledge (You have advanced knowledge on this subject', $options['http']['content']);
+                    $this->assertStringNotContainsString('topic=\\"new_california_republic\\" level=\\"advanced\\"', $options['http']['content']);
                     return true;
                 })
             )
@@ -279,8 +395,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $this->equalTo('https://openrouter.ai/api/v1/chat/completions'),
             $this->callback(function ($streamContext) {
                 $options = stream_context_get_options($streamContext);
-                $this->assertStringContainsString("World Knowledge (You have advanced knowledge on this subject", $options['http']['content']);
-                $this->assertStringContainsString("The stimpack vendor is a wasteland medic who buys and sells stimpaks", $options['http']['content']);
+                $this->assertStringNotContainsString('topic=\\"stimpack_seller\\"', $options['http']['content']);
                 return true;
             })
         )
@@ -320,7 +435,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $this->equalTo('https://openrouter.ai/api/v1/chat/completions'),
             $this->callback(function ($streamContext) {
                 $options = stream_context_get_options($streamContext);
-                $this->assertStringNotContainsString("World Knowledge", $options['http']['content']);
+                $this->assertStringNotContainsString('<knowledge>', $options['http']['content']);
                 return true;
             })
         )
@@ -372,8 +487,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $this->equalTo('https://openrouter.ai/api/v1/chat/completions'),
             $this->callback(function ($streamContext) {
                 $options = stream_context_get_options($streamContext);
-                $this->assertStringContainsString("World Knowledge (You have advanced knowledge on this subject", $options['http']['content']);
-                $this->assertStringContainsString("The stimpack vendor is a wasteland medic who buys and sells stimpaks", $options['http']['content']);
+                $this->assertStringNotContainsString('topic=\\"stimpack_seller\\"', $options['http']['content']);
                 return true;
             })
         )
@@ -454,8 +568,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $this->equalTo('https://openrouter.ai/api/v1/chat/completions'),
             $this->callback(function ($streamContext) {
                 $options = stream_context_get_options($streamContext);
-                $this->assertStringContainsString("World Knowledge (You have advanced knowledge on this subject", $options['http']['content']);
-                $this->assertStringContainsString("The stimpack vendor is a wasteland medic who buys and sells stimpaks", $options['http']['content']);
+                $this->assertStringNotContainsString('topic=\\"stimpack_seller\\"', $options['http']['content']);
                 return true;
             })
         )
@@ -507,7 +620,9 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $testDb->insert(
             'worldknowledge',
             array(
-                'topic' => 'stimpack_seller',
+                'topic' => 'stimpack_seller,stimpack vendor',
+                'canonical_topic' => 'stimpack_seller',
+                'source_kind' => 'custom',
                 'topic_desc' => 'The stimpack vendor is a wasteland medic who buys and sells stimpaks, doctor\'s bags, and basic chems. He reserves his best supplies for customers with caps or serious injuries. He respects caravan guards because they keep trade routes open.',
                 'native_vector' => "'wasteland':4B 'medic':5B 'buy':8B 'sell':10B 'stimpack':1A,11B 'doctor':12B 'bag':13B 'chem':16B 'reserve':18B 'caps':26B 'injuri':29B 'caravan':33B 'guard':34B 'route':38B 'vendor':2A,3B"
             )

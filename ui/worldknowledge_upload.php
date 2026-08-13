@@ -27,6 +27,7 @@ $configFilepath = $rootPath . "conf" . DIRECTORY_SEPARATOR;
 require_once($configFilepath . "conf.php");
 require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "db_connection_settings.php");
 require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "worldknowledge_topic.php");
+require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "worldknowledge_catalog.php");
 
 $dbSettings = dialecticDbConnectionSettings('dialectic');
 $host = $dbSettings['host'];
@@ -39,6 +40,12 @@ $password = $dbSettings['password'];
 
 // Initialize message variable
 $message = '';
+if (isset($_GET['message']) && is_string($_GET['message'])) {
+    $message .= '<p>' . htmlspecialchars($_GET['message']) . '</p>';
+}
+if (isset($_GET['error']) && is_string($_GET['error'])) {
+    $message .= '<p>Factory catalog error: ' . htmlspecialchars($_GET['error']) . '</p>';
+}
 
 function worldknowledge_normalize_topic_key($value) {
     return dialecticWorldKnowledgeNormalizeTopicList($value);
@@ -55,6 +62,43 @@ if (!$conn) {
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'activate_catalog') {
+    try {
+        dialecticWorldKnowledgeActivateCatalog(
+            $GLOBALS['db'],
+            trim((string)($_POST['catalog_id'] ?? '')),
+            trim((string)($_POST['catalog_version'] ?? ''))
+        );
+        $message .= '<p>Factory catalog activated successfully.</p>';
+    } catch (Throwable $exception) {
+        $message .= '<p>Catalog activation failed: ' . htmlspecialchars($exception->getMessage()) . '</p>';
+    }
+}
+
+$activeCatalog = null;
+$catalogResult = @pg_query(
+    $conn,
+    "SELECT catalog_id, catalog_version, display_name, checksum_sha256, row_count, activated_at
+       FROM {$schema}.worldknowledge_catalogs
+      WHERE is_active
+      LIMIT 1"
+);
+if ($catalogResult) {
+    $activeCatalog = pg_fetch_assoc($catalogResult) ?: null;
+}
+$installedCatalogs = [];
+$installedCatalogResult = @pg_query(
+    $conn,
+    "SELECT catalog_id, catalog_version, display_name, checksum_sha256, row_count, is_active, installed_at, activated_at
+       FROM {$schema}.worldknowledge_catalogs
+      ORDER BY installed_at DESC, catalog_id, catalog_version"
+);
+if ($installedCatalogResult) {
+    while ($installedCatalog = pg_fetch_assoc($installedCatalogResult)) {
+        $installedCatalogs[] = $installedCatalog;
+    }
+}
+
 /********************************************************************
  *  1) SINGLE TOPIC UPLOAD
  ********************************************************************/
@@ -67,6 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
     $knowledge_class_basic= htmlspecialchars($_POST['knowledge_class_basic']?? '');
     $tags                 = htmlspecialchars($_POST['tags']                 ?? '');
     $category             = htmlspecialchars($_POST['category']             ?? '');
+    $canonicalTopic       = dialecticWorldKnowledgeCanonicalTopic($topic);
 
     if (!empty($topic) && worldknowledge_has_description($topic_desc, $topic_desc_basic)) {
         $query = "
@@ -77,10 +122,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
                 topic_desc_basic, 
                 knowledge_class_basic, 
                 tags, 
-                category
+                category,
+                canonical_topic,
+                source_kind,
+                is_active
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT ((lower(btrim(split_part(topic, ',', 1)))))
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'custom', TRUE)
+            ON CONFLICT (canonical_topic) WHERE source_kind='custom' AND is_active
             DO UPDATE SET
                 topic                = EXCLUDED.topic,
                 topic_desc           = EXCLUDED.topic_desc,
@@ -88,7 +136,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
                 topic_desc_basic     = EXCLUDED.topic_desc_basic,
                 knowledge_class_basic= EXCLUDED.knowledge_class_basic,
                 tags                 = EXCLUDED.tags,
-                category             = EXCLUDED.category
+                category             = EXCLUDED.category,
+                updated_at           = CURRENT_TIMESTAMP
         ";
         $result = pg_query_params($conn, $query, [
             $topic,
@@ -97,7 +146,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
             $topic_desc_basic,
             $knowledge_class_basic,
             $tags,
-            $category
+            $category,
+            $canonicalTopic
         ]);
 
         if ($result) {
@@ -110,9 +160,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
                       setweight(to_tsvector(coalesce(topic, '')), 'A')
                     || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
                     || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
-                WHERE topic = $1
+                WHERE canonical_topic = $1 AND source_kind = 'custom'
             ";
-            $update_result = pg_query_params($conn, $update_query, [$topic]);
+            $update_result = pg_query_params($conn, $update_query, [$canonicalTopic]);
 
             if ($update_result) {
                 $message .= "<p>Vectors updated successfully.</p>";
@@ -194,6 +244,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                     $knowledge_class_basic= trim(worldknowledge_csv_value($data, $headerMap, 'knowledge_class_basic', 4));
                     $tags                 = trim(worldknowledge_csv_value($data, $headerMap, 'tags', 5));
                     $category             = trim(worldknowledge_csv_value($data, $headerMap, 'category', 6));
+                    $canonicalTopic       = dialecticWorldKnowledgeCanonicalTopic($topic);
 
                     if (!empty($topic) && worldknowledge_has_description($topic_desc, $topic_desc_basic)) {
                         $query = "
@@ -204,10 +255,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                                 topic_desc_basic,
                                 knowledge_class_basic,
                                 tags,
-                                category
+                                category,
+                                canonical_topic,
+                                source_kind,
+                                is_active
                             )
-                            VALUES ($1, $2, $3, $4, $5, $6, $7)
-                            ON CONFLICT ((lower(btrim(split_part(topic, ',', 1)))))
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'custom', TRUE)
+                            ON CONFLICT (canonical_topic) WHERE source_kind='custom' AND is_active
                             DO UPDATE SET
                                 topic                = EXCLUDED.topic,
                                 topic_desc           = EXCLUDED.topic_desc,
@@ -215,7 +269,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                                 topic_desc_basic     = EXCLUDED.topic_desc_basic,
                                 knowledge_class_basic= EXCLUDED.knowledge_class_basic,
                                 tags                 = EXCLUDED.tags,
-                                category             = EXCLUDED.category
+                                category             = EXCLUDED.category,
+                                updated_at           = CURRENT_TIMESTAMP
                         ";
                         $result = pg_query_params($conn, $query, [
                             $topic,
@@ -224,7 +279,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                             $topic_desc_basic,
                             $knowledge_class_basic,
                             $tags,
-                            $category
+                            $category,
+                            $canonicalTopic
                         ]);
 
                         if ($result) {
@@ -236,9 +292,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                                       setweight(to_tsvector(coalesce(topic, '')), 'A')
                                     || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
                                     || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
-                                WHERE topic = $1
+                                WHERE canonical_topic = $1 AND source_kind = 'custom'
                             ";
-                            pg_query_params($conn, $update_query, [$topic]);
+                            pg_query_params($conn, $update_query, [$canonicalTopic]);
                         } else {
                             $message .= "<p>Error processing row with topic '$topic': " . pg_last_error($conn) . "</p>";
                         }
@@ -289,11 +345,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'download_example') {
  *  4) DELETE ALL
  ********************************************************************/
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_all') {
-    $truncateQuery = "TRUNCATE TABLE {$schema}.worldknowledge RESTART IDENTITY";
+    $truncateQuery = "DELETE FROM {$schema}.worldknowledge WHERE source_kind = 'custom'";
     $truncateResult = pg_query($conn, $truncateQuery);
 
     if ($truncateResult) {
-        $message .= "<p style='color: #ff6464; font-weight: bold;'>All WorldKnowledge entries have been deleted successfully.</p>";
+        $message .= "<p style='color: #ff6464; font-weight: bold;'>All custom World Knowledge entries have been deleted. The factory catalog was preserved.</p>";
     } else {
         $message .= "<p>Error deleting entries: " . pg_last_error($conn) . "</p>";
     }
@@ -306,7 +362,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $topic = $_POST['topic'] ?? '';
     
     if (!empty($topic)) {
-        $query = "DELETE FROM {$schema}.worldknowledge WHERE topic = $1";
+        $query = "DELETE FROM {$schema}.worldknowledge WHERE topic = $1 AND source_kind = 'custom'";
         $result = pg_query_params($conn, $query, [$topic]);
 
         if ($result) {
@@ -341,6 +397,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $knowledge_class_basic_new = htmlspecialchars_decode($_POST['knowledge_class_basic_new'] ?? '');
     $tags_new            = htmlspecialchars_decode($_POST['tags_new'] ?? '');
     $category_new        = htmlspecialchars_decode($_POST['category_new'] ?? '');
+    $canonical_topic_new = dialecticWorldKnowledgeCanonicalTopic($topic_new);
 
     if (!empty($topic_new) && worldknowledge_has_description($topic_desc_new, $topic_desc_basic_new)) {
         // Perform the update
@@ -353,8 +410,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 topic_desc_basic = $4,
                 knowledge_class_basic = $5,
                 tags = $6,
-                category = $7
-            WHERE topic = $8
+                category = $7,
+                canonical_topic = $8,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE topic = $9 AND source_kind = 'custom'
         ";
 
         $update_result = pg_query_params($conn, $update_sql, [
@@ -365,6 +424,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $knowledge_class_basic_new,
             $tags_new,
             $category_new,
+            $canonical_topic_new,
             $topic_original
         ]);
 
@@ -378,9 +438,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                       setweight(to_tsvector(coalesce(topic, '')), 'A')
                     || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
                     || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
-                WHERE topic = $1
+                WHERE canonical_topic = $1 AND source_kind = 'custom'
             ";
-            pg_query_params($conn, $vector_sql, [$topic_new]);
+            pg_query_params($conn, $vector_sql, [$canonical_topic_new]);
 
             // Redirect to exit edit mode while maintaining filters
             $redirectUrl = '?' . http_build_query([
@@ -1160,8 +1220,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         <div id="header-content">
             <!-- Regular WorldKnowledge Content -->
             <div id="worldknowledge-header-content">
-                <p>The <b>World Knowledge</b> is a "Fallout Encyclopedia" that AI NPC's will use to help them roleplay.</p>
-                <p>This is done by detecting topics during conversations, and injecting the appropriate information into the AI's prompt.</p>
+                <p><b>World Knowledge</b> is DIALECTIC's Fallout encyclopedia for grounded NPC roleplay.</p>
+                <p>Deterministic topic, alias, speech, and guarded tag matching select up to three relevant articles. Custom articles override factory articles with the same canonical topic.</p>
                 
                 <h3><strong>Ensure all topic titles are lowercase and spaces are replaced with underscores (_).</strong></h3>
                 <h4>Example: "Fishy Stick" becomes "fishy_stick"</h4>
@@ -1173,8 +1233,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         <div class="logic-step">
                             <div class="step-number">1</div>
                             <div class="step-content">
-                                <strong>Keyword Search</strong>
-                                <p>NPC searches for worldknowledge article based on most relevant keyword during conversations.</p>
+                                <strong>Grounded Retrieval</strong>
+                                <p>Canonical topics and aliases are checked first, followed by compact and guarded speech matches, then corroborated semantic tags.</p>
                             </div>
                         </div>
                         <div class="logic-step">
@@ -1194,8 +1254,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         <div class="logic-step">
                             <div class="step-number">4</div>
                             <div class="step-content">
-                                <strong>Fallback Response</strong>
-                                <p>If all above fails, send <em>"You do not know about X"</em> to the prompt</p>
+                                <strong>Bounded Fallback</strong>
+                                <p>Only explicit unmatched lore requests may use one configured connector fallback, and suggestions must resolve back to this catalog.</p>
                             </div>
                         </div>
                     </div>
@@ -1228,24 +1288,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     </div>
                 </form>
                 
-                <p style="margin-top: 15px;">All uploaded topics will be saved into the <code>worldknowledge</code> table. This overwrites any existing entries with the same topic.</p>
+                <p style="margin-top: 15px;">Uploads are saved as custom articles. A custom canonical topic safely overrides the active factory article without modifying factory data.</p>
             </div>
 
             <div class="content-section">
                 <h2>Database Management</h2>
+                <?php if ($activeCatalog): ?>
+                    <p><b>Active factory catalog:</b><br>
+                        <?php echo htmlspecialchars($activeCatalog['display_name'] ?? 'DIALECTIC Fallout'); ?>
+                        <code><?php echo htmlspecialchars(($activeCatalog['catalog_id'] ?? '') . '/' . ($activeCatalog['catalog_version'] ?? '')); ?></code><br>
+                        <?php echo intval($activeCatalog['row_count'] ?? 0); ?> articles &middot;
+                        SHA-256 <code><?php echo htmlspecialchars(substr((string)($activeCatalog['checksum_sha256'] ?? ''), 0, 12)); ?>&hellip;</code>
+                    </p>
+                <?php else: ?>
+                    <p style="color:#ffb641;"><b>No active factory catalog.</b> Use Restore Factory Catalog.</p>
+                <?php endif; ?>
+                <?php if ($installedCatalogs): ?>
+                    <details style="margin:12px 0;">
+                        <summary>Installed factory versions</summary>
+                        <?php foreach ($installedCatalogs as $catalog): ?>
+                            <?php $catalogIsActive = in_array(strtolower((string)($catalog['is_active'] ?? '')), ['1', 't', 'true', 'yes', 'on'], true); ?>
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0;padding:8px;background:#333;">
+                                <span>
+                                    <b><?php echo htmlspecialchars($catalog['catalog_id'] . '/' . $catalog['catalog_version']); ?></b>
+                                    &middot; <?php echo intval($catalog['row_count']); ?> articles
+                                    <?php if ($catalogIsActive): ?>
+                                        &middot; Active
+                                    <?php endif; ?>
+                                </span>
+                                <?php if (!$catalogIsActive): ?>
+                                    <form method="post" style="margin:0;">
+                                        <input type="hidden" name="action" value="activate_catalog">
+                                        <input type="hidden" name="catalog_id" value="<?php echo htmlspecialchars($catalog['catalog_id']); ?>">
+                                        <input type="hidden" name="catalog_version" value="<?php echo htmlspecialchars($catalog['catalog_version']); ?>">
+                                        <button class="action-button" type="submit" onclick="return confirm('Activate this installed factory catalog?');">Activate</button>
+                                    </form>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    </details>
+                <?php endif; ?>
                 <p>Verify uploads: <br><b>Server Actions &rarr; Database Manager &rarr; dialectic &rarr; public &rarr; worldknowledge</b></p>
-                <p>View conversation usage: <br><b>Server Actions &rarr; Database Manager &rarr; dialectic &rarr; public &rarr; audit_memory</b></p>
+                <p>View retrieval decisions: <br><a href="<?php echo $webRoot; ?>/ui/worldknowledge_audit.php">World Knowledge Audit</a></p>
                 
                 <div class="button-group" style="margin-top: 20px;">
                     <form action="" method="post" style="display: inline;">
                         <input type="hidden" name="action" value="delete_all">
-                        <input type="submit" class="btn-danger" value="Delete All Entries" 
-                               onclick="return confirm('Are you sure you want to delete ALL entries? This cannot be undone!');">
+                        <input type="submit" class="btn-danger" value="Delete Custom Entries"
+                               onclick="return confirm('Delete all custom World Knowledge entries? The factory catalog will be preserved.');">
                     </form>
                     
                     <form action="<?php echo $webRoot; ?>/ui/worldknowledge_reset.php" method="post" style="display: inline;">
-                        <input type="submit" class="btn-danger" value="Factory Reset Database" 
-                    onclick="return confirm('Are you sure you want to reset the WorldKnowledge database to factory settings? This will delete all current entries and leave WorldKnowledge empty until you upload DIALECTIC-specific rows.');">
+                        <input type="submit" class="action-button" value="Restore Factory Catalog"
+                    onclick="return confirm('Restore and activate the shipped DIALECTIC factory catalog? Custom articles will be preserved.');">
                     </form>
                 </div>
                 
@@ -1258,7 +1353,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
              *  5) DISPLAY THE WORLDKNOWLEDGE ENTRIES
              ********************************************************************/
             // Fetch categories
-            $catQuery = "SELECT DISTINCT category FROM $schema.worldknowledge WHERE category IS NOT NULL AND category <> '' ORDER BY category";
+            $catQuery = "SELECT DISTINCT category FROM $schema.worldknowledge_effective WHERE category IS NOT NULL AND category <> '' ORDER BY category";
             $catResult = pg_query($conn, $catQuery);
             $categories = [];
             if ($catResult) {
@@ -1324,83 +1419,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Build query
             $searchTerm = isset($_GET['search']) ? $_GET['search'] : '';
 
-            if ($selectedCategory && $letter && $searchTerm) {
-                $query = "
-                    SELECT topic, topic_desc, knowledge_class, topic_desc_basic,
-                           knowledge_class_basic, tags, category
-                    FROM $schema.worldknowledge
-                    WHERE category = $1
-                      AND topic ILIKE $2
-                      AND topic ILIKE $3
-                    ORDER BY topic $order
-                ";
-                $params = [$selectedCategory, $letter . '%', '%' . $searchTerm . '%'];
-            } elseif ($selectedCategory && $searchTerm) {
-                $query = "
-                    SELECT topic, topic_desc, knowledge_class, topic_desc_basic,
-                           knowledge_class_basic, tags, category
-                    FROM $schema.worldknowledge
-                    WHERE category = $1
-                      AND topic ILIKE $2
-                    ORDER BY topic $order
-                ";
-                $params = [$selectedCategory, '%' . $searchTerm . '%'];
-            } elseif ($letter && $searchTerm) {
-                $query = "
-                    SELECT topic, topic_desc, knowledge_class, topic_desc_basic,
-                           knowledge_class_basic, tags, category
-                    FROM $schema.worldknowledge
-                    WHERE topic ILIKE $1
-                      AND topic ILIKE $2
-                    ORDER BY topic $order
-                ";
-                $params = [$letter . '%', '%' . $searchTerm . '%'];
-            } elseif ($searchTerm) {
-                $query = "
-                    SELECT topic, topic_desc, knowledge_class, topic_desc_basic,
-                           knowledge_class_basic, tags, category
-                    FROM $schema.worldknowledge
-                    WHERE topic ILIKE $1
-                    ORDER BY topic $order
-                ";
-                $params = ['%' . $searchTerm . '%'];
-            } elseif ($selectedCategory && $letter) {
-                $query = "
-                    SELECT topic, topic_desc, knowledge_class, topic_desc_basic,
-                           knowledge_class_basic, tags, category
-                    FROM $schema.worldknowledge
-                    WHERE category = $1
-                      AND topic ILIKE $2
-                    ORDER BY topic $order
-                ";
-                $params = [$selectedCategory, $letter . '%'];
-            } elseif ($selectedCategory) {
-                $query = "
-                    SELECT topic, topic_desc, knowledge_class, topic_desc_basic,
-                           knowledge_class_basic, tags, category
-                    FROM $schema.worldknowledge
-                    WHERE category = $1
-                    ORDER BY topic $order
-                ";
-                $params = [$selectedCategory];
-            } elseif ($letter) {
-                $query = "
-                    SELECT topic, topic_desc, knowledge_class, topic_desc_basic,
-                           knowledge_class_basic, tags, category
-                    FROM $schema.worldknowledge
-                    WHERE topic ILIKE $1
-                    ORDER BY topic $order
-                ";
-                $params = [$letter . '%'];
-            } else {
-                $query = "
-                    SELECT topic, topic_desc, knowledge_class, topic_desc_basic,
-                           knowledge_class_basic, tags, category
-                    FROM $schema.worldknowledge
-                    ORDER BY topic $order
-                ";
-                $params = [];
+            $conditions = [];
+            $params = [];
+            if ($selectedCategory) {
+                $params[] = $selectedCategory;
+                $conditions[] = 'category = $' . count($params);
             }
+            if ($letter) {
+                $params[] = $letter . '%';
+                $conditions[] = 'topic ILIKE $' . count($params);
+            }
+            if ($searchTerm) {
+                $params[] = '%' . $searchTerm . '%';
+                $conditions[] = '(topic ILIKE $' . count($params) . ' OR tags ILIKE $' . count($params) . ')';
+            }
+            $query = "SELECT topic, topic_desc, knowledge_class, topic_desc_basic,
+                             knowledge_class_basic, tags, category, source_kind, catalog_id, catalog_version
+                        FROM $schema.worldknowledge_effective"
+                . ($conditions ? ' WHERE ' . implode(' AND ', $conditions) : '')
+                . " ORDER BY topic $order";
 
             $result = pg_query_params($conn, $query, $params);
 
@@ -1415,6 +1452,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <th>Knowledge Class (Basic)</th>
                     <th>Tags</th>
                     <th>Category</th>
+                    <th>Source</th>
                     <th>Action</th> 
                   </tr>';
 
@@ -1428,6 +1466,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $knowledge_class_basic= htmlspecialchars($row['knowledge_class_basic']?? '');
                     $tags                 = htmlspecialchars($row['tags']                 ?? '');
                     $category             = htmlspecialchars($row['category']             ?? '');
+                    $sourceKind           = strtolower(trim((string)($row['source_kind'] ?? 'custom')));
+                    $catalogLabel         = trim((string)($row['catalog_id'] ?? '') . '/' . (string)($row['catalog_version'] ?? ''), '/');
 
                     // Normal row display
                     echo '<tr>';
@@ -1466,23 +1506,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     
                     echo '<td>' . nl2br($tags) . '</td>';
                     echo '<td>' . nl2br($category) . '</td>';
+                    echo '<td><strong>' . htmlspecialchars(ucfirst($sourceKind)) . '</strong>'
+                        . ($catalogLabel !== '' ? '<br><small>' . htmlspecialchars($catalogLabel) . '</small>' : '') . '</td>';
 
                     // Action column
                     echo '<td style="white-space: nowrap;">';
                     echo '<div style="display: flex; gap: 4px;">';
                     
-                    // Edit button only
-                    echo '<button onclick="openEditModal(' . 
-                        htmlspecialchars(json_encode([
-                            'topic' => $topic,
-                            'topic_desc' => $topic_desc,
-                            'knowledge_class' => $knowledge_class,
-                            'topic_desc_basic' => $topic_desc_basic,
-                            'knowledge_class_basic' => $knowledge_class_basic,
-                            'tags' => $tags,
-                            'category' => $category
-                        ]), ENT_QUOTES, 'UTF-8') . 
-                        ')" class="action-button edit">Edit</button>';
+                    if ($sourceKind === 'custom') {
+                        echo '<button onclick="openEditModal(' .
+                            htmlspecialchars(json_encode([
+                                'topic' => $topic,
+                                'topic_desc' => $topic_desc,
+                                'knowledge_class' => $knowledge_class,
+                                'topic_desc_basic' => $topic_desc_basic,
+                                'knowledge_class_basic' => $knowledge_class_basic,
+                                'tags' => $tags,
+                                'category' => $category
+                            ]), ENT_QUOTES, 'UTF-8') .
+                            ')" class="action-button edit">Edit</button>';
+                    } else {
+                        echo '<span style="color:#aaa;">Factory articles are read-only</span>';
+                    }
                     
                     echo '</div>';
                     echo '</td>';
@@ -1538,7 +1583,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <input type="text" name="knowledge_class_basic_new" id="edit_knowledge_class_basic">
 
                 <label for="edit_tags">Tags:</label>
-                <small>Not currently in use.</small>
+                <small>Lowercase multiword retrieval phrases. Shared tags require corroboration.</small>
                 <input type="text" name="tags_new" id="edit_tags">
 
                 <label for="edit_category">Category:</label>
@@ -1585,7 +1630,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <input type="text" name="knowledge_class_basic" id="knowledge_class_basic">
 
                 <label for="tags">Tags:</label>
-                <small>Not currently in use.</small>
+                <small>Lowercase multiword retrieval phrases. Shared tags require corroboration.</small>
                 <input type="text" name="tags" id="tags">
 
                 <label for="category">Category:</label>
