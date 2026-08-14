@@ -866,17 +866,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         line-height: 1.5;
     }
 
-    .page-header h3 {
-        color: rgb(255, 182, 65);
-        font-size: 1.1em;
-        margin-top: 20px;
-        margin-bottom: 8px;
-    }
-
-    .page-header h4 {
-        color: #ccc;
-        font-size: 1em;
-        margin-bottom: 12px;
+    /* Compact header intro */
+    #worldknowledge-header-content > p {
+        max-width: 720px;
+        margin-left: auto;
+        margin-right: auto;
     }
 
     #title-text {
@@ -893,97 +887,74 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         transition: all 0.3s ease-in-out;
     }
 
-    /* Logic Section Styling */
-    .logic-section {
-        margin: 25px 0;
-        padding: 22px;
-        background: linear-gradient(135deg, rgba(26, 26, 26, 0.95), rgba(20, 20, 20, 0.98));
-        border-radius: 10px;
-        border: 1px solid rgba(255, 182, 65, 0.3);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3),
-                    inset 0 1px rgba(255, 182, 65, 0.05);
-    }
-
-    .logic-title {
-        text-align: center;
-        color: rgb(255, 182, 65);
-        margin-bottom: 20px;
-        font-size: 1.25em;
-        font-weight: bold;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-        font-family: 'Gothic821', serif;
-        word-spacing: 6px;
-    }
-
-    .logic-steps {
-        display: grid;
-        gap: 12px;
-    }
-
-    .logic-step {
-        display: flex;
-        align-items: flex-start;
-        gap: 15px;
-        padding: 16px;
-        background: rgba(42, 42, 42, 0.8);
-        border-radius: 8px;
-        border-left: 4px solid rgb(255, 182, 65);
-        transition: all 0.2s ease;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    }
-
-    .logic-step:hover {
-        transform: translateX(4px);
-        box-shadow: 0 4px 12px rgba(255, 182, 65, 0.25),
-                    0 2px 8px rgba(0, 0, 0, 0.3);
-    }
-
-    .step-number {
-        flex-shrink: 0;
-        width: 32px;
-        height: 32px;
-        background: linear-gradient(135deg, rgb(255, 182, 65), rgb(212, 94, 0));
-        color: #000;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: bold;
-        font-size: 15px;
-        box-shadow: 0 2px 6px rgba(255, 182, 65, 0.4),
-                    inset 0 1px rgba(255, 255, 255, 0.3);
-    }
-
-    .step-content {
-        flex: 1;
-    }
-
-    .step-content strong {
-        color: rgb(255, 182, 65);
-        display: block;
-        margin-bottom: 6px;
-        font-size: 1.05em;
-    }
-
-    .step-content p {
-        margin: 0;
-        line-height: 1.5;
-        color: #d0d0d0;
-    }
-
-    .step-content code {
-        background: rgba(74, 74, 74, 0.8);
-        padding: 3px 7px;
+    /* Compact collapsed help. Used for the header explainer, the batch upload
+       tips, and the installed factory catalog list. */
+    .header-note {
+        max-width: 720px;
+        margin: 12px auto 0;
+        padding: 8px 12px;
+        text-align: left;
+        background: rgba(26, 26, 26, 0.6);
+        border: 1px solid #3a3a3a;
+        border-left: 3px solid rgb(255, 182, 65);
         border-radius: 4px;
+    }
+
+    .content-section .header-note {
+        max-width: none;
+        margin: 12px 0 0;
+    }
+
+    .header-note > summary {
+        cursor: pointer;
+        color: rgb(255, 182, 65);
+        font-size: 0.95em;
+    }
+
+    .header-note > summary:focus-visible {
+        outline: 2px solid rgb(255, 182, 65);
+        outline-offset: 2px;
+    }
+
+    .header-note p {
+        margin: 8px 0 0;
+        color: #aaa;
+        font-size: 0.95em;
+        line-height: 1.5;
+    }
+
+    .header-note strong {
+        color: rgb(255, 182, 65);
+    }
+
+    .header-note code {
+        background: rgba(26, 26, 26, 0.8);
+        padding: 2px 6px;
+        border-radius: 3px;
         color: #ffeb3b;
         font-family: 'Courier New', monospace;
         font-size: 0.9em;
-        border: 1px solid rgba(255, 235, 59, 0.2);
+        overflow-wrap: break-word;
     }
 
-    .step-content em {
-        color: #81c784;
-        font-style: italic;
+    /* One installed factory catalog version, with its activation control. */
+    .catalog-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 8px 0 0;
+        padding: 8px 10px;
+        background: rgba(26, 26, 26, 0.8);
+        border: 1px solid #3a3a3a;
+        border-radius: 4px;
+        color: #aaa;
+        font-size: 0.95em;
+    }
+
+    .catalog-row form {
+        margin: 0;
     }
 
     /* Modal specific overrides */
@@ -1512,20 +1483,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             padding: 15px;
         }
         
-        .logic-section {
-            padding: 15px;
-            margin: 15px 0;
-        }
-        
-        .logic-step {
-            padding: 12px;
-            gap: 12px;
-        }
-        
-        .step-number {
-            width: 25px;
-            height: 25px;
-            font-size: 12px;
+        .header-note {
+            padding: 8px 10px;
         }
     }
 
@@ -1545,20 +1504,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             color: rgb(255, 182, 65);
         }
         
-        .logic-section {
-            padding: 10px;
-            margin: 10px 0;
+        .header-note {
+            padding: 8px;
+            margin-top: 10px;
         }
-        
-        .logic-step {
-            padding: 10px;
-            gap: 10px;
+
+        .catalog-row {
             flex-direction: column;
-            text-align: center;
-        }
-        
-        .step-number {
-            align-self: center;
+            align-items: stretch;
         }
     }
 </style>
@@ -1584,44 +1537,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         <div id="header-content">
             <!-- Regular WorldKnowledge Content -->
             <div id="worldknowledge-header-content">
-                <p><b>World Knowledge</b> is DIALECTIC's Fallout encyclopedia for grounded NPC roleplay.</p>
-                <p>Deterministic topic, alias, and speech matching selects relevant articles. Custom articles override factory articles with the same canonical topic.</p>
+                <p>World Knowledge matches conversation topics to DIALECTIC's Fallout articles. NPCs receive the most detailed version their knowledge classes allow; if no version matches, they know nothing about the topic.</p>
 
-            <p>Knowledge classes control which uploaded Fallout world knowledge entries a character can access.</p>
-
-                <div class="logic-section">
-                    <h3 class="logic-title">&#x1F50D; Article Search Logic</h3>
-                    <div class="logic-steps">
-                        <div class="logic-step">
-                            <div class="step-number">1</div>
-                            <div class="step-content">
-                                <strong>Grounded Retrieval</strong>
-                                <p>Canonical topics and aliases are checked first, followed by compact and guarded speech matches.</p>
-                            </div>
-                        </div>
-                        <div class="logic-step">
-                            <div class="step-number">2</div>
-                            <div class="step-content">
-                                <strong>Advanced Access Check</strong>
-                                <p><code>knowledge_class</code> controls expert or involved access. Write one comma-separated list of classes: any matching class grants that tier. A matching <code>!class</code> denies it first, and a blank list is unrestricted.</p>
-                            </div>
-                        </div>
-                        <div class="logic-step">
-                            <div class="step-number">3</div>
-                            <div class="step-content">
-                                <strong>Basic Access Check</strong>
-                                <p><code>knowledge_class_basic</code> controls average-person access in the appropriate region or community, using the same flat class list.</p>
-                            </div>
-                        </div>
-                        <div class="logic-step">
-                            <div class="step-number">4</div>
-                            <div class="step-content">
-                                <strong>Bounded Fallback</strong>
-                                <p>Only explicit unmatched lore requests may use one configured connector fallback, and suggestions must resolve back to this catalog.</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <details class="header-note">
+                    <summary>How article search works</summary>
+                    <p><strong>1. Grounded retrieval.</strong> Canonical topics and aliases are checked first, followed by compact and guarded speech matches.</p>
+                    <p><strong>2. Advanced access check.</strong> <code>knowledge_class</code> controls expert or involved access. Write one comma-separated list of classes: any matching class grants that tier. A matching <code>!class</code> denies it first, and a blank list is unrestricted.</p>
+                    <p><strong>3. Basic access check.</strong> <code>knowledge_class_basic</code> controls average-person access in the appropriate region or community, using the same flat class list.</p>
+                    <p><strong>4. Bounded fallback.</strong> Only explicit unmatched lore requests may use one configured connector fallback, and suggestions must resolve back to this catalog.</p>
+                </details>
             </div>
             
         </div>
@@ -1651,35 +1575,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     </div>
                 </form>
 
-                <p style="margin-top: 15px;">Columns are matched by header name:
-                    <code>topic</code>, <code>aliases</code>, <code>topic_desc</code>, <code>knowledge_class</code>,
-                    <code>topic_desc_basic</code>, <code>knowledge_class_basic</code>,
-                    <code>tags</code>, <code>category</code>.
-                    Export writes the same columns back, so an export can be edited and uploaded again.</p>
-                <p>Uploads are saved as custom articles. A custom canonical topic safely overrides the active factory article without modifying factory data.</p>
+                <p style="margin-top: 15px;">Uploads are saved as custom articles. A custom canonical topic safely overrides the active factory article without modifying factory data.</p>
 
-                <h3><strong>Ensure all topic titles are lowercase and spaces are replaced with underscores (_).</strong></h3>
-                <h4>Example: "Fishy Stick" becomes "fishy_stick"</h4>
+                <details class="header-note">
+                    <summary>Article editing tips</summary>
+                    <p>Use lowercase topic titles with underscores instead of spaces &mdash; "Fishy Stick" becomes <code>fishy_stick</code>.</p>
+                    <p>Columns are matched by header name:
+                        <code>topic</code>, <code>aliases</code>, <code>topic_desc</code>, <code>knowledge_class</code>,
+                        <code>topic_desc_basic</code>, <code>knowledge_class_basic</code>,
+                        <code>tags</code>, <code>category</code>.
+                        Export writes the same columns back, so an export can be edited and uploaded again.</p>
+                </details>
             </div>
 
             <div class="content-section">
                 <h2>Database Management</h2>
-                <?php if ($activeCatalog): ?>
-                    <p><b>Active factory catalog:</b><br>
-                        <?php echo htmlspecialchars($activeCatalog['display_name'] ?? 'DIALECTIC Fallout'); ?>
-                        <code><?php echo htmlspecialchars(($activeCatalog['catalog_id'] ?? '') . '/' . ($activeCatalog['catalog_version'] ?? '')); ?></code><br>
-                        <?php echo intval($activeCatalog['row_count'] ?? 0); ?> articles &middot;
-                        SHA-256 <code><?php echo htmlspecialchars(substr((string)($activeCatalog['checksum_sha256'] ?? ''), 0, 12)); ?>&hellip;</code>
-                    </p>
-                <?php else: ?>
-                    <p style="color:#ffb641;"><b>No active factory catalog.</b> Use Restore Factory Catalog.</p>
-                <?php endif; ?>
-                <?php if ($installedCatalogs): ?>
-                    <details style="margin:12px 0;">
-                        <summary>Installed factory versions</summary>
+                <?php if ($activeCatalog || $installedCatalogs): ?>
+                    <details class="header-note">
+                        <summary>Factory catalog details</summary>
+                        <?php if ($activeCatalog): ?>
+                            <p><b>Active:</b>
+                                <?php echo htmlspecialchars($activeCatalog['display_name'] ?? 'DIALECTIC Fallout'); ?>
+                                <code><?php echo htmlspecialchars(($activeCatalog['catalog_id'] ?? '') . '/' . ($activeCatalog['catalog_version'] ?? '')); ?></code><br>
+                                <?php echo intval($activeCatalog['row_count'] ?? 0); ?> articles &middot;
+                                SHA-256 <code><?php echo htmlspecialchars(substr((string)($activeCatalog['checksum_sha256'] ?? ''), 0, 12)); ?>&hellip;</code>
+                            </p>
+                        <?php else: ?>
+                            <p style="color:#ffb641;"><b>No active factory catalog.</b> Use Restore Factory Catalog.</p>
+                        <?php endif; ?>
                         <?php foreach ($installedCatalogs as $catalog): ?>
                             <?php $catalogIsActive = in_array(strtolower((string)($catalog['is_active'] ?? '')), ['1', 't', 'true', 'yes', 'on'], true); ?>
-                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0;padding:8px;background:#333;">
+                            <div class="catalog-row">
                                 <span>
                                     <b><?php echo htmlspecialchars($catalog['catalog_id'] . '/' . $catalog['catalog_version']); ?></b>
                                     &middot; <?php echo intval($catalog['row_count']); ?> articles
@@ -1698,6 +1624,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             </div>
                         <?php endforeach; ?>
                     </details>
+                <?php else: ?>
+                    <p style="color:#ffb641;"><b>No active factory catalog.</b> Use Restore Factory Catalog.</p>
                 <?php endif; ?>
                 <p>Verify uploads: <br><b>Server Actions &rarr; Database Manager &rarr; dialectic &rarr; public &rarr; worldknowledge</b></p>
                 <p>View retrieval decisions: <br><a href="<?php echo $webRoot; ?>/ui/worldknowledge_audit.php">World Knowledge Audit</a></p>

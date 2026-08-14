@@ -301,6 +301,73 @@ function worldknowledgeAuditStatusLabel(string $status): string
     return ucwords(str_replace('_', ' ', $status));
 }
 
+/** Plain-English label for how much of an article a character was given. */
+function worldknowledgeAuditLevelLabel(string $level): string
+{
+    $level = strtolower(trim($level));
+    if ($level === 'advanced') {
+        return 'Detailed';
+    }
+    if ($level === 'basic') {
+        return 'Basic';
+    }
+    if ($level === 'denied') {
+        return 'Not shared';
+    }
+    return $level === '' ? 'Shared' : ucwords(str_replace('_', ' ', $level));
+}
+
+/**
+ * Collapse a stored payload of trace entries into the distinct topic names it
+ * names, for the readable summary rows. The full payload still renders inside
+ * Technical details, so nothing is lost when the list is truncated.
+ */
+function worldknowledgeAuditTopicNames(array $entries, int $limit = 12): array
+{
+    $topics = [];
+    foreach ($entries as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $topic = trim(strval($entry['topic'] ?? ''));
+        if ($topic !== '' && !in_array($topic, $topics, true)) {
+            $topics[] = $topic;
+        }
+        if (count($topics) >= $limit) {
+            break;
+        }
+    }
+    return $topics;
+}
+
+/**
+ * Split the stored selected-article entries into the ones a character actually
+ * received and the ones access control withheld. The trace records both, so a
+ * plain count of the payload would overstate what was shared.
+ */
+function worldknowledgeAuditSharedArticles(array $selected): array
+{
+    $shared = [];
+    $withheld = [];
+    foreach ($selected as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $topic = trim(strval($entry['topic'] ?? ''));
+        $level = strtolower(trim(strval($entry['level'] ?? '')));
+        $view = [
+            'topic' => $topic !== '' ? $topic : '(unnamed topic)',
+            'level' => worldknowledgeAuditLevelLabel($level),
+        ];
+        if ($level === 'denied') {
+            $withheld[] = $view;
+        } else {
+            $shared[] = $view;
+        }
+    }
+    return ['shared' => $shared, 'withheld' => $withheld];
+}
+
 $isEmbed = (isset($_GET['embed']) && strval($_GET['embed']) === '1');
 $webRoot = worldknowledgeAuditWebRoot();
 $matchedOnly = isset($_GET['matched']) && strval($_GET['matched']) === '1';
@@ -336,6 +403,27 @@ if ($matchedOnly) {
 $rangeStart = $totalRows > 0 ? ($offset + 1) : 0;
 $rangeEnd = min($offset + $perPage, $totalRows);
 
+// Summary tiles are derived from the rows already fetched for this page. No extra
+// query is issued, so every count except the filtered total is labelled as
+// page-scoped rather than presented as a whole-table figure.
+$pageTraces = count($rows);
+$pageGrounded = 0;
+$pageArticles = 0;
+$pageFallbackAttempts = 0;
+foreach ($rows as $summaryRow) {
+    $summaryShared = worldknowledgeAuditSharedArticles(
+        worldknowledgeAuditJson($summaryRow['selected_articles'] ?? [])
+    )['shared'];
+    if ($summaryShared !== []) {
+        $pageGrounded++;
+    }
+    $pageArticles += count($summaryShared);
+    $summaryFallback = worldknowledgeAuditJson($summaryRow['fallback'] ?? []);
+    if (!empty($summaryFallback['attempted'])) {
+        $pageFallbackAttempts++;
+    }
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -353,13 +441,76 @@ $rangeEnd = min($offset + $perPage, $totalRows);
         body { background:#1f1f1f; color:#e7e7e7; }
         main.page-wrap { padding: <?= $isEmbed ? '20px' : '110px' ?> 12px 32px; }
         .page-header, .audit-card {
-            background: linear-gradient(180deg, rgba(42,42,42,.96), rgba(30,30,30,.98));
-            border: 1px solid #3b3b3b;
+            background: #242424;
+            border: 1px solid #444;
             border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,.2);
         }
-        .page-header { padding: 18px; margin-bottom: 18px; text-align: center; }
-        .audit-card { padding: 14px; margin-bottom: 14px; }
+        .page-header { padding: 18px; margin-bottom: 14px; text-align: center; }
+        .page-header h1 { margin-bottom: 6px; }
+        .page-header > div { max-width: 720px; margin: 0 auto; color: #c8c8c8; line-height: 1.5; }
+        .audit-card { padding: 14px; margin-bottom: 12px; }
+        /* Plain-language summary tiles, page-scoped except the filtered total. */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+        .summary-panel {
+            background: #242424;
+            border: 1px solid #444;
+            border-radius: 10px;
+            padding: 14px;
+        }
+        .metric { font-size: 22px; font-weight: 800; line-height: 1.2; }
+        .metric-label { color: #c8c8c8; font-size: .86rem; margin-top: 2px; }
+        .metric-note { color: #9d9d9d; font-size: .76rem; }
+        /* Card summary line: outcome, who it was for, and when. */
+        .card-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 3px 9px;
+            border-radius: 999px;
+            font-size: .82rem;
+            font-weight: 700;
+            border: 1px solid #6d5c31;
+            background: #2c2a20;
+            color: #f0d9a8;
+        }
+        .status-badge.is-ok { border-color: #35704c; background: #163b26; color: #bdf4cb; }
+        .status-badge.is-bad { border-color: #85404d; background: #321c21; color: #ef9caa; }
+        .card-npc { font-size: 1.02rem; word-break: break-word; }
+        .card-meta { color: #9d9d9d; font-size: .84rem; }
+        .field { margin-top: 10px; }
+        .field-value { display: block; word-break: break-word; }
+        .field-empty { display: block; color: #9d9d9d; }
+        .shared-list { margin: 2px 0 0; padding-left: 20px; }
+        .shared-list li { margin: 2px 0; word-break: break-word; }
+        .technical-details {
+            margin-top: 12px;
+            padding: 8px 12px;
+            background: rgba(0,0,0,.18);
+            border: 1px solid rgba(255,255,255,.06);
+            border-left: 3px solid rgb(255, 182, 65);
+            border-radius: 4px;
+        }
+        .technical-details > summary {
+            cursor: pointer;
+            color: rgb(255, 182, 65);
+            font-size: .95rem;
+            font-weight: 700;
+        }
+        .technical-details > summary:focus-visible {
+            outline: 2px solid rgb(255, 182, 65);
+            outline-offset: 2px;
+        }
+        .technical-details > .meta-grid { margin-top: 10px; }
         .meta-grid {
             display:grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -560,7 +711,7 @@ $rangeEnd = min($offset + $perPage, $totalRows);
                so the column header is dropped and each stacked field carries its
                own inline label instead. */
             .decision-row, .settings-row { grid-template-columns: 1fr; }
-            .decision-row.decision-head { display:none; }
+            .decision-row.decision-head, .settings-row.decision-head { display:none; }
             .decision-row > [data-label]::before,
             .settings-row > [data-label]::before {
                 content: attr(data-label) ": ";
@@ -579,8 +730,31 @@ $rangeEnd = min($offset + $perPage, $totalRows);
 <main class="page-wrap container-fluid">
     <div class="page-header">
         <h1>WorldKnowledge Audit</h1>
-        <div>Review deterministic matches, rejections, access decisions, forced context, and bounded fallback activity.</div>
+        <div>See which World Knowledge topics DIALECTIC found in each conversation and what it gave the character.</div>
     </div>
+
+    <section class="summary-grid" aria-label="World Knowledge audit summary">
+        <div class="summary-panel">
+            <div class="metric"><?= h(strval($totalRows)) ?></div>
+            <div class="metric-label">Audited requests</div>
+            <div class="metric-note">matching these filters</div>
+        </div>
+        <div class="summary-panel">
+            <div class="metric"><?= h(strval($pageGrounded)) ?></div>
+            <div class="metric-label">Gave the character knowledge</div>
+            <div class="metric-note">of <?= h(strval($pageTraces)) ?> on this page</div>
+        </div>
+        <div class="summary-panel">
+            <div class="metric"><?= h(strval($pageArticles)) ?></div>
+            <div class="metric-label">Articles shared</div>
+            <div class="metric-note">on this page</div>
+        </div>
+        <div class="summary-panel">
+            <div class="metric"><?= h(strval($pageFallbackAttempts)) ?></div>
+            <div class="metric-label">Connector fallback used</div>
+            <div class="metric-note">on this page</div>
+        </div>
+    </section>
 
     <div class="toolbar-wrap">
         <div>
@@ -719,6 +893,11 @@ $rangeEnd = min($offset + $perPage, $totalRows);
                 $settings = worldknowledgeAuditJson($row['settings'] ?? []);
                 $settingRows = worldknowledgeAuditSettingRows($settings);
                 $contextTagChips = worldknowledgeAuditTagChips($contextTags);
+                // Readable summary values for the top of the card. The full payloads
+                // still render unchanged inside Technical details below.
+                $sharedArticles = worldknowledgeAuditSharedArticles($selected);
+                $matchedTopics = worldknowledgeAuditTopicNames($matches);
+                $showFallback = $fallbackSummary['state'] !== 'Not eligible';
                 $jsonFlags = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
                 $searchBlob = strtolower(implode(' ', [
                     $input, $normalizedInput, $status, $npcName, $requestType, $catalog,
@@ -734,59 +913,125 @@ $rangeEnd = min($offset + $perPage, $totalRows);
             ?>
             <section class="audit-card" data-search="<?= h($searchBlob) ?>" aria-label="<?= h($cardTitle) ?>">
                 <h2 class="sr-only"><?= h($cardTitle) ?></h2>
-                <div class="meta-grid">
-                    <div class="meta-pill"><div class="meta-label">Status</div><div class="meta-value status-value is-<?= h(worldknowledgeAuditStatusTone($status)) ?>"><?= h(worldknowledgeAuditStatusLabel($status)) ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">NPC</div><div class="meta-value"><?= h($npcName !== '' ? $npcName : '(unknown)') ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">Request</div><div class="meta-value"><?= h($requestType !== '' ? $requestType : '(unknown)') ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">Catalog</div><div class="meta-value"><?= h($catalog !== '' ? $catalog : '(custom only)') ?></div></div>
-                    <div class="meta-pill">
-                        <div class="meta-label">Catalog Checksum</div>
-                        <div class="meta-value"<?= $catalogChecksum !== '' ? ' title="' . h($catalogChecksum) . '"' : '' ?>><?= h($catalogChecksum !== '' ? worldknowledgeAuditShortHash($catalogChecksum) : '(none)') ?></div>
-                    </div>
-                    <div class="meta-pill">
-                        <div class="meta-label">Prompt Hash</div>
-                        <div class="meta-value"<?= $promptHash !== '' ? ' title="' . h($promptHash) . '"' : '' ?>><?= h($promptHash !== '' ? worldknowledgeAuditShortHash($promptHash) : '(no prompt emitted)') ?></div>
-                    </div>
-                    <div class="meta-pill"><div class="meta-label">Fallback</div><div class="meta-value"><?= h($fallbackSummary['state']) ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">Algorithm</div><div class="meta-value"><?= h($row['algorithm_version'] ?? '') ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">Audit ID</div><div class="meta-value"><?= h($row['audit_id'] ?? '') ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">Created</div><div class="meta-value"><?= h($created) ?></div></div>
-                    <div class="meta-pill"><div class="meta-label">Elapsed</div><div class="meta-value"><?= h($elapsed) ?> ms</div></div>
-                    <div class="meta-pill"><div class="meta-label">Retrieval</div><div class="meta-value"><?= h($row['retrieval_elapsed_ms'] ?? '0') ?> ms</div></div>
-                    <?php if ($fallbackSummary['elapsed_ms'] !== null): ?>
-                        <div class="meta-pill"><div class="meta-label">Fallback Time</div><div class="meta-value"><?= h(strval($fallbackSummary['elapsed_ms'])) ?> ms</div></div>
+
+                <div class="card-head">
+                    <span class="status-badge is-<?= h(worldknowledgeAuditStatusTone($status)) ?>"><?= h(worldknowledgeAuditStatusLabel($status)) ?></span>
+                    <strong class="card-npc"><?= h($npcName !== '' ? $npcName : '(unknown character)') ?></strong>
+                    <span class="card-meta"><?= h($created) ?><?= $elapsed !== '' ? ' &middot; ' . h($elapsed) . ' ms' : '' ?></span>
+                </div>
+
+                <div class="field">
+                    <span class="field-label">Conversation input</span>
+                    <div class="trace-box"><?= h($input) ?></div>
+                </div>
+
+                <div class="field">
+                    <span class="field-label">Knowledge shared</span>
+                    <?php if ($sharedArticles['shared'] === []): ?>
+                        <span class="field-empty">Nothing shared with this character</span>
+                    <?php else: ?>
+                        <ul class="shared-list">
+                            <?php foreach ($sharedArticles['shared'] as $article): ?>
+                                <li><?= h($article['topic']) ?> &mdash; <?= h($article['level']) ?></li>
+                            <?php endforeach; ?>
+                        </ul>
                     <?php endif; ?>
                 </div>
 
-                <h3 class="section-label">Input</h3>
-                <div class="trace-box"><?= h($input) ?></div>
+                <?php if ($sharedArticles['withheld'] !== []): ?>
+                    <div class="field">
+                        <span class="field-label">Withheld by access rules</span>
+                        <span class="field-value"><?= h(implode(', ', array_column($sharedArticles['withheld'], 'topic'))) ?></span>
+                    </div>
+                <?php endif; ?>
 
-                <?php foreach ([
-                    ['label' => 'Selected Articles', 'payload' => $selected],
-                    ['label' => 'Grounded Matches', 'payload' => $matches],
-                    ['label' => 'Access Decisions', 'payload' => $access, 'note' => 'article text omitted'],
-                    ['label' => 'NPC Context Tags', 'payload' => $contextTags, 'chips' => $contextTagChips],
-                    ['label' => 'Rejected Candidates', 'payload' => $rejections],
-                    ['label' => 'Tag Decisions', 'payload' => $tagDecisions],
-                    ['label' => 'Forced Context', 'payload' => $forced],
-                    ['label' => 'Fallback', 'payload' => $fallback],
-                ] as $section): ?>
-                    <h3 class="section-label" style="margin-top:10px;">
-                        <?= h($section['label']) ?>
-                        <?php if (isset($section['note'])): ?>
-                            <span class="section-note">(<?= h($section['note']) ?>)</span>
+                <div class="field">
+                    <span class="field-label">Topics found</span>
+                    <span class="field-value"><?= $matchedTopics === [] ? 'None' : h(implode(', ', $matchedTopics)) ?></span>
+                </div>
+
+                <?php if ($showFallback): ?>
+                    <div class="field">
+                        <span class="field-label">Connector fallback</span>
+                        <span class="field-value"><?= h($fallbackSummary['state']) ?><?php if ($fallbackSummary['error'] !== ''): ?> &middot; <?= h($fallbackSummary['error']) ?><?php endif; ?></span>
+                    </div>
+                <?php endif; ?>
+
+                <details class="technical-details">
+                    <summary>Technical details</summary>
+
+                    <div class="meta-grid">
+                        <div class="meta-pill"><div class="meta-label">Status</div><div class="meta-value status-value is-<?= h(worldknowledgeAuditStatusTone($status)) ?>"><?= h(worldknowledgeAuditStatusLabel($status)) ?></div></div>
+                        <div class="meta-pill"><div class="meta-label">NPC</div><div class="meta-value"><?= h($npcName !== '' ? $npcName : '(unknown)') ?></div></div>
+                        <div class="meta-pill"><div class="meta-label">Request</div><div class="meta-value"><?= h($requestType !== '' ? $requestType : '(unknown)') ?></div></div>
+                        <div class="meta-pill"><div class="meta-label">Catalog</div><div class="meta-value"><?= h($catalog !== '' ? $catalog : '(custom only)') ?></div></div>
+                        <div class="meta-pill">
+                            <div class="meta-label">Catalog Checksum</div>
+                            <div class="meta-value"<?= $catalogChecksum !== '' ? ' title="' . h($catalogChecksum) . '"' : '' ?>><?= h($catalogChecksum !== '' ? worldknowledgeAuditShortHash($catalogChecksum) : '(none)') ?></div>
+                        </div>
+                        <div class="meta-pill">
+                            <div class="meta-label">Prompt Hash</div>
+                            <div class="meta-value"<?= $promptHash !== '' ? ' title="' . h($promptHash) . '"' : '' ?>><?= h($promptHash !== '' ? worldknowledgeAuditShortHash($promptHash) : '(no prompt emitted)') ?></div>
+                        </div>
+                        <div class="meta-pill"><div class="meta-label">Fallback</div><div class="meta-value"><?= h($fallbackSummary['state']) ?></div></div>
+                        <div class="meta-pill"><div class="meta-label">Algorithm</div><div class="meta-value"><?= h($row['algorithm_version'] ?? '') ?></div></div>
+                        <div class="meta-pill"><div class="meta-label">Audit ID</div><div class="meta-value"><?= h($row['audit_id'] ?? '') ?></div></div>
+                        <div class="meta-pill"><div class="meta-label">Created</div><div class="meta-value"><?= h($created) ?></div></div>
+                        <div class="meta-pill"><div class="meta-label">Elapsed</div><div class="meta-value"><?= h($elapsed) ?> ms</div></div>
+                        <div class="meta-pill"><div class="meta-label">Retrieval</div><div class="meta-value"><?= h($row['retrieval_elapsed_ms'] ?? '0') ?> ms</div></div>
+                        <?php if ($fallbackSummary['elapsed_ms'] !== null): ?>
+                            <div class="meta-pill"><div class="meta-label">Fallback Time</div><div class="meta-value"><?= h(strval($fallbackSummary['elapsed_ms'])) ?> ms</div></div>
                         <?php endif; ?>
-                    </h3>
-                    <?php if (!empty($section['chips'])): ?>
-                        <div class="tag-chip-row">
-                            <?php foreach ($section['chips'] as $chip): ?>
-                                <span class="tag-chip"><?= h($chip) ?></span>
+                    </div>
+
+                    <?php if ($normalizedInput !== ''): ?>
+                        <h3 class="section-label">Normalized Input</h3>
+                        <div class="trace-box"><?= h($normalizedInput) ?></div>
+                    <?php endif; ?>
+
+                    <?php if ($settingRows !== []): ?>
+                        <h3 class="section-label" style="margin-top:10px;">Effective Settings</h3>
+                        <div class="settings-table">
+                            <div class="settings-row decision-head" aria-hidden="true">
+                                <div>Setting</div><div>Value</div><div>Source</div>
+                            </div>
+                            <?php foreach ($settingRows as $settingRow): ?>
+                                <div class="settings-row">
+                                    <div data-label="Setting"><?= h($settingRow['name']) ?></div>
+                                    <div data-label="Value"><?= h($settingRow['value']) ?></div>
+                                    <div data-label="Source" class="settings-source"><?= h($settingRow['source']) ?></div>
+                                </div>
                             <?php endforeach; ?>
                         </div>
-                    <?php else: ?>
-                        <pre class="trace-box"><?= h($section['payload'] ? json_encode($section['payload'], $jsonFlags) : '(none)') ?></pre>
                     <?php endif; ?>
-                <?php endforeach; ?>
+
+                    <?php foreach ([
+                        ['label' => 'Selected Articles', 'payload' => $selected],
+                        ['label' => 'Grounded Matches', 'payload' => $matches],
+                        ['label' => 'Access Decisions', 'payload' => $access, 'note' => 'article text omitted'],
+                        ['label' => 'NPC Context Tags', 'payload' => $contextTags, 'chips' => $contextTagChips],
+                        ['label' => 'Rejected Candidates', 'payload' => $rejections],
+                        ['label' => 'Retrieval Phrase Decisions', 'payload' => $phraseDecisions],
+                        ['label' => 'Forced Context', 'payload' => $forced],
+                        ['label' => 'Fallback', 'payload' => $fallback],
+                    ] as $section): ?>
+                        <h3 class="section-label" style="margin-top:10px;">
+                            <?= h($section['label']) ?>
+                            <?php if (isset($section['note'])): ?>
+                                <span class="section-note">(<?= h($section['note']) ?>)</span>
+                            <?php endif; ?>
+                        </h3>
+                        <?php if (!empty($section['chips'])): ?>
+                            <div class="tag-chip-row">
+                                <?php foreach ($section['chips'] as $chip): ?>
+                                    <span class="tag-chip"><?= h($chip) ?></span>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else: ?>
+                            <pre class="trace-box"><?= h($section['payload'] ? json_encode($section['payload'], $jsonFlags) : '(none)') ?></pre>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                </details>
             </section>
         <?php endforeach; ?>
     <?php endif; ?>
