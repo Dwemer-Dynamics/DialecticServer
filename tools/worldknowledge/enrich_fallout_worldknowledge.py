@@ -47,6 +47,7 @@ OUTPUT_FIELDS = [
     "valid_from_year", "valid_to_year", "source_url", "source_revision",
     "editorial_note",
 ]
+EDITORIAL_OVERRIDE_FIELDS = set(OUTPUT_FIELDS) - {"source_url", "source_revision"}
 CATEGORIES = {
     "artifact", "armor", "concept", "creature", "culture", "event", "faction",
     "flora", "food_drink", "history", "item", "location", "medicine", "organization",
@@ -237,9 +238,7 @@ def apply_editorial_overrides(rows: list[dict[str, str]], path: Path) -> list[di
         row = dict(original)
         topic = canonical_topic(row["topic"])
         replacement = overrides.get(topic, {})
-        if not isinstance(replacement, dict) or any(
-            field not in {"topic", "topic_desc", "topic_desc_basic", "tags"} for field in replacement
-        ):
+        if not isinstance(replacement, dict) or any(field not in EDITORIAL_OVERRIDE_FIELDS for field in replacement):
             raise RuntimeError(f"Invalid editorial override for {topic}")
         for field, value in replacement.items():
             row[field] = normalize_space(str(value))

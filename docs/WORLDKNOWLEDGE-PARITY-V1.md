@@ -4,9 +4,9 @@ DIALECTIC owns a native Fallout World Knowledge implementation. It shares a beha
 
 ## Shipped Fallout catalog
 
-The reviewed parity catalog contains 1,221 source-backed articles covering Fallout 3, Fallout: New Vegas, their official DLC, and Tale of Two Wastelands. Every article includes reviewed advanced text. Publicly knowable articles also include a separate basic summary, while genuinely secret or personal subjects intentionally omit it. Coverage includes people, locations, factions, organizations, history, events, cultures, creatures, robots, flora, food and drink, medicine, weapons, armor, items, artifacts, technology, vaults, and broader concepts.
+The reviewed parity catalog contains 1,169 source-backed articles covering Fallout 3, Fallout: New Vegas, their official DLC, and Tale of Two Wastelands. Every article includes reviewed advanced text. Publicly knowable articles also include a separate basic summary, while genuinely secret or personal subjects intentionally omit it. Coverage includes people, locations, factions, organizations, history, events, cultures, creatures, robots, flora, food and drink, medicine, weapons, armor, items, artifacts, technology, vaults, and broader concepts.
 
-The 779-article scope expansion was generated with GLM from pinned Fallout Wiki source revisions, then passed deterministic source, chronology, duplicate, alias, article-policy, and tag validation. Invalid or weak generations were excluded instead of being published. The immutable manifest records the exact catalog and source checksums, generation budget, model, category counts, and editorial approval.
+The GLM-assisted scope expansion was generated from pinned Fallout Wiki source revisions, then passed deterministic source, chronology, duplicate, alias, article-policy, tag, and Fallout-specific scope validation. Generic ammunition, ordinary crafting junk, and plain food or drink records are excluded when they add no meaningful setting knowledge. Closely overlapping topics are merged under one canonical article. Invalid, weak, or inventory-only generations are excluded instead of being published. The immutable manifest records the exact catalog and source checksums, generation budget, model, category counts, curation checksum, and editorial approval.
 
 ## Retrieval order
 

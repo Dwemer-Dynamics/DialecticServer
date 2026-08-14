@@ -1,15 +1,15 @@
 {
   "schema": "dialectic.worldknowledge-catalog.v1",
   "catalog_id": "fallout-3-new-vegas-ttw-official",
-  "catalog_version": "parity-v1.5-2026-08-13",
+  "catalog_version": "parity-v1.6-2026-08-14",
   "display_name": "DIALECTIC Fallout 3, New Vegas, DLC and TTW",
   "csv_file": "fallout_worldknowledge_parity_v1.csv",
-  "checksum_sha256": "6cb3f05fbd6939f18a4f4a0abef19c6b55c30fbea2da384598177340364b9872",
-  "row_count": 1221,
+  "checksum_sha256": "8305481338b1ac18030a6740b706372614e3b6ecd097492fbfe99b78e382b08e",
+  "row_count": 1169,
   "source_snapshot": {
     "file": "fallout_worldknowledge_sources.jsonl",
-    "checksum_sha256": "5477446d89219c8261242a1e4de168f84823d8d0eae18fb74f1abba89bbb5205",
-    "row_count": 1221
+    "checksum_sha256": "7407428a7ad9941fd9833061f4250c1e7515bcc5e2965e352c18514c8f084d19",
+    "row_count": 1169
   },
   "generation": {
     "model": "z-ai/glm-5.2",
@@ -17,8 +17,9 @@
     "budget_ledger_total_usd": 13.081712992,
     "authorized_budget_usd": 30.0,
     "ledger_checksum_sha256": "d70314135360ddcd622fe9c2bef71e8f9c7308f6f0fc52a0691aa16e23273a66",
-    "editorial_overrides_checksum_sha256": "667713c22e8c1db4ff948ba6e5a90322147a2be7087397bf0841e2fc0ba56cf5",
-    "editorial_overrides_applied": false
+    "editorial_overrides_checksum_sha256": "3fe3616780d77c90048346c9b5b00d3eb988d8cad9d0acb1889110134d8b3fde",
+    "editorial_overrides_applied": true,
+    "editorial_curation_checksum_sha256": "5a9d92bcaf801c22d4cec52cb697d522a7b4b608c10853093fd2f46e5cd05893"
   },
   "coverage": {
     "games": [
@@ -27,8 +28,8 @@
       "official DLC",
       "Tale of Two Wastelands"
     ],
-    "advanced_articles": 1221,
-    "tag_assignments": 7401,
+    "advanced_articles": 1169,
+    "tag_assignments": 7087,
     "category_counts": {
       "armor": 58,
       "artifact": 1,
@@ -36,26 +37,26 @@
       "creature": 55,
       "culture": 64,
       "event": 31,
-      "faction": 83,
+      "faction": 82,
       "flora": 3,
-      "food_drink": 44,
+      "food_drink": 32,
       "history": 15,
-      "item": 48,
+      "item": 10,
       "location": 451,
-      "medicine": 40,
+      "medicine": 39,
       "organization": 11,
       "person": 158,
       "robot": 4,
-      "technology": 25,
+      "technology": 26,
       "vault": 14,
-      "weapon": 105
+      "weapon": 104
     }
   },
   "editorial_review": {
     "status": "approved",
     "reviewer": "Codex-assisted Dwemer Dynamics access audit",
-    "reviewed_at": "2026-08-14T02:50:00Z",
-    "method": "source-bound validation, deterministic checks, duplicate and chronology audit, and representative article review"
+    "reviewed_at": "2026-08-14T06:00:00Z",
+    "method": "source-bound validation, Fallout-specific scope curation, deterministic checks, duplicate and chronology audit, and representative article review"
   },
   "knowledge_vocabulary": {
     "file": "fallout_worldknowledge_vocabulary.json",

@@ -1,6 +1,66 @@
 {
   "schema": "dialectic.worldknowledge-editorial-overrides.v1",
   "overrides": {
+    "doctor_s_bag": {
+      "topic": "doctor_s_bag,doctors bag",
+      "topic_desc": "Doctor's bags are portable field medical kits assembled around the needs of wasteland practitioners who often work far from a functioning clinic. A well-stocked bag carries bandages, splints, surgical instruments, antiseptics, and medicines for stabilizing fractures, deep wounds, and other traumatic injuries. Doctors and medics use the contents selectively because sterile supplies are difficult to replace. The kits circulate in both the Capital and Mojave wastelands through clinics, caravans, military stores, and organizations such as the Followers of the Apocalypse. Individual bags vary with their owner, but their familiar shape and purpose make them a recognized sign of trained medical help across the wasteland.",
+      "knowledge_class": "doctor,medic,followers_of_the_apocalypse",
+      "topic_desc_basic": "A doctor's bag is a portable medical kit containing bandages, splints, surgical tools, and medicine for treating serious injuries away from a clinic. Doctors, caravan medics, and settlement healers across both wastelands keep them when supplies allow.",
+      "knowledge_class_basic": "common",
+      "retrieval_phrases": "",
+      "tags": "field medical kit,followers medical supplies,portable trauma care,wasteland clinics,wasteland medicine",
+      "category": "medicine",
+      "setting": "both",
+      "region": "both",
+      "valid_from_year": "",
+      "valid_to_year": "",
+      "editorial_note": "Oghma parity (universal_public; both): The merged article covers the shared wasteland medical kit. Detailed use remains professional medical knowledge."
+    },
+    "euclid_s_c_finder": {
+      "topic": "euclid_s_c_finder,Euclids C Finder",
+      "topic_desc": "Euclid's C-Finder is a portable targeting device connected to ARCHIMEDES II, the pre-War orbital laser platform controlled through HELIOS One. It calculates a target from the user's position and the satellite's orbit, allowing the platform to strike an outdoor location once its power and control systems are properly configured. Father Elijah searched for the device after it was scavenged and sold around New Vegas. It eventually reached a Freeside child named Max, who carries it as a toy without understanding its connection to the orbital weapon. The device's harmless appearance conceals one of the most destructive surviving components of the HELIOS One system.",
+      "knowledge_class": "brotherhood_of_steel,researcher,engineer,helios_one,father_elijah",
+      "topic_desc_basic": "A Freeside boy named Max carries an unusual handheld rangefinder and treats it as a toy. Locals may recognize that it is more sophisticated than an ordinary child's possession, but few know where it came from or what it controls.",
+      "knowledge_class_basic": "freeside,mojave",
+      "retrieval_phrases": "",
+      "tags": "archimedes ii weapon,euclidean targeting device,father elijah search,freeside children toy,helios one technology,orbital laser platform",
+      "category": "weapon",
+      "setting": "fnv",
+      "region": "mojave",
+      "valid_from_year": "2277",
+      "valid_to_year": "2281",
+      "editorial_note": "Oghma parity (local_public; mojave): Freeside locals may recognize the object, while its connection to HELIOS One requires relevant technical or Brotherhood knowledge."
+    },
+    "gun_runners": {
+      "topic": "gun_runners,the Gun Runners,Gun Runners faction",
+      "topic_desc": "The Gun Runners began as a small Hub gang that settled in a factory in northeastern Los Angeles and discovered that manufacturing weapons was more profitable than ordinary gang activity. Using pre-War schematics, scrap, imported materials, and guarded factories, they became skilled machinists capable of producing military-grade firearms and ammunition. By 2281 they were one of the NCR's oldest merchant houses and a major military supplier, with a Mojave factory serving NCR forces and regional buyers through Vendortron. Their caravans and production sites are tightly protected. After repeated attacks on energy-weapon shipments, the company withdrew from that market and left much of it to competitors such as the Van Graffs.",
+      "knowledge_class": "gunsmith,merchant,ncr,engineer,brotherhood_of_steel",
+      "topic_desc_basic": "The Gun Runners are a respected weapons manufacturer and merchant company with a fortified factory and sales kiosk near New Vegas. They supply reliable firearms and ammunition to the NCR and other buyers, usually at premium prices.",
+      "knowledge_class_basic": "mojave,merchant,traveler,ncr",
+      "retrieval_phrases": "",
+      "tags": "boneyard weapons factory,guarded weapon caravans,military grade gunsmiths,mojave weapon market,ncr arms contracts,vendortron sales kiosk",
+      "category": "organization",
+      "setting": "fnv",
+      "region": "mojave",
+      "valid_from_year": "2155",
+      "valid_to_year": "",
+      "editorial_note": "Oghma parity (regional_public; mojave): Their public business is widely known, while origins, contracts, supply chains, and energy-market decisions require trade or faction knowledge."
+    },
+    "energy_weapon_power_cells": {
+      "topic": "energy_weapon_power_cells,energy cells,microfusion cells,electron charge packs",
+      "topic_desc": "Directed-energy weapons across the Capital and Mojave wastelands rely on standardized pre-War power cartridges. Small energy cells feed sidearms and light laser or plasma weapons. Microfusion cells are self-contained fusion units used by many rifles, while electron charge packs deliver sustained current to Gatling lasers and other heavy systems. The formats are related closely enough that skilled technicians can reclaim drained units and adapt stored charge between them, although the work requires specialized tools and scientific knowledge. Brotherhood, Enclave, Van Graff, and other energy-weapon users guard their reserves because intact cells are difficult to manufacture after the war. Scavengers recover them from robots, military facilities, research sites, and old armories, allowing pre-War laser and plasma weapons to remain practical centuries after their makers vanished.",
+      "knowledge_class": "scientist,engineer,energy_weapons,brotherhood_of_steel,enclave,gunsmith",
+      "topic_desc_basic": "Energy weapons use pre-War power cartridges instead of conventional ammunition. Small energy cells feed pistols, microfusion cells power many rifles, and electron charge packs supply heavy weapons such as Gatling lasers. Intact cells are valuable and usually recovered from robots, merchants, military ruins, or energy-weapon factions.",
+      "knowledge_class_basic": "capital_wasteland,mojave",
+      "retrieval_phrases": "",
+      "tags": "directed energy ammunition,electron charge packs,energy weapon technology,laser weapon power,microfusion cell recycling,plasma weapon power",
+      "category": "technology",
+      "setting": "both",
+      "region": "both",
+      "valid_from_year": "",
+      "valid_to_year": "",
+      "editorial_note": "Oghma parity (regional_public; both): The merged article explains Fallout's shared energy-ammunition technology without separate inventory pages. Technical recovery and conversion remain specialist knowledge."
+    },
     "pip_boy_3000": {
       "topic": "pip_boy_3000,Pip-Boy"
     },
@@ -27,9 +87,6 @@
     },
     "thick_red_paste": {
       "tags": "big mt research,caesar legion ban,crafted healing item,medicinal consumable,vitality augmentation,x-13 testing facility,x-22 botanical garden"
-    },
-    "case_45_auto": {
-      "tags": "45 auto casing,ammunition component,handloading material,mojave trade goods,spent brass cartridge,zion canyon"
     },
     "saturnite_alloy_research_facility": {
       "tags": "big mt facility,cosmic knife,crazed mister handy,lava cave system,saturnite alloy,ulysses old world flag"

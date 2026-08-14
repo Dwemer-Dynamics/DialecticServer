@@ -60,7 +60,7 @@ service_rifle,Service rifle,NCR service rifle,weapon,Fallout New Vegas
 marksman_carbine,Marksman carbine,,weapon,Fallout New Vegas
 survivalists_rifle,Survivalist's rifle,,weapon,Fallout New Vegas DLC
 medicine_stick,Medicine Stick,,weapon,Fallout New Vegas
-euclids_c_finder,Euclid's C-Finder,,weapon,Fallout New Vegas
+euclid_s_c_finder,Euclid's C-Finder,Euclids C Finder,weapon,Fallout New Vegas
 platinum_chip,Platinum chip,the Platinum Chip,artifact,Fallout New Vegas
 holorifle,Holorifle,,weapon,Fallout New Vegas DLC
 automatic_rifle,Automatic rifle,,weapon,Fallout New Vegas DLC
@@ -71,7 +71,7 @@ stimpak,Stimpak,stimpack|stimpacks,medicine,Fallout 3 and New Vegas
 super_stimpak,Super stimpak,super stimpack,medicine,Fallout New Vegas
 radaway,RadAway,rad away,medicine,Fallout 3 and New Vegas
 rad_x,Rad-X,,medicine,Fallout 3 and New Vegas
-doctors_bag,Doctor's bag,,medicine,Fallout 3 and New Vegas
+doctor_s_bag,Doctor's bag,doctors bag,medicine,Fallout 3 and New Vegas
 med_x,Med-X,,medicine,Fallout 3 and New Vegas
 jet,Jet,,medicine,Fallout 3 and New Vegas
 psycho,Psycho,,medicine,Fallout 3 and New Vegas
@@ -100,7 +100,7 @@ poseidon_energy,Poseidon Energy,,organization,Fallout series
 west_tek,West Tek,West-Tek,organization,Fallout series
 sunset_sarsaparilla_company,Sunset Sarsaparilla Company,Sunset company,organization,Fallout New Vegas
 crimson_caravan_company,Crimson Caravan Company,Crimson Caravan,organization,Fallout New Vegas
-gun_runners,Gun Runners (Faction),the Gun Runners,organization,Fallout New Vegas
+gun_runners,Gun Runners,"the Gun Runners,Gun Runners faction",organization,Fallout New Vegas
 van_graffs,Van Graffs,Silver Rush,organization,Fallout New Vegas
 westside_cooperative,Westside Cooperative,Westside co op,organization,Fallout New Vegas
 followers_medicine,Followers of the Apocalypse,,culture,Fallout New Vegas
@@ -600,7 +600,6 @@ smuggler_s_end,Smuggler's End (Fallout 3),,weapon,Fallout 3
 fawkes_super_sledge,Fawkes' Super Sledge,,weapon,Fallout 3
 victory_rifle,Victory Rifle (Fallout 3),,weapon,Fallout 3
 dart_gun,Dart Gun,,weapon,Fallout 3
-euclid_s_c_finder,Euclid's C-Finder,,weapon,Fallout New Vegas
 brush_gun,Brush Gun,,weapon,Fallout New Vegas
 cowboy_repeater,Cowboy Repeater,,weapon,Fallout New Vegas
 hunting_shotgun,Hunting Shotgun,,weapon,Fallout New Vegas
@@ -698,45 +697,33 @@ sugar_bombs,Sugar Bombs (Fallout 3),,food_drink,Fallout 3
 mirelurk_cake,Mirelurk Cake (Fallout 3),,food_drink,Fallout 3
 cave_fungus,Cave Fungus (Fallout 3),,food_drink,Fallout 3
 gum_drops,Gum Drops (Fallout 3),,food_drink,Fallout 3
-bubblegum,Bubblegum (Fallout 3),,food_drink,Fallout 3
 refined_punga_fruit,Refined Punga Fruit,,food_drink,Fallout 3
 slop,Slop,,food_drink,Fallout 3
 salisbury_steak,Salisbury Steak (Fallout 3),,food_drink,Fallout 3
 miss_quantum_pie,Miss. Quantum Pie,,food_drink,Fallout 3
 sweetroll,Sweetroll,,food_drink,Fallout 3
-fresh_potato,Fresh Potato (Fallout 3),,food_drink,Fallout 3
 strange_meat,Strange Meat (Fallout 3),,food_drink,Fallout 3
 mirelurk_meat,Mirelurk Meat (Fallout 3),,food_drink,Fallout 3
 nukalurk_meat,NukaLurk Meat (Fallout 3),,food_drink,Fallout 3
 nuka_cola_quantum,Nuka-Cola Quantum (Fallout 3),,food_drink,Fallout 3
 aqua_pura,Aqua Pura,,food_drink,Fallout 3
 holy_water,Holy Water,,food_drink,Fallout 3
-purified_water,Purified Water (Fallout 3),,food_drink,Fallout 3
 aqua_cura,Aqua Cura,,food_drink,Fallout 3
 salient_green,Salient Green,,food_drink,Fallout New Vegas
-blood_sausage,Blood Sausage,,food_drink,Fallout New Vegas
 gecko_steak,Gecko Steak,,food_drink,Fallout New Vegas
 gecko_kebab,Gecko Kebab,,food_drink,Fallout New Vegas
-trail_mix,Trail Mix,,food_drink,Fallout New Vegas
 thick_red_paste,Thick Red Paste,,food_drink,Fallout New Vegas
 thin_red_paste,Thin Red Paste,,food_drink,Fallout New Vegas
 radroach_meat,Radroach Meat (Fallout: New Vegas),,food_drink,Fallout New Vegas
 yao_guai_meat,Yao Guai Meat (Fallout: New Vegas),,food_drink,Fallout New Vegas
-human_flesh,Human Flesh (Fallout: New Vegas),,food_drink,Fallout New Vegas
-mre,MRE,,food_drink,Fallout New Vegas
 blamco_mac_and_cheese,BlamCo Mac & Cheese (Fallout: New Vegas),,food_drink,Fallout New Vegas
-pork_n_beans,Pork N' Beans (Fallout: New Vegas),,food_drink,Fallout New Vegas
 fancy_lads_snack_cakes,Fancy Lads Snack Cakes (Fallout: New Vegas),,food_drink,Fallout New Vegas
 potato_crisps,Potato Crisps (Fallout: New Vegas),,food_drink,Fallout New Vegas
 nuka_cola_quartz,Nuka-Cola Quartz (Fallout: New Vegas),,food_drink,Fallout New Vegas
 nuka_cola_victory,Nuka-Cola Victory (Fallout: New Vegas),,food_drink,Fallout New Vegas
-whiskey,Whiskey (Fallout: New Vegas),,food_drink,Fallout New Vegas
 battle_brew,Battle Brew,,food_drink,Fallout New Vegas
-wine,Wine (Fallout: New Vegas),,food_drink,Fallout New Vegas
 ice_cold_nuka_cola,Ice Cold Nuka-Cola (Fallout: New Vegas),,food_drink,Fallout New Vegas
 irr_sunset_sars,Irr. Sunset Sars.,,food_drink,Fallout New Vegas
-dirty_water,Dirty Water (Fallout: New Vegas),,food_drink,Fallout New Vegas
-irradiated_water,Irradiated Water,,food_drink,Fallout New Vegas
 ultrajet,Ultrajet (Fallout 3),,medicine,Fallout 3
 alien_biogel,Alien Biogel,,medicine,Fallout 3
 adapted_biogel,Adapted Biogel (Fallout 3),,medicine,Fallout 3
@@ -747,7 +734,6 @@ ant_nectar,Ant Nectar (Fallout 3),,medicine,Fallout 3
 turbo,Turbo,,medicine,Fallout New Vegas
 weapon_binding_ritual,Weapon Binding Ritual,,medicine,Fallout New Vegas
 coyote_tobacco_chew,Coyote Tobacco Chew,,medicine,Fallout New Vegas
-doctor_s_bag,Doctor's Bag (Fallout: New Vegas),,medicine,Fallout New Vegas
 steady,Steady,,medicine,Fallout New Vegas
 healing_poultice,Healing Poultice,,medicine,Fallout New Vegas
 auto_inject_stimpak,Auto-Inject Stimpak,,medicine,Fallout New Vegas
@@ -761,50 +747,13 @@ schematics_shishkebab,Schematics - Shishkebab,,item,Fallout 3
 lunchbox,Lunchbox (Fallout 3),,item,Fallout 3
 schematics_dart_gun,Schematics - Dart Gun,,item,Fallout 3
 schematics_deathclaw_gauntlet,Schematics - Deathclaw Gauntlet,,item,Fallout 3
-surgical_tubing,Surgical Tubing (Fallout 3),,item,Fallout 3
-turpentine,Turpentine (Fallout 3),,item,Fallout 3
-cherry_bomb,Cherry Bomb (Fallout 3),,item,Fallout 3
 schematics_rock_it_launcher,Schematics - Rock-It Launcher,,item,Fallout 3
-motorcycle_handbrake,Motorcycle Handbrake (Fallout 3),,item,Fallout 3
-sensor_module,Sensor Module (Fallout 3),,item,Fallout 3
-campfire,Campfire (Fallout: New Vegas),,item,Fallout New Vegas
 skill_book_recipe,Skill Book Recipe,,item,Fallout New Vegas
-workbench,Workbench (Fallout: New Vegas),,item,Fallout New Vegas
-reloading_bench,Reloading Bench,,item,Fallout New Vegas
-lead_metal,Lead (metal),,item,Fallout New Vegas
 fission_battery,Fission Battery (Fallout: New Vegas),,item,Fallout New Vegas
-pressure_cooker,Pressure Cooker (Fallout: New Vegas),,item,Fallout New Vegas
-empty_soda_bottle,Empty Soda Bottle (Fallout: New Vegas),,item,Fallout New Vegas
 radscorpion_poison_gland,Radscorpion Poison Gland (Fallout: New Vegas),,item,Fallout New Vegas
-flour,Flour (Fallout: New Vegas),,item,Fallout New Vegas
-steam_gauge_assembly,Steam Gauge Assembly (Fallout: New Vegas),,item,Fallout New Vegas
 wonderglue,Wonderglue (Fallout: New Vegas),,item,Fallout New Vegas
-scrap_electronics,Scrap Electronics,,item,Fallout New Vegas
-case_45_auto,"Case, .45 Auto",,item,Fallout New Vegas
 alien_power_cell,Alien Power Cell (Fallout 3),,item,Fallout 3
-44_round_magnum,".44 Round, Magnum (Fallout 3)",,item,Fallout 3
-308_caliber_round,.308 Caliber Round (Fallout 3),,item,Fallout 3
-electron_charge_pack,Electron Charge Pack (Fallout 3),,item,Fallout 3
-missile,Missile (Fallout 3),,item,Fallout 3
-32_caliber_round,.32 Caliber Round,,item,Fallout 3
-energy_cell,Energy Cell (Fallout 3),,item,Fallout 3
-5_56mm_round,5.56mm Round (Fallout 3),,item,Fallout 3
-10mm_round,10mm Round (Fallout 3),,item,Fallout 3
-shotgun_shell,Shotgun Shell (Fallout 3),,item,Fallout 3
-12_gauge_round,12 Gauge Round,,item,Fallout New Vegas
-microfusion_cell,Microfusion Cell (Fallout: New Vegas),,item,Fallout New Vegas
-50_mg,.50 MG,,item,Fallout New Vegas
-5mm_round,5mm Round (Fallout: New Vegas),,item,Fallout New Vegas
-12_7mm_round,12.7mm Round,,item,Fallout New Vegas
-9mm_round,9mm Round (Fallout: New Vegas),,item,Fallout New Vegas
-20_gauge_round,20 Gauge Round,,item,Fallout New Vegas
-357_magnum_round,.357 Magnum Round,,item,Fallout New Vegas
-45_70_gov_t,.45-70 Gov't,,item,Fallout New Vegas
-44_magnum_round,.44 Magnum Round (Fallout: New Vegas),,item,Fallout New Vegas
-flamer_fuel,Flamer Fuel (Fallout: New Vegas),,item,Fallout New Vegas
-40mm_grenade,40mm Grenade (Fallout: New Vegas),,item,Fallout New Vegas
-308_round,.308 Round (Fallout: New Vegas),,item,Fallout New Vegas
-25mm_grenade,25mm Grenade,,item,Fallout New Vegas
+energy_weapon_power_cells,Energy weapon power cells,"energy cells,microfusion cells,electron charge packs",technology,Fallout 3 and New Vegas
 dog,Dog (Fallout 3),,creature,Fallout 3
 swamplurk,Swamplurk,,creature,Fallout 3
 vulture,Vulture (Fallout 3),,creature,Fallout 3
@@ -834,7 +783,6 @@ rivet_city_council,Rivet City Council,,faction,Fallout 3
 bandits_faction,Bandits (Faction),,faction,Fallout 3
 smuggler_faction,Smuggler (faction),,faction,Fallout 3
 2nd_monument_defense_detachment,2nd Monument Defense Detachment,,faction,Fallout 3
-gun_runners_faction,Gun Runners (Faction),,faction,Fallout New Vegas
 new_california_republic_rangers,New California Republic Rangers,,faction,Fallout New Vegas
 first_recon,First Recon,,faction,Fallout New Vegas
 new_canaanites,New Canaanites,,faction,Fallout New Vegas

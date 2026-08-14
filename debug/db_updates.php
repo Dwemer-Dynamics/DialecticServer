@@ -4557,8 +4557,8 @@ if ($checkVersion('worldknowledge_canonical_tags') < 20260813003) {
     }
 }
 
-if ($checkVersion('worldknowledge_oghma_parity') < 20260813006) {
-    Logger::debug('Applying worldknowledge_oghma_parity 20260813006 - repair and install flat Oghma catalog');
+if ($checkVersion('worldknowledge_oghma_parity') < 20260814001) {
+    Logger::debug('Applying worldknowledge_oghma_parity 20260814001 - install curated Oghma catalog');
     $transactionOpen = false;
     try {
         if (!$db->execQuery('BEGIN')) {
@@ -4607,12 +4607,12 @@ if ($checkVersion('worldknowledge_oghma_parity') < 20260813006) {
             }
             $removedIncompleteCatalogs++;
         }
-        $updateVersion('worldknowledge_oghma_parity', 20260813006);
+        $updateVersion('worldknowledge_oghma_parity', 20260814001);
         if (!$db->execQuery('COMMIT')) {
             throw new RuntimeException('Unable to commit incomplete World Knowledge catalog cleanup');
         }
         $transactionOpen = false;
-        Logger::info("Applied patch worldknowledge_oghma_parity 20260813006; removed {$removedIncompleteCatalogs} incomplete inactive factory catalogs");
+        Logger::info("Applied patch worldknowledge_oghma_parity 20260814001; removed {$removedIncompleteCatalogs} incomplete inactive factory catalogs");
     } catch (Throwable $e) {
         if ($transactionOpen) {
             $db->execQuery('ROLLBACK');

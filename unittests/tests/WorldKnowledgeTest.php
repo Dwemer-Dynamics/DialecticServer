@@ -12,6 +12,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
     {
         $root = dirname(__DIR__, 2);
         $sourcesPath = $root.DIRECTORY_SEPARATOR.'data'.DIRECTORY_SEPARATOR.'fallout_worldknowledge_sources.jsonl';
+        $curationPath = $root.DIRECTORY_SEPARATOR.'data'.DIRECTORY_SEPARATOR.'fallout_worldknowledge_editorial_curation.json';
         $catalog = dialecticWorldKnowledgeLoadFactoryCatalog($root);
         $topics = [];
         $aliasCount = 0;
@@ -44,12 +45,31 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $categoryCounts[$category] = intval($categoryCounts[$category] ?? 0) + 1;
         }
 
-        $this->assertGreaterThanOrEqual(350, count($topics));
+        $this->assertSame(1169, count($topics));
         $this->assertGreaterThanOrEqual(100, $aliasCount);
         $this->assertGreaterThanOrEqual(10, count(array_filter($categoryCounts)));
         $this->assertSame('approved', $catalog['manifest']['editorial_review']['status'] ?? null);
         $this->assertContains('Fallout 3', $catalog['manifest']['coverage']['games'] ?? []);
         $this->assertContains('Fallout: New Vegas', $catalog['manifest']['coverage']['games'] ?? []);
+
+        $curation = json_decode(file_get_contents($curationPath), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(
+            hash_file('sha256', $curationPath),
+            $catalog['manifest']['generation']['editorial_curation_checksum_sha256'] ?? null
+        );
+        foreach ($curation['exclusions'] ?? [] as $excludedTopics) {
+            foreach ($excludedTopics as $excludedTopic) {
+                $this->assertArrayNotHasKey($excludedTopic, $topics);
+            }
+        }
+        foreach ($curation['merges'] ?? [] as $targetTopic => $merge) {
+            $this->assertArrayHasKey($targetTopic, $topics);
+            foreach ($merge['sources'] ?? [] as $sourceTopic) {
+                if ($sourceTopic !== $targetTopic) {
+                    $this->assertArrayNotHasKey($sourceTopic, $topics);
+                }
+            }
+        }
 
         $sourceTopics = [];
         foreach (file($sourcesPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
