@@ -1806,11 +1806,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const knowledgeInput = document.getElementById('worldknowledge_tags');
   const knowledgeLabel = document.querySelector('label[for="worldknowledge_tags"]');
   if (!knowledgeInput) return;
-  knowledgeInput.placeholder = 'common, mojave, scientist';
+  knowledgeInput.placeholder = 'mojave, wastelander, scientist';
   if (knowledgeLabel) knowledgeLabel.textContent = 'World Knowledge Classes';
   const hint = knowledgeInput.nextElementSibling;
   if (hint && hint.classList.contains('hint')) {
-    hint.textContent = 'Comma-separated article access classes, not retrieval tags. Common choices: common, capital_wasteland, mojave, wastelander, historian, scientist, doctor, engineer, merchant, caravaner, tribal, vault_dweller, ghoul, super_mutant, robot, military, ncr, legion, brotherhood, enclave, followers, great_khan, boomers, powder_ganger, raider, courier, or knowall.';
+    hint.textContent = 'Comma-separated article access classes, not retrieval tags. Typical choices: capital_wasteland, mojave, wastelander, historian, scientist, doctor, engineer, merchant, caravaner, tribal, vault_dweller, ghoul, super_mutant, robot, military, ncr, legion, brotherhood, enclave, followers, great_khan, boomers, powder_ganger, raider, courier, or knowall.';
   }
 });
 

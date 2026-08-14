@@ -4665,6 +4665,26 @@ if ($checkVersion('worldknowledge_herika_v1') < 20260814002) {
     }
 }
 
+if ($checkVersion('worldknowledge_npc_common_cleanup') < 20260814003) {
+    Logger::debug('Applying worldknowledge_npc_common_cleanup 20260814003 - remove the legacy public marker from factory NPC tags');
+    $migrationOk = false;
+    try {
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        $updatedNpcTags = dialecticWorldKnowledgeInstallNpcAccessTags(
+            $db,
+            dirname(__DIR__) . DIRECTORY_SEPARATOR
+        );
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        Logger::error('Error removing the legacy common marker from factory NPC tags: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_npc_common_cleanup', 20260814003);
+        Logger::info("Applied patch worldknowledge_npc_common_cleanup 20260814003; updated {$updatedNpcTags} factory NPC tag rows");
+    }
+}
+
 if ($checkVersion("latest_diary_context") < 20260727001) {
     Logger::debug("Applying latest_diary_context 20260727001 - index latest NPC diary lookups");
 

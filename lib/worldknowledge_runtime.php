@@ -168,10 +168,14 @@ function dialecticWorldKnowledgeKnowledgeTags(): array
         }
     }
 
-    return array_values(array_unique(array_filter(array_map(
+    $normalizedTags = array_values(array_unique(array_filter(array_map(
         'dialecticWorldKnowledgeNormalizeAccessTag',
         $tags
     ))));
+    return array_values(array_filter(
+        $normalizedTags,
+        static fn(string $tag): bool => $tag !== 'common'
+    ));
 }
 
 /** Map runtime worldspace variants into the two principal TTW knowledge regions. */
