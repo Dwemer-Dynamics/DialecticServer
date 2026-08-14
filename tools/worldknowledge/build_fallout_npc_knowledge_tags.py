@@ -101,11 +101,6 @@ RACE_RULES = {
 }
 
 
-def normalize(value: str) -> str:
-    value = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
-    return value
-
-
 def parse_sql_strings(tuple_text: str) -> list[str | None]:
     values: list[str | None] = []
     index = 0
@@ -167,10 +162,7 @@ def extract_rows(sql: str) -> list[list[str | None]]:
 
 
 def build_tags(row: list[str | None]) -> list[str]:
-    npc_name = str(row[0] or "")
-    identity = normalize(npc_name.split("__", 1)[0])
-    identity = {"powder_ganger": "powder_gangers"}.get(identity, identity)
-    tags = {identity}
+    tags: set[str] = set()
     core, bio, appearance, occupation, skills, race = (
         str(row[2] or ""), str(row[3] or ""), str(row[4] or ""),
         str(row[7] or ""), str(row[8] or ""), str(row[13] or ""),

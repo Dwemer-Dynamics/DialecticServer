@@ -196,10 +196,10 @@ def tier_exclusive_rules(
 
 
 def canonical_npc_tags(value: object, allowed: set[str], identity: str = "") -> str:
-    tags = [identity] if identity else []
+    tags = []
     for raw_tag in str(value).split(","):
         tag = canonical_tag(raw_tag)
-        if tag and tag in allowed and tag not in tags:
+        if tag and tag != identity and tag in allowed and tag not in tags:
             tags.append(tag)
     return ",".join(sorted(tags))
 
@@ -416,7 +416,7 @@ def rewrite_npc_tags(path: Path, *, check: bool, allowed: set[str]) -> tuple[int
     changed = 0
     for row in rows:
         original = row["worldknowledge_tags"]
-        identity = canonical_tag(row["npc_name"].split("__", 1)[0])
+        identity = snake_case(row["npc_name"].split("__", 1)[0])
         canonical = canonical_npc_tags(original, allowed, identity)
         if canonical != row["worldknowledge_tags"]:
             row["worldknowledge_tags"] = canonical
@@ -446,12 +446,13 @@ def main() -> int:
     vocabulary = json.loads(VOCABULARY.read_text(encoding="utf-8"))
     article_access_markers = set(vocabulary.get("article_access_markers", []))
     domains = set(vocabulary["domains"])
-    stable_classes = {
+    npc_assignable_classes = {
         *vocabulary["roles"],
+        *vocabulary["domains"],
         *vocabulary["factions"],
         *vocabulary["races"],
         *vocabulary["regions"],
-        *vocabulary["reserved"],
+        *vocabulary["localities"],
     }
     tag_frequency = npc_tag_frequency(NPC_TAGS)
     excluded, source_merges, overrides = load_editorial_curation()
@@ -479,7 +480,7 @@ def main() -> int:
     npc_changes, _ = rewrite_npc_tags(
         NPC_TAGS,
         check=args.check,
-        allowed=(stable_classes | used_classes) - article_access_markers,
+        allowed=npc_assignable_classes - article_access_markers,
     )
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     expected_checksum = hashlib.sha256(catalog_content).hexdigest()

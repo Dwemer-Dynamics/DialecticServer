@@ -708,7 +708,7 @@ class NpcMaster
 
         return $templateRow ?: [
             'core' => 'Roleplay as ' . $codename,
-            'worldknowledge_tags' => $codename,
+            'worldknowledge_tags' => '',
             'npc_static_bio' => '',
             'personality' => '',
             'appearance' => '',
@@ -722,10 +722,17 @@ class NpcMaster
 
     private function composeKnowledgeString($misc, $codename)
     {
-        $miscParts = array_unique(array_filter(array_map('trim', explode(',', $misc))));
-        if (! in_array($codename, $miscParts)) {
-            $miscParts[] = $codename;
-        }
+        $normalizeTag = static function ($tag): string {
+            $normalized = strtolower(preg_replace('/[^a-z0-9]+/i', '_', trim((string)$tag)) ?? '');
+            return trim($normalized, '_');
+        };
+        $normalizedCodename = $normalizeTag($codename);
+        $miscParts = array_unique(array_filter(
+            array_map($normalizeTag, preg_split('/\s*[,|;]\s*/', (string)$misc) ?: []),
+            static fn($tag): bool => $tag !== ''
+                && $tag !== $normalizedCodename
+                && !in_array($tag, ['blocked', 'common'], true)
+        ));
         return implode(', ', $miscParts);
     }
 

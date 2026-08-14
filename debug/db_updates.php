@@ -4701,6 +4701,45 @@ if ($checkVersion('worldknowledge_npc_common_cleanup') < 20260814004) {
     }
 }
 
+if ($checkVersion('worldknowledge_npc_class_cleanup') < 20260814005) {
+    Logger::debug('Applying worldknowledge_npc_class_cleanup 20260814005 - remove persisted NPC subject classes');
+    $migrationOk = false;
+    try {
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        $updatedNpcTags = dialecticWorldKnowledgeInstallNpcAccessTags(
+            $db,
+            dirname(__DIR__) . DIRECTORY_SEPARATOR
+        );
+        $removedSubjectTags = 0;
+        foreach (['bio_templates', 'bio_templates_custom', 'core_npc_master', 'core_npc_master_history'] as $npcTable) {
+            $normalizedNpcName = "trim(both '_' from regexp_replace(lower(split_part(coalesce(npc.npc_name,''),'__',1)), '[^a-z0-9]+', '_', 'g'))";
+            $result = $db->fetchOne(
+                "WITH updated AS (UPDATE public.{$npcTable} AS npc SET worldknowledge_tags=COALESCE(("
+                . "SELECT string_agg(btrim(entry.tag), ',' ORDER BY entry.ordinality)"
+                . " FROM unnest(string_to_array(coalesce(npc.worldknowledge_tags,''), ','))"
+                . " WITH ORDINALITY AS entry(tag, ordinality)"
+                . " WHERE btrim(entry.tag)<>''"
+                . " AND lower(btrim(entry.tag))<>({$normalizedNpcName})"
+                . "),'') WHERE ({$normalizedNpcName})<>'' AND ({$normalizedNpcName})=ANY("
+                . "regexp_split_to_array(lower(coalesce(npc.worldknowledge_tags,'')), '[,|[:space:]]+'))"
+                . " RETURNING 1) SELECT count(*) AS updated FROM updated"
+            );
+            if (!is_array($result) || !array_key_exists('updated', $result)) {
+                throw new RuntimeException("Unable to remove persisted NPC subjects from {$npcTable} World Knowledge tags");
+            }
+            $removedSubjectTags += intval($result['updated'] ?? 0);
+        }
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        Logger::error('Error removing persisted NPC subject classes: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_npc_class_cleanup', 20260814005);
+        Logger::info("Applied patch worldknowledge_npc_class_cleanup 20260814005; reprojected {$updatedNpcTags} factory rows and removed subjects from {$removedSubjectTags} NPC tag rows");
+    }
+}
+
 if ($checkVersion("latest_diary_context") < 20260727001) {
     Logger::debug("Applying latest_diary_context 20260727001 - index latest NPC diary lookups");
 

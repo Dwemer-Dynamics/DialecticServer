@@ -1,12 +1,12 @@
 {
   "format": "dwemer.dialectic-worldknowledge-vocabulary.v1",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "frozen_on": "2026-08-13",
   "canonical_style": "lowercase_snake_case",
   "semantics": {
     "knowledge_tags": "Plain permissions representing knowledge an NPC can plausibly use.",
     "article_tags": "Natural descriptive phrases used for search and for ranking an already grounded topic.",
-    "profile_subjects": "Exact plain NPC IDs used only for knowledge specifically about that NPC.",
+    "profile_subjects": "Exact NPC IDs are inferred at request time for self-knowledge and are never persisted as profile tags.",
     "rule_grammar": "Comma-separated classes are simple alternatives. A matching exclamation-prefixed class denies first. Empty classes are unrestricted."
   },
   "roles": [
@@ -31,6 +31,13 @@
   "regions": [
     "anchorage", "big_mt", "capital_wasteland", "divide", "mojave",
     "mothership_zeta", "point_lookout", "sierra_madre", "the_pitt", "zion"
+  ],
+  "localities": [
+    "big_town", "camp_mccarran", "canterbury_commons", "freeside",
+    "goodsprings", "hidden_valley", "hoover_dam", "jacobstown",
+    "little_lamplight", "megaton", "new_vegas", "new_vegas_strip",
+    "novac", "paradise_falls", "primm", "red_rock_canyon", "rivet_city",
+    "tenpenny_tower", "underworld", "vault_101", "westside"
   ],
   "reserved": ["blocked", "common", "knowall"],
   "article_access_markers": ["blocked", "common"],
@@ -75,7 +82,8 @@
   },
   "biography_rules": {
     "always_add": [],
-    "person": "Use the exact NPC ID for self or personal knowledge.",
+    "never_assign": ["blocked", "common", "knowall"],
+    "person": "Never persist an NPC ID as a profile tag; self-knowledge is inferred at request time.",
     "location": "Use current or former stable familiarity, not transient quest destinations.",
     "occupation": "Grant only practiced knowledge-bearing roles.",
     "faction": "Grant only authoritative membership or explicit durable biography evidence."

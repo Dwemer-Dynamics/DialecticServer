@@ -318,10 +318,13 @@ function dialecticWorldKnowledgeInstallNpcAccessTags(object $db, string $rootPat
                 'dialecticWorldKnowledgeNormalizeAccessTag',
                 explode(',', strval($row[1]))
             ))));
-            if ($npcName === '' || $tags === []) {
-                throw new RuntimeException('Fallout NPC World Knowledge tag row is empty');
+            if ($npcName === '') {
+                throw new RuntimeException('Fallout NPC World Knowledge tag row has no NPC name');
             }
-            $rawTags = array_map('trim', explode(',', strval($row[1])));
+            $rawTags = array_values(array_filter(
+                array_map('trim', explode(',', strval($row[1]))),
+                static fn(string $tag): bool => $tag !== ''
+            ));
             foreach ($rawTags as $index => $tag) {
                 if (!preg_match('/^[a-z0-9][a-z0-9_]{0,100}$/', $tag)
                     || ($tags[$index] ?? '') !== $tag) {
@@ -361,13 +364,21 @@ function dialecticWorldKnowledgeInstallNpcAccessTags(object $db, string $rootPat
         ))));
         sort($currentTags);
         sort($seedTags);
-        $legacySeedTags = $seedTags;
-        $legacySeedTags[] = 'common';
-        $legacySeedTags = array_values(array_unique($legacySeedTags));
-        sort($legacySeedTags);
         $identityTag = dialecticWorldKnowledgeNormalizeAccessTag(strval($existingRow['npc_name'] ?? ''));
-        $legacyFilteredSeedTags = array_values(array_diff($legacySeedTags, [$identityTag]));
-        sort($legacyFilteredSeedTags);
+        $recognizedSeedVariants = [$seedTags];
+        foreach ([
+            ['common'],
+            [$identityTag],
+            ['knowall'],
+            ['common', $identityTag],
+            ['knowall', $identityTag],
+            ['common', 'knowall'],
+            ['common', 'knowall', $identityTag],
+        ] as $legacyExtras) {
+            $legacySeedTags = array_values(array_unique(array_filter(array_merge($seedTags, $legacyExtras))));
+            sort($legacySeedTags);
+            $recognizedSeedVariants[] = $legacySeedTags;
+        }
         $legacyCurrentTags = $currentTags;
         $legacyCurrentTags[] = 'common';
         $legacyCurrentTags = array_values(array_unique($legacyCurrentTags));
@@ -378,8 +389,8 @@ function dialecticWorldKnowledgeInstallNpcAccessTags(object $db, string $rootPat
             || hash_equals($priorSeedHash, hash('sha256', implode(',', $currentTags)))
             || hash_equals($priorSeedHash, hash('sha256', implode(',', $legacyCurrentTags)))
         );
-        $matchesLegacyCommonSeed = $currentTags === $legacySeedTags || $currentTags === $legacyFilteredSeedTags;
-        if ($currentRaw !== '' && $currentTags !== $seedTags && !$matchesPriorSeed && !$matchesLegacyCommonSeed) {
+        $matchesRecognizedSeed = in_array($currentTags, $recognizedSeedVariants, true);
+        if ($currentRaw !== '' && !$matchesPriorSeed && !$matchesRecognizedSeed) {
             continue;
         }
         $updatesSql[] = '(' . $db->escapeLiteral(strval($existingRow['npc_name'] ?? '')) . ','

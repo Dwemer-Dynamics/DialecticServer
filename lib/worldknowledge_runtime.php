@@ -174,7 +174,7 @@ function dialecticWorldKnowledgeKnowledgeTags(): array
     ))));
     return array_values(array_filter(
         $normalizedTags,
-        static fn(string $tag): bool => $tag !== 'common'
+        static fn(string $tag): bool => !in_array($tag, ['blocked', 'common'], true)
     ));
 }
 
