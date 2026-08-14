@@ -26,9 +26,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 }
 
 try {
-    $result = dialecticWorldKnowledgeInstallFactoryCatalog($GLOBALS['db'], $rootPath, true);
+    $result = dialecticWorldKnowledgeInstallFactoryCatalog($GLOBALS['db'], $rootPath);
     $redirect(
-        'Factory catalog restored: ' . $result['catalog_id'] . '/' . $result['catalog_version']
+        'Factory catalog synchronized: ' . $result['catalog_id'] . '/' . $result['catalog_version']
         . ' (' . $result['row_count'] . ' articles). Custom articles were preserved.'
     );
 } catch (Throwable $exception) {

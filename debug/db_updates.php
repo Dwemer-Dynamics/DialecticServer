@@ -4459,7 +4459,7 @@ if ($checkVersion("fallout_worldknowledge_seed") < 20260722001) {
 }
 
 if ($checkVersion('worldknowledge_parity') < 20260813001) {
-    Logger::debug('Applying worldknowledge_parity 20260813001 - add versioned factory catalogs and structured audit');
+    Logger::debug('Applying worldknowledge_parity 20260813001 - add factory catalog metadata and structured audit');
     $migrationOk = false;
     $transactionOpen = false;
     try {
@@ -4482,7 +4482,7 @@ if ($checkVersion('worldknowledge_parity') < 20260813001) {
         }
         $transactionOpen = false;
         require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
-        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR, true);
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
         $migrationOk = true;
     } catch (Throwable $e) {
         if ($transactionOpen) {
@@ -4518,7 +4518,7 @@ if ($checkVersion('worldknowledge_access') < 20260813001) {
         }
         $transactionOpen = false;
         require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
-        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR, true);
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
         $migrationOk = true;
     } catch (Throwable $e) {
         if ($transactionOpen) {
@@ -4553,7 +4553,7 @@ if ($checkVersion('worldknowledge_canonical_tags') < 20260813003) {
         }
         $transactionOpen = false;
         require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
-        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR, true);
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
         $updateVersion('worldknowledge_canonical_tags', 20260813003);
         Logger::info('Applied patch worldknowledge_canonical_tags 20260813003');
     } catch (Throwable $e) {
@@ -4584,7 +4584,7 @@ if ($checkVersion('worldknowledge_oghma_parity') < 20260814001) {
         }
         $transactionOpen = false;
         require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
-        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR, true);
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
         $invalidCatalogRows = $db->fetchAll(
             "SELECT catalog.catalog_id, catalog.catalog_version"
             . " FROM public.worldknowledge_catalogs AS catalog"
@@ -4650,7 +4650,7 @@ if ($checkVersion('worldknowledge_herika_v1') < 20260814002) {
         $transactionOpen = false;
 
         require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
-        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR, true);
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
         $migrationOk = true;
     } catch (Throwable $e) {
         if ($transactionOpen) {
@@ -4747,18 +4747,17 @@ if ($checkVersion('worldknowledge_catalog_integrity') < 20260814006) {
         require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
         $catalogResult = dialecticWorldKnowledgeInstallFactoryCatalog(
             $db,
-            dirname(__DIR__) . DIRECTORY_SEPARATOR,
-            true
+            dirname(__DIR__) . DIRECTORY_SEPARATOR
         );
         $migrationOk = true;
     } catch (Throwable $e) {
-        Logger::error('Error restoring the complete active World Knowledge catalog: ' . $e->getMessage());
+        Logger::error('Error synchronizing the complete World Knowledge catalog: ' . $e->getMessage());
     }
 
     if ($migrationOk) {
         $updateVersion('worldknowledge_catalog_integrity', 20260814006);
         Logger::info(
-            'Applied patch worldknowledge_catalog_integrity 20260814006; activated '
+            'Applied patch worldknowledge_catalog_integrity 20260814006; synchronized '
             . $catalogResult['catalog_id'] . '/' . $catalogResult['catalog_version']
             . ' with ' . $catalogResult['row_count'] . ' factory articles'
         );

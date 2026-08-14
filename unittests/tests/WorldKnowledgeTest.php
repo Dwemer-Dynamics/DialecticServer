@@ -184,13 +184,10 @@ final class WorldKnowledgeTest extends DatabaseTestCase
                  'history', 'custom', TRUE)
         ");
         $before = $testDb->fetchAll("
-            SELECT entry_id, canonical_topic, content_hash
+            SELECT canonical_topic, content_hash
               FROM worldknowledge
              WHERE source_kind = 'factory'
              ORDER BY canonical_topic
-        ");
-        $activationBefore = $testDb->fetchOne("
-            SELECT activated_at FROM worldknowledge_catalogs WHERE is_active LIMIT 1
         ");
         $testDb->execQuery("
             UPDATE bio_templates
@@ -202,17 +199,15 @@ final class WorldKnowledgeTest extends DatabaseTestCase
              WHERE npc_name IN ('doc_mitchell', 'sunny_smiles')
         ");
 
-        $first = dialecticWorldKnowledgeInstallFactoryCatalog($testDb, $root, true);
-        $second = dialecticWorldKnowledgeInstallFactoryCatalog($testDb, $root, true);
+        $first = dialecticWorldKnowledgeInstallFactoryCatalog($testDb, $root);
+        $second = dialecticWorldKnowledgeInstallFactoryCatalog($testDb, $root);
         $after = $testDb->fetchAll("
-            SELECT entry_id, canonical_topic, content_hash
+            SELECT canonical_topic, content_hash
               FROM worldknowledge
              WHERE source_kind = 'factory'
              ORDER BY canonical_topic
         ");
-        $activationAfter = $testDb->fetchOne("
-            SELECT activated_at FROM worldknowledge_catalogs WHERE is_active LIMIT 1
-        ");
+        $catalogCount = $testDb->fetchOne('SELECT COUNT(*) AS total FROM worldknowledge_catalogs');
         $custom = $testDb->fetchOne("
             SELECT topic_desc_basic
               FROM worldknowledge_effective
@@ -227,8 +222,8 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $testDb->close();
 
         $this->assertSame($before, $after);
-        $this->assertSame($activationBefore, $activationAfter);
         $this->assertSame($first['checksum_sha256'], $second['checksum_sha256']);
+        $this->assertSame(1, intval($catalogCount['total'] ?? 0));
         $this->assertSame(
             'A deliberately user-authored article that must survive factory reprovisioning.',
             $custom['topic_desc_basic'] ?? null
@@ -239,7 +234,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $this->assertStringNotContainsString(':', $templateTags[1]['worldknowledge_tags'] ?? '');
     }
 
-    public function testIncompleteCatalogCannotReplaceTheActiveFactoryCatalog(): void
+    public function testSyncRemovesObsoleteCatalogMetadata(): void
     {
         $root = dirname(__DIR__, 2);
         $catalog = dialecticWorldKnowledgeLoadFactoryCatalog($root);
@@ -253,12 +248,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
                 ('{$catalogId}', 'incomplete-fixture', 'Incomplete fixture', '" . str_repeat('0', 64) . "', 1, '{}'::jsonb, FALSE)
         ");
 
-        try {
-            dialecticWorldKnowledgeActivateCatalog($testDb, $catalogId, 'incomplete-fixture');
-            $this->fail('Incomplete factory catalog activation should fail');
-        } catch (RuntimeException $exception) {
-            $this->assertStringContainsString('expected 1 factory articles, found 0', $exception->getMessage());
-        }
+        dialecticWorldKnowledgeInstallFactoryCatalog($testDb, $root);
         $stillActive = $testDb->fetchOne("
             SELECT catalog_version FROM worldknowledge_catalogs WHERE is_active LIMIT 1
         ");
@@ -272,7 +262,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
 
         $this->assertSame($catalogVersion, $stillActive['catalog_version'] ?? null);
         $this->assertSame(1169, intval($effectiveFactory['total'] ?? -1));
-        $this->assertSame(2, intval($installedVersions['total'] ?? 0));
+        $this->assertSame(1, intval($installedVersions['total'] ?? 0));
     }
 
     public function testLegacySeedCleanupRemovesOnlyUneditedSeedRows(): void

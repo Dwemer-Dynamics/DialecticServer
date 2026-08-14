@@ -44,7 +44,7 @@ Legacy namespaced permissions such as `faction:ncr` and `region:mojave` normaliz
 
 ## Catalog lifecycle
 
-Factory catalogs are immutable, versioned, checksum-verified sets. Activation and rollback are transactional. Factory rows and user-created rows have separate ownership. Installing or activating a factory catalog never overwrites or deletes a custom article. A custom article with the same canonical topic is the effective override while it remains active.
+The checked-in factory dataset is checksum verified before any database write. Synchronization transactionally replaces the factory rows and keeps only the current dataset metadata. User-created rows have separate ownership and are never overwritten or deleted. A custom article with the same canonical topic remains the effective override while it is active. Git revert plus redeploy is the rollback path.
 
 ## Trace contract
 

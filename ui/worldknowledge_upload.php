@@ -148,19 +148,8 @@ function worldknowledge_filter_alias_input($conn, string $schema, string $topic,
     return dialecticWorldKnowledgeFilterAliases($topic, $aliases, $rows);
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'activate_catalog') {
-    try {
-        dialecticWorldKnowledgeActivateCatalog(
-            $GLOBALS['db'],
-            trim((string)($_POST['catalog_id'] ?? '')),
-            trim((string)($_POST['catalog_version'] ?? ''))
-        );
-        $message .= '<p>Factory catalog activated successfully.</p>';
-    } catch (Throwable $exception) {
-        $message .= '<p>Catalog activation failed: ' . htmlspecialchars($exception->getMessage()) . '</p>';
-    }
-}
-
+// The shipped catalog is the only factory dataset, so the page reads the one
+// active row for display and offers no version picker.
 $activeCatalog = null;
 $catalogResult = @pg_query(
     $conn,
@@ -171,18 +160,6 @@ $catalogResult = @pg_query(
 );
 if ($catalogResult) {
     $activeCatalog = pg_fetch_assoc($catalogResult) ?: null;
-}
-$installedCatalogs = [];
-$installedCatalogResult = @pg_query(
-    $conn,
-    "SELECT catalog_id, catalog_version, display_name, checksum_sha256, row_count, is_active, installed_at, activated_at
-       FROM {$schema}.worldknowledge_catalogs
-      ORDER BY installed_at DESC, catalog_id, catalog_version"
-);
-if ($installedCatalogResult) {
-    while ($installedCatalog = pg_fetch_assoc($installedCatalogResult)) {
-        $installedCatalogs[] = $installedCatalog;
-    }
 }
 
 /********************************************************************
@@ -937,26 +914,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         overflow-wrap: break-word;
     }
 
-    /* One installed factory catalog version, with its activation control. */
-    .catalog-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin: 8px 0 0;
-        padding: 8px 10px;
-        background: rgba(26, 26, 26, 0.8);
-        border: 1px solid #3a3a3a;
-        border-radius: 4px;
-        color: #aaa;
-        font-size: 0.95em;
-    }
-
-    .catalog-row form {
-        margin: 0;
-    }
-
     /* Modal specific overrides */
     .modal-backdrop {
         overflow-y: auto !important;
@@ -1509,10 +1466,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             margin-top: 10px;
         }
 
-        .catalog-row {
-            flex-direction: column;
-            align-items: stretch;
-        }
     }
 </style>
 
@@ -1590,42 +1543,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
             <div class="content-section">
                 <h2>Database Management</h2>
-                <?php if ($activeCatalog || $installedCatalogs): ?>
+                <?php if ($activeCatalog): ?>
                     <details class="header-note">
                         <summary>Factory catalog details</summary>
-                        <?php if ($activeCatalog): ?>
-                            <p><b>Active:</b>
-                                <?php echo htmlspecialchars($activeCatalog['display_name'] ?? 'DIALECTIC Fallout'); ?>
-                                <code><?php echo htmlspecialchars(($activeCatalog['catalog_id'] ?? '') . '/' . ($activeCatalog['catalog_version'] ?? '')); ?></code><br>
-                                <?php echo intval($activeCatalog['row_count'] ?? 0); ?> articles &middot;
-                                SHA-256 <code><?php echo htmlspecialchars(substr((string)($activeCatalog['checksum_sha256'] ?? ''), 0, 12)); ?>&hellip;</code>
-                            </p>
-                        <?php else: ?>
-                            <p style="color:#ffb641;"><b>No active factory catalog.</b> Use Restore Factory Catalog.</p>
-                        <?php endif; ?>
-                        <?php foreach ($installedCatalogs as $catalog): ?>
-                            <?php $catalogIsActive = in_array(strtolower((string)($catalog['is_active'] ?? '')), ['1', 't', 'true', 'yes', 'on'], true); ?>
-                            <div class="catalog-row">
-                                <span>
-                                    <b><?php echo htmlspecialchars($catalog['catalog_id'] . '/' . $catalog['catalog_version']); ?></b>
-                                    &middot; <?php echo intval($catalog['row_count']); ?> articles
-                                    <?php if ($catalogIsActive): ?>
-                                        &middot; Active
-                                    <?php endif; ?>
-                                </span>
-                                <?php if (!$catalogIsActive): ?>
-                                    <form method="post" style="margin:0;">
-                                        <input type="hidden" name="action" value="activate_catalog">
-                                        <input type="hidden" name="catalog_id" value="<?php echo htmlspecialchars($catalog['catalog_id']); ?>">
-                                        <input type="hidden" name="catalog_version" value="<?php echo htmlspecialchars($catalog['catalog_version']); ?>">
-                                        <button class="action-button" type="submit" onclick="return confirm('Activate this installed factory catalog?');">Activate</button>
-                                    </form>
-                                <?php endif; ?>
-                            </div>
-                        <?php endforeach; ?>
+                        <p>The catalog shipped with DIALECTIC is the only factory dataset. Syncing replaces the factory rows; it never chooses between versions.</p>
+                        <p><b>In use:</b>
+                            <?php echo htmlspecialchars($activeCatalog['display_name'] ?? 'DIALECTIC Fallout'); ?>
+                            <code><?php echo htmlspecialchars(($activeCatalog['catalog_id'] ?? '') . '/' . ($activeCatalog['catalog_version'] ?? '')); ?></code><br>
+                            <?php echo intval($activeCatalog['row_count'] ?? 0); ?> articles &middot;
+                            SHA-256 <code><?php echo htmlspecialchars(substr((string)($activeCatalog['checksum_sha256'] ?? ''), 0, 12)); ?>&hellip;</code>
+                        </p>
                     </details>
                 <?php else: ?>
-                    <p style="color:#ffb641;"><b>No active factory catalog.</b> Use Restore Factory Catalog.</p>
+                    <p style="color:#ffb641;"><b>Factory catalog not installed.</b> Use Sync Factory Catalog below.</p>
                 <?php endif; ?>
                 <p>Verify uploads: <br><b>Server Actions &rarr; Database Manager &rarr; dialectic &rarr; public &rarr; worldknowledge</b></p>
                 <p>View retrieval decisions: <br><a href="<?php echo $webRoot; ?>/ui/worldknowledge_audit.php">World Knowledge Audit</a></p>
@@ -1638,10 +1568,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     </form>
                     
                     <form action="<?php echo $webRoot; ?>/ui/worldknowledge_reset.php" method="post" style="display: inline;">
-                        <input type="submit" class="action-button" value="Restore Factory Catalog"
-                    onclick="return confirm('Restore and activate the shipped DIALECTIC factory catalog? Custom articles will be preserved.');">
+                        <input type="submit" class="action-button" value="Sync Factory Catalog"
+                    onclick="return confirm('Re-sync the shipped DIALECTIC factory catalog? Your custom articles will be preserved.');">
                     </form>
                 </div>
+                <p>Sync replaces the shipped factory articles in a single transaction. <b>Your custom articles are always preserved.</b></p>
             </div>
         </div>
         <div class="full-width-section">

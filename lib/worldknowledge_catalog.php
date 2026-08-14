@@ -436,17 +436,12 @@ function dialecticWorldKnowledgeAssertCatalogComplete(object $db, string $catalo
     return $installedRows;
 }
 
-/** Install one immutable factory version, then atomically make it the effective catalog. */
-function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPath, bool $activate = true): array
+/** Validate and synchronize the checked-in factory dataset in one transaction. */
+function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPath): array
 {
     if (!method_exists($db, 'execQuery') || !method_exists($db, 'fetchOne')
         || !method_exists($db, 'fetchAll') || !method_exists($db, 'escapeLiteral')) {
         throw new InvalidArgumentException('World Knowledge catalog installation requires the PostgreSQL database adapter');
-    }
-    foreach (['worldknowledge_topic_unique_idx', 'worldknowledge_canonical_topic_unique_idx'] as $legacyIndex) {
-        if (!$db->execQuery('DROP INDEX IF EXISTS public.' . $legacyIndex)) {
-            throw new RuntimeException("Unable to remove obsolete World Knowledge index {$legacyIndex}");
-        }
     }
     $catalog = dialecticWorldKnowledgeLoadFactoryCatalog($rootPath);
     $manifest = $catalog['manifest'];
@@ -456,48 +451,32 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
     $checksum = strval($catalog['checksum_sha256']);
     $manifestJson = json_encode($manifest, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
-    $existing = $db->fetchOne(
-        'SELECT checksum_sha256, row_count FROM public.worldknowledge_catalogs'
-        . ' WHERE catalog_id=' . $db->escapeLiteral($catalogId)
-        . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion)
-        . ' LIMIT 1'
-    );
-    if (is_array($existing) && $existing !== []
-        && (!hash_equals(strval($existing['checksum_sha256'] ?? ''), $checksum)
-            || intval($existing['row_count'] ?? -1) !== count($catalog['rows']))) {
-        throw new RuntimeException("Installed World Knowledge catalog {$catalogId}/{$catalogVersion} has different immutable content");
-    }
-
-    $replaceRows = true;
-    if (is_array($existing) && $existing !== []) {
-        $installedRows = $db->fetchAll(
-            'SELECT canonical_topic, content_hash FROM public.worldknowledge WHERE source_kind=\'factory\''
-            . ' AND catalog_id=' . $db->escapeLiteral($catalogId)
-            . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion)
-            . ' ORDER BY canonical_topic'
-        );
-        $installedHashes = [];
-        foreach ((array)$installedRows as $installedRow) {
-            $installedHashes[strval($installedRow['canonical_topic'] ?? '')] = strval($installedRow['content_hash'] ?? '');
-        }
-        $expectedHashes = [];
-        foreach ($catalog['rows'] as $row) {
-            $expectedHashes[$row['canonical_topic']] = $row['content_hash'];
-        }
-        ksort($installedHashes);
-        ksort($expectedHashes);
-        $replaceRows = $installedHashes !== $expectedHashes;
-    }
-
     $transactionOpen = false;
     try {
         if (!$db->execQuery('BEGIN')) {
             throw new RuntimeException('Unable to begin World Knowledge catalog installation');
         }
         $transactionOpen = true;
+        foreach (['worldknowledge_topic_unique_idx', 'worldknowledge_canonical_topic_unique_idx'] as $legacyIndex) {
+            if (!$db->execQuery('DROP INDEX IF EXISTS public.' . $legacyIndex)) {
+                throw new RuntimeException("Unable to remove obsolete World Knowledge index {$legacyIndex}");
+            }
+        }
         $legacySeedRemoved = dialecticWorldKnowledgeRemoveLegacyFactorySeed($db, $rootPath);
+        if (!$db->execQuery("DELETE FROM public.worldknowledge WHERE source_kind='factory'")) {
+            throw new RuntimeException('Unable to replace World Knowledge factory rows');
+        }
+        if (!$db->execQuery(
+            "UPDATE public.worldknowledge SET catalog_id=NULL, catalog_version=NULL WHERE source_kind<>'factory'"
+            . ' AND (catalog_id IS NOT NULL OR catalog_version IS NOT NULL)'
+        )) {
+            throw new RuntimeException('Unable to detach custom World Knowledge rows from factory metadata');
+        }
+        if (!$db->execQuery('DELETE FROM public.worldknowledge_catalogs')) {
+            throw new RuntimeException('Unable to replace World Knowledge catalog metadata');
+        }
         $catalogSql = 'INSERT INTO public.worldknowledge_catalogs '
-            . '(catalog_id,catalog_version,display_name,checksum_sha256,row_count,manifest,is_active) VALUES ('
+            . '(catalog_id,catalog_version,display_name,checksum_sha256,row_count,manifest,is_active,activated_at) VALUES ('
             . implode(',', [
                 $db->escapeLiteral($catalogId),
                 $db->escapeLiteral($catalogVersion),
@@ -505,22 +484,14 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
                 $db->escapeLiteral($checksum),
                 strval(count($catalog['rows'])),
                 $db->escapeLiteral($manifestJson) . '::jsonb',
-                'FALSE',
+                'TRUE',
+                'CURRENT_TIMESTAMP',
             ])
-            . ') ON CONFLICT (catalog_id,catalog_version) DO UPDATE SET '
-            . 'display_name=EXCLUDED.display_name, manifest=EXCLUDED.manifest';
+            . ')';
         if (!$db->execQuery($catalogSql)) {
             throw new RuntimeException('Unable to record World Knowledge catalog manifest');
         }
-        if ($replaceRows && !$db->execQuery(
-            'DELETE FROM public.worldknowledge WHERE source_kind=\'factory\''
-            . ' AND catalog_id=' . $db->escapeLiteral($catalogId)
-            . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion)
-        )) {
-            throw new RuntimeException('Unable to replace staged World Knowledge factory rows');
-        }
-
-        foreach ($replaceRows ? $catalog['rows'] : [] as $row) {
+        foreach ($catalog['rows'] as $row) {
             $values = [
                 $db->escapeLiteral($row['topic']),
                 $db->escapeLiteral($row['canonical_topic']),
@@ -552,23 +523,6 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
         $npcTemplateTagsInstalled = dialecticWorldKnowledgeInstallNpcAccessTags($db, $rootPath);
         dialecticWorldKnowledgeAssertCatalogComplete($db, $catalogId, $catalogVersion);
 
-        if ($activate) {
-            if (!$db->execQuery(
-                'UPDATE public.worldknowledge_catalogs SET is_active=FALSE, activated_at=NULL WHERE is_active'
-                . ' AND NOT (catalog_id=' . $db->escapeLiteral($catalogId)
-                . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion) . ')'
-            )) {
-                throw new RuntimeException('Unable to deactivate the previous World Knowledge catalog');
-            }
-            if (!$db->execQuery(
-                'UPDATE public.worldknowledge_catalogs SET is_active=TRUE, activated_at=CURRENT_TIMESTAMP'
-                . ' WHERE catalog_id=' . $db->escapeLiteral($catalogId)
-                . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion)
-                . ' AND NOT is_active'
-            )) {
-                throw new RuntimeException('Unable to activate the new World Knowledge catalog');
-            }
-        }
         if (!$db->execQuery('COMMIT')) {
             throw new RuntimeException('Unable to commit World Knowledge catalog installation');
         }
@@ -585,46 +539,10 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
         'catalog_version' => $catalogVersion,
         'checksum_sha256' => $checksum,
         'row_count' => count($catalog['rows']),
-        'active' => $activate,
+        'synchronized' => true,
         'legacy_seed_rows_removed' => $legacySeedRemoved ?? 0,
         'npc_template_tags_installed' => $npcTemplateTagsInstalled ?? 0,
     ];
-}
-
-function dialecticWorldKnowledgeActivateCatalog(object $db, string $catalogId, string $catalogVersion): void
-{
-    $transactionOpen = false;
-    try {
-        if (!$db->execQuery('BEGIN')) {
-            throw new RuntimeException('Unable to begin World Knowledge catalog activation');
-        }
-        $transactionOpen = true;
-        dialecticWorldKnowledgeAssertCatalogComplete($db, $catalogId, $catalogVersion);
-        if (!$db->execQuery(
-            'UPDATE public.worldknowledge_catalogs SET is_active=FALSE, activated_at=NULL WHERE is_active'
-            . ' AND NOT (catalog_id=' . $db->escapeLiteral($catalogId)
-            . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion) . ')'
-        )) {
-            throw new RuntimeException('Unable to deactivate the current World Knowledge catalog');
-        }
-        if (!$db->execQuery(
-            'UPDATE public.worldknowledge_catalogs SET is_active=TRUE, activated_at=CURRENT_TIMESTAMP'
-            . ' WHERE catalog_id=' . $db->escapeLiteral($catalogId)
-            . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion)
-            . ' AND NOT is_active'
-        )) {
-            throw new RuntimeException('Unable to activate the requested World Knowledge catalog');
-        }
-        if (!$db->execQuery('COMMIT')) {
-            throw new RuntimeException('Unable to commit World Knowledge catalog activation');
-        }
-        $transactionOpen = false;
-    } catch (Throwable $exception) {
-        if ($transactionOpen) {
-            $db->execQuery('ROLLBACK');
-        }
-        throw $exception;
-    }
 }
 
 function dialecticWorldKnowledgeSqlNullable(object $db, mixed $value): string
