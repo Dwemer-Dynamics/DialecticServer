@@ -69,7 +69,8 @@ final class WorldKnowledgeForcedContextTest extends TestCase
     public function testParityAccessDecisionSupportsAdvancedBasicDeniedAndKnowall(): void
     {
         $row = [
-            'topic' => 'enclave_archive,Enclave Archive',
+            'topic' => 'enclave_archive',
+            'aliases' => 'Enclave Archive',
             'source_kind' => 'factory',
             'topic_desc' => 'Restricted advanced lore.',
             'knowledge_class' => 'enclave,!raider',
@@ -224,16 +225,6 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         }
     }
 
-    public function testChronologyAllowsOnlyArticlesValidForTheCurrentEra(): void
-    {
-        $row = ['valid_from_year' => '2281', 'valid_to_year' => '2282'];
-
-        $this->assertTrue(dialecticWorldKnowledgeChronologyAllows($row, null));
-        $this->assertFalse(dialecticWorldKnowledgeChronologyAllows($row, 2277));
-        $this->assertTrue(dialecticWorldKnowledgeChronologyAllows($row, 2281));
-        $this->assertFalse(dialecticWorldKnowledgeChronologyAllows($row, 2283));
-    }
-
     public function testInjectedAliasesDeduplicateNormalMatching(): void
     {
         $GLOBALS['WORLDKNOWLEDGE_INJECTED_TOPICS'] = [];
@@ -250,7 +241,8 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         $GLOBALS['WORLDKNOWLEDGE_INJECTED_TOPICS'] = [];
         $added = dialecticWorldKnowledgeAppendForcedRows(
             [[
-                'topic' => 'mojave_wasteland,Mojave',
+            'topic' => 'mojave_wasteland',
+            'aliases' => 'Mojave',
                 'topic_desc' => '',
                 'knowledge_class' => '',
                 'topic_desc_basic' => 'The Mojave Wasteland surrounds New Vegas.',
@@ -263,7 +255,7 @@ final class WorldKnowledgeForcedContextTest extends TestCase
 
         $this->assertSame(1, $added);
         $this->assertStringContainsString('<article topic="mojave_wasteland" source="worldspace" access="basic">', $GLOBALS['WORLDKNOWLEDGE_HINT']);
-        $this->assertStringNotContainsString('mojave_wasteland,Mojave', $GLOBALS['WORLDKNOWLEDGE_HINT']);
+        $this->assertStringNotContainsString('aliases=', $GLOBALS['WORLDKNOWLEDGE_HINT']);
     }
 
     public function testRaceAndFactionSignalsComeFromActiveNpcData(): void
@@ -306,7 +298,8 @@ final class WorldKnowledgeForcedContextTest extends TestCase
     public function testDeniedConversationArticleRendersWithoutProtectedText(): void
     {
         $row = [
-            'topic' => 'enclave_secrets,Enclave Secrets',
+        'topic' => 'enclave_secrets',
+        'aliases' => 'Enclave Secrets',
             'category' => 'history',
             'catalog_id' => 'fallout-test',
             'catalog_version' => 'v1',
@@ -362,9 +355,9 @@ final class WorldKnowledgeForcedContextTest extends TestCase
     public function testFrozenDeterministicRetrievalCases(): void
     {
         $retriever = new DialecticWorldKnowledgeRetriever([
-            ['topic' => 'new_california_republic,NCR', 'canonical_topic' => 'new_california_republic', 'category' => 'faction', 'tags' => 'representative democracy,california republic army'],
-            ['topic' => 'caesars_legion,Caesar Legion', 'canonical_topic' => 'caesars_legion', 'category' => 'faction', 'retrieval_phrases' => 'slave army,roman war culture', 'tags' => 'military hierarchy,enslaved labor'],
-            ['topic' => 'brotherhood_of_steel,Brotherhood', 'canonical_topic' => 'brotherhood_of_steel', 'category' => 'faction', 'retrieval_phrases' => 'technology hoarding', 'tags' => 'power armor,technology control'],
+            ['topic' => 'new_california_republic', 'aliases' => 'NCR', 'canonical_topic' => 'new_california_republic', 'category' => 'faction', 'tags' => 'representative democracy,california republic army'],
+            ['topic' => 'caesars_legion', 'aliases' => 'Caesar Legion', 'canonical_topic' => 'caesars_legion', 'category' => 'faction', 'tags' => 'military hierarchy,enslaved labor'],
+            ['topic' => 'brotherhood_of_steel', 'aliases' => 'Brotherhood', 'canonical_topic' => 'brotherhood_of_steel', 'category' => 'faction', 'tags' => 'power armor,technology control'],
             ['topic' => 'enclave', 'canonical_topic' => 'enclave', 'category' => 'faction', 'tags' => 'power armor,pre war government'],
         ]);
 
@@ -373,11 +366,11 @@ final class WorldKnowledgeForcedContextTest extends TestCase
             ['The NCR controls the checkpoint.', ['new_california_republic']],
             ['Explain the newcaliforniarepublic.', ['new_california_republic']],
             ['Transcript may have said new californa republic.', ['new_california_republic']],
-            ['Tell me about the slave army and roman war culture.', ['caesars_legion']],
+            ['Tell me about the slave army and roman war culture.', []],
             ['Followers: I followed the road west.', []],
             ['I found power armor on the road.', []],
             ['Tell me about representative democracy.', []],
-            ['Tell me about power armor and technology hoarding.', ['brotherhood_of_steel']],
+            ['Tell me about power armor and technology hoarding.', []],
             ['Compare NCR and Caesar Legion.', ['new_california_republic', 'caesars_legion']],
         ];
 

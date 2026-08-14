@@ -191,9 +191,12 @@ if (!function_exists('dialecticWorldKnowledgeCollectLocationSignalGroups')) {
 }
 
 if (!function_exists('dialecticWorldKnowledgeTopicAliases')) {
-    function dialecticWorldKnowledgeTopicAliases($topic): array
+    function dialecticWorldKnowledgeTopicAliases($topic, $aliases = ''): array
     {
-        return dialecticWorldKnowledgeUniqueSignals(dialecticWorldKnowledgeTopicParts($topic));
+        return dialecticWorldKnowledgeUniqueSignals(array_merge(
+            dialecticWorldKnowledgeTopicParts($topic),
+            dialecticWorldKnowledgeSplitAliases($aliases)
+        ));
     }
 }
 
@@ -208,20 +211,19 @@ if (!function_exists('dialecticWorldKnowledgeFindRowsForSignals')) {
         $quoted = array_map(static fn($signal) => "'" . $db->escape($signal) . "'", $signals);
         try {
             $rows = $db->fetchAll(
-                "SELECT topic, canonical_topic, topic_desc, knowledge_class, topic_desc_basic,
-                        knowledge_class_basic, category, source_kind, catalog_id, catalog_version,
-                        valid_from_year, valid_to_year
+                "SELECT topic, aliases, canonical_topic, topic_desc, knowledge_class, topic_desc_basic,
+                        knowledge_class_basic, category, source_kind, catalog_id, catalog_version
                    FROM public.worldknowledge_effective
                   WHERE EXISTS (
                         SELECT 1
-                          FROM regexp_split_to_table(topic, E'\\\\s*,\\\\s*') AS topic_alias
+                          FROM regexp_split_to_table(concat_ws(',', topic, aliases), E'\\\\s*,\\\\s*') AS topic_alias
                          WHERE btrim(regexp_replace(replace(lower(topic_alias), '_', ' '), '[^a-z0-9]+', ' ', 'g'))
                                IN (" . implode(',', $quoted) . ")
                   )"
             );
         } catch (Throwable) {
             $rows = $db->fetchAll(
-                "SELECT topic, topic_desc, knowledge_class, topic_desc_basic, knowledge_class_basic
+                "SELECT topic, ''::text AS aliases, topic_desc, knowledge_class, topic_desc_basic, knowledge_class_basic
                    FROM public.worldknowledge
                   WHERE EXISTS (
                         SELECT 1
@@ -236,11 +238,11 @@ if (!function_exists('dialecticWorldKnowledgeFindRowsForSignals')) {
         $priorities = array_flip($signals);
         usort($rows, static function ($left, $right) use ($priorities) {
             $leftPriority = PHP_INT_MAX;
-            foreach (dialecticWorldKnowledgeTopicAliases($left['topic'] ?? '') as $alias) {
+            foreach (dialecticWorldKnowledgeTopicAliases($left['topic'] ?? '', $left['aliases'] ?? '') as $alias) {
                 $leftPriority = min($leftPriority, $priorities[$alias] ?? PHP_INT_MAX);
             }
             $rightPriority = PHP_INT_MAX;
-            foreach (dialecticWorldKnowledgeTopicAliases($right['topic'] ?? '') as $alias) {
+            foreach (dialecticWorldKnowledgeTopicAliases($right['topic'] ?? '', $right['aliases'] ?? '') as $alias) {
                 $rightPriority = min($rightPriority, $priorities[$alias] ?? PHP_INT_MAX);
             }
             return $leftPriority <=> $rightPriority;
@@ -298,10 +300,6 @@ if (!function_exists('dialecticWorldKnowledgeAppendForcedRows')) {
             if ($added >= $limit || $remaining <= 0 || dialecticWorldKnowledgeTopicWasInjected($row['topic'] ?? '')) {
                 continue;
             }
-            if (!dialecticWorldKnowledgeChronologyAllows($row, dialecticWorldKnowledgeCurrentYear())) {
-                continue;
-            }
-
             $topic = dialecticWorldKnowledgeCanonicalTopic($row['topic'] ?? '');
             $decision = dialecticWorldKnowledgeAccessDecision($row, $knowledgeTags);
             $GLOBALS['WORLDKNOWLEDGE_FORCED_SIGNALS'][] = [

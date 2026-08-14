@@ -66,6 +66,17 @@ def validate_rows(rows: list[dict[str, str]], originals: list[dict[str, str]]) -
         for level, classes in (("advanced", advanced), ("basic", basic)):
             if any(ACCESS.TAG_PATTERN.fullmatch(tag) is None for tag in classes):
                 raise RuntimeError(f"{topic} {level} rule contains an unsupported tag")
+        overlap = sorted(set(advanced) & set(basic))
+        if overlap:
+            raise RuntimeError(f"Knowledge classes exist in both tiers for {topic}: {', '.join(overlap)}")
+        advanced_by_base = {value.lstrip("!"): value for value in advanced}
+        basic_by_base = {value.lstrip("!"): value for value in basic}
+        contradictions = sorted(
+            base for base in advanced_by_base.keys() & basic_by_base.keys()
+            if advanced_by_base[base] != basic_by_base[base]
+        )
+        if contradictions:
+            raise RuntimeError(f"Knowledge classes contradict across tiers for {topic}: {', '.join(contradictions)}")
         if "common" in advanced or any(tag in ACCESS.BROAD_REGION_TAGS for tag in advanced):
             raise RuntimeError(f"Advanced access is overbroad for {topic}")
         if tier == "universal_public" and "common" not in basic:

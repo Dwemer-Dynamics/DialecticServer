@@ -38,7 +38,7 @@ DEFAULT_WIKI_API = "https://fallout.wiki/api.php"
 DEFAULT_BUDGET_USD = 30.0
 
 INPUT_FIELDS = [
-    "topic", "topic_desc", "knowledge_class", "topic_desc_basic",
+    "topic", "aliases", "topic_desc", "knowledge_class", "topic_desc_basic",
     "knowledge_class_basic", "tags", "category",
 ]
 OUTPUT_FIELDS = [
@@ -46,6 +46,10 @@ OUTPUT_FIELDS = [
     "knowledge_class_basic", "retrieval_phrases", "tags", "category", "setting", "region",
     "valid_from_year", "valid_to_year", "source_url", "source_revision",
     "editorial_note",
+]
+PUBLISHED_FIELDS = [
+    "topic", "aliases", "topic_desc", "knowledge_class", "topic_desc_basic",
+    "knowledge_class_basic", "tags", "category",
 ]
 EDITORIAL_OVERRIDE_FIELDS = set(OUTPUT_FIELDS) - {"source_url", "source_revision"}
 CATEGORIES = {
@@ -215,7 +219,7 @@ def read_rows(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames != INPUT_FIELDS:
-            raise RuntimeError("Input CSV does not match the seven-column Dialectic contract")
+            raise RuntimeError("Input CSV does not match the eight-column Dialectic contract")
         return [{key: str(value or "").strip() for key, value in row.items()} for row in reader]
 
 
@@ -266,7 +270,8 @@ def prepare_expansion_inputs(args: argparse.Namespace) -> int:
     for row in existing_rows:
         occupied_phrases.update(
             normalize_space(part.replace("_", " ").lower())
-            for part in str(row["topic"]).split(",")
+            for field in ("topic", "aliases")
+            for part in str(row[field]).split(",")
             if part.strip()
         )
 
@@ -296,9 +301,9 @@ def prepare_expansion_inputs(args: argparse.Namespace) -> int:
         category = str(candidate["category"]).strip().lower()
         if category not in CATEGORIES:
             raise RuntimeError(f"Expansion category is invalid for {canonical}: {category}")
-        topic_list = ",".join([canonical, *aliases])
         output_rows.append({
-            "topic": topic_list,
+            "topic": canonical,
+            "aliases": ",".join(aliases),
             "topic_desc": "",
             "knowledge_class": "",
             "topic_desc_basic": "",
@@ -334,7 +339,7 @@ def prepare_expansion_inputs(args: argparse.Namespace) -> int:
 
 
 def canonical_topic(value: str) -> str:
-    return str(value).split(",", 1)[0].strip()
+    return str(value).strip()
 
 
 def comparable_topic(value: str) -> str:
@@ -608,7 +613,7 @@ def prepare_source(
     revision = page.get("revision", {})
     return {
         "topic": topic,
-        "topic_list": row["topic"],
+        "topic_list": ",".join(part for part in (row["topic"], row["aliases"]) if part),
         "source_title": str(page.get("title", source.get("title", topic))),
         "source_url": str(page.get("url", source.get("source_url", ""))),
         "source_revision": str(revision.get("revid", source.get("revision_id", ""))),
@@ -659,14 +664,24 @@ def validate_output(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
             or any(not re.fullmatch(r"[^\W_](?:[^\W_]|[ .'-])*", tag, flags=re.UNICODE) for tag in tags)
         ):
             issues.append({"topic": topic, "issue": "invalid_tags"})
-        classes = [
-            value.strip().lower().lstrip("!")
+        signed_classes = {
+            field: [value.strip().lower() for value in re.split(r"[,|&]", row[field]) if value.strip()]
             for field in ("knowledge_class", "knowledge_class_basic")
-            for value in re.split(r"[,|&]", row[field])
-            if value.strip()
-        ]
+        }
+        classes = [value.lstrip("!") for values in signed_classes.values() for value in values]
         if any(re.fullmatch(r"[a-z0-9][a-z0-9_]{0,100}", value) is None for value in classes):
             issues.append({"topic": topic, "issue": "invalid_knowledge_class"})
+        overlap = sorted(set(signed_classes["knowledge_class"]) & set(signed_classes["knowledge_class_basic"]))
+        if overlap:
+            issues.append({"topic": topic, "issue": "knowledge_class_tier_overlap", "classes": overlap})
+        advanced_by_base = {value.lstrip("!"): value for value in signed_classes["knowledge_class"]}
+        basic_by_base = {value.lstrip("!"): value for value in signed_classes["knowledge_class_basic"]}
+        contradictions = sorted(
+            base for base in advanced_by_base.keys() & basic_by_base.keys()
+            if advanced_by_base[base] != basic_by_base[base]
+        )
+        if contradictions:
+            issues.append({"topic": topic, "issue": "knowledge_class_tier_contradiction", "classes": contradictions})
         if not row["tags"] or not row["setting"] or not row["source_url"] or not row["source_revision"]:
             issues.append({"topic": topic, "issue": "missing_metadata"})
         if not re.match(r"^https?://", row["source_url"]) or not row["source_revision"].isdigit():
@@ -726,11 +741,25 @@ def publish_reviewed_catalog(args: argparse.Namespace) -> int:
     if issues:
         raise RuntimeError("Generated catalog has unresolved validation issues")
 
+    published_rows = []
+    for row in rows:
+        topic_parts = [part.strip() for part in str(row["topic"]).split(",") if part.strip()]
+        published_rows.append({
+            "topic": canonical_topic(topic_parts[0] if topic_parts else ""),
+            "aliases": ",".join(topic_parts[1:]),
+            "topic_desc": row["topic_desc"],
+            "knowledge_class": row["knowledge_class"],
+            "topic_desc_basic": row["topic_desc_basic"],
+            "knowledge_class_basic": row["knowledge_class_basic"],
+            "tags": row["tags"],
+            "category": row["category"],
+        })
+
     args.published_output.parent.mkdir(parents=True, exist_ok=True)
     with args.published_output.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=OUTPUT_FIELDS, lineterminator="\n")
+        writer = csv.DictWriter(handle, fieldnames=PUBLISHED_FIELDS, lineterminator="\n")
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(published_rows)
     checksum = hashlib.sha256(args.published_output.read_bytes()).hexdigest()
     source_metadata: dict[str, dict[str, Any]] = {}
     for source_path in source_paths:
@@ -793,7 +822,7 @@ def publish_reviewed_catalog(args: argparse.Namespace) -> int:
             "status": "approved",
             "reviewer": args.editorial_reviewer,
             "reviewed_at": timestamp(),
-            "method": "source-bound validation, deterministic checks, duplicate and chronology audit, and representative article review",
+            "method": "source-bound validation, deterministic checks, alias ownership and access review, and representative article review",
         },
     }
     write_json_atomic(args.manifest, manifest)
@@ -842,7 +871,7 @@ def run(args: argparse.Namespace) -> int:
             item = json.loads(cache_path.read_text(encoding="utf-8"))
             # Source extracts are immutable snapshots, while reviewed input fields may be corrected.
             item.update({
-                "topic_list": row["topic"],
+                "topic_list": ",".join(part for part in (row["topic"], row["aliases"]) if part),
                 "game_scope": str(sources[topic].get("game", "")),
                 "current_category": row["category"],
                 "basic_article": row["topic_desc_basic"],
@@ -851,7 +880,7 @@ def run(args: argparse.Namespace) -> int:
         elif args.dry_run:
             item = {
                 "topic": topic,
-                "topic_list": row["topic"],
+                "topic_list": ",".join(part for part in (row["topic"], row["aliases"]) if part),
                 "source_title": str(sources[topic].get("title", topic)),
                 "source_url": str(sources[topic].get("source_url", "")),
                 "source_revision": str(sources[topic].get("revision_id", "")),

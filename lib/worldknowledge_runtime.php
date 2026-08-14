@@ -87,48 +87,22 @@ function dialecticWorldKnowledgeFetchEffectiveCatalog(object $db): array
     }
     try {
         $rows = $db->fetchAll(
-            "SELECT entry_id, topic, canonical_topic, topic_desc, knowledge_class, topic_desc_basic,
-                    knowledge_class_basic, retrieval_phrases, tags, category, source_kind, catalog_id, catalog_version,
-                    source_url, source_revision, setting, region, valid_from_year, valid_to_year,
-                    editorial_note, metadata, is_active
+            "SELECT entry_id, topic, aliases, canonical_topic, topic_desc, knowledge_class, topic_desc_basic,
+                    knowledge_class_basic, tags, category, source_kind, catalog_id, catalog_version, is_active
                FROM public.worldknowledge_effective
               ORDER BY canonical_topic"
         );
     } catch (Throwable) {
         $rows = $db->fetchAll(
-            "SELECT topic, lower(btrim(split_part(topic, ',', 1))) AS canonical_topic,
+            "SELECT topic, ''::text AS aliases, lower(btrim(split_part(topic, ',', 1))) AS canonical_topic,
                     topic_desc, knowledge_class, topic_desc_basic, knowledge_class_basic,
-                    ''::text AS retrieval_phrases, tags, category, 'custom'::text AS source_kind, NULL::text AS catalog_id,
-                    NULL::text AS catalog_version, NULL::text AS source_url,
-                    NULL::text AS source_revision, NULL::text AS setting, NULL::text AS region,
-                    NULL::integer AS valid_from_year, NULL::integer AS valid_to_year,
-                    NULL::text AS editorial_note, '{}'::jsonb AS metadata, TRUE AS is_active
+                    tags, category, 'custom'::text AS source_kind, NULL::text AS catalog_id,
+                    NULL::text AS catalog_version, TRUE AS is_active
                FROM public.worldknowledge
               ORDER BY lower(btrim(split_part(topic, ',', 1)))"
         );
     }
     return is_array($rows) ? $rows : [];
-}
-
-function dialecticWorldKnowledgeCurrentYear(): ?int
-{
-    $payload = function_exists('dialecticLatestWorldContextPayload')
-        ? dialecticLatestWorldContextPayload()
-        : null;
-    $year = is_array($payload) && is_array($payload['game_time'] ?? null)
-        ? intval($payload['game_time']['year'] ?? 0)
-        : 0;
-    return $year > 0 ? $year : null;
-}
-
-function dialecticWorldKnowledgeChronologyAllows(array $row, ?int $year): bool
-{
-    if ($year === null) {
-        return true;
-    }
-    $from = is_numeric($row['valid_from_year'] ?? null) ? intval($row['valid_from_year']) : null;
-    $to = is_numeric($row['valid_to_year'] ?? null) ? intval($row['valid_to_year']) : null;
-    return ($from === null || $year >= $from) && ($to === null || $year <= $to);
 }
 
 function dialecticWorldKnowledgeKnowledgeTags(): array

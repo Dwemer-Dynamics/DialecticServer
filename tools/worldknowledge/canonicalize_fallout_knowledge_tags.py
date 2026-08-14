@@ -23,11 +23,12 @@ EDITORIAL_OVERRIDES = ROOT / "tools" / "worldknowledge" / "fallout_worldknowledg
 EDITORIAL_CURATION = ROOT / "data" / "fallout_worldknowledge_editorial_curation.json"
 KNOWN_NAMESPACES = {"person", "region", "community", "place", "faction", "role", "domain", "race"}
 TAG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_]{0,100}$")
-RETRIEVAL_PHRASES = {
-    "brotherhood_of_steel": "technology hoarding",
-    "caesars_legion": "slave army,roman war culture",
-    "new_california_republic": "california republic army",
-}
+CATALOG_FIELDS = [
+    "topic", "aliases", "topic_desc", "knowledge_class", "topic_desc_basic",
+    "knowledge_class_basic", "tags", "category",
+]
+BASIC_ONLY_MARKERS = {"capital_wasteland", "common", "mojave"}
+BLOCKED_CLASS = "blocked"
 
 # Namespace-aware aliases prevent old role labels from colliding with exact
 # person subjects once the namespace itself is removed.
@@ -138,6 +139,62 @@ def flat_oghma_rule(value: object, domains: set[str], tag_frequency: Counter[str
     return ",".join(classes)
 
 
+def tier_exclusive_rules(
+    advanced_value: object,
+    basic_value: object,
+    topic: str,
+    basic_text: str,
+) -> tuple[str, str]:
+    """Keep every signed knowledge class in exactly one article tier."""
+    advanced = [value for value in str(advanced_value).split(",") if value]
+    basic = [value for value in str(basic_value).split(",") if value]
+    advanced_by_base = {value.lstrip("!"): value for value in advanced}
+    basic_by_base = {value.lstrip("!"): value for value in basic}
+    contradictions = sorted(
+        base for base in advanced_by_base.keys() & basic_by_base.keys()
+        if advanced_by_base[base] != basic_by_base[base]
+    )
+    if contradictions:
+        raise RuntimeError(
+            f"{topic}: knowledge classes have contradictory signs across tiers: {', '.join(contradictions)}"
+        )
+
+    negative_overlap = sorted(
+        set(value for value in advanced if value.startswith("!"))
+        & set(value for value in basic if value.startswith("!"))
+    )
+    if negative_overlap:
+        raise RuntimeError(
+            f"{topic}: negative knowledge classes exist in both tiers: {', '.join(negative_overlap)}"
+        )
+
+    # Public markers belong to basic. When advanced has another specialist or
+    # subject class, a shared positive class belongs to basic; otherwise it stays
+    # advanced so tier normalization never broadens advanced text.
+    moved_basic_markers = [value for value in advanced if value in BASIC_ONLY_MARKERS]
+    advanced = [value for value in advanced if value not in BASIC_ONLY_MARKERS]
+    if basic_text.strip():
+        basic.extend(value for value in moved_basic_markers if value not in basic)
+    positive_overlap = {
+        value for value in advanced
+        if not value.startswith("!") and value in basic
+    }
+    advanced_without_overlap = [value for value in advanced if value not in positive_overlap]
+    if any(not value.startswith("!") for value in advanced_without_overlap):
+        advanced = advanced_without_overlap
+    else:
+        basic = [value for value in basic if value not in positive_overlap]
+    if not advanced:
+        raise RuntimeError(f"{topic}: advanced knowledge classes became empty during tier normalization")
+    if not basic:
+        basic = [BLOCKED_CLASS]
+
+    overlap = sorted(set(advanced) & set(basic))
+    if overlap:
+        raise RuntimeError(f"{topic}: knowledge classes remain in both tiers: {', '.join(overlap)}")
+    return ",".join(advanced), ",".join(basic)
+
+
 def canonical_npc_tags(value: object, allowed: set[str]) -> str:
     tags = ["common"]
     for raw_tag in str(value).split(","):
@@ -206,8 +263,8 @@ def rewrite_catalog(
         reader = csv.DictReader(handle)
         rows = list(reader)
         fields = list(reader.fieldnames or [])
-    if "retrieval_phrases" not in fields:
-        fields.insert(fields.index("tags"), "retrieval_phrases")
+    if fields != CATALOG_FIELDS:
+        raise RuntimeError("Fallout World Knowledge catalog must use the eight-field Herika format")
     changed = 0
     used_classes = {"common", "knowall"}
     curated_rows = []
@@ -226,46 +283,49 @@ def rewrite_catalog(
             replacement = overrides[target]
             for field, value in replacement.items():
                 if field not in fields:
-                    raise RuntimeError(f"Fallout World Knowledge override uses unsupported field {field}")
+                    continue
                 normalized = str(value).strip()
                 if row.get(field, "") != normalized:
                     row[field] = normalized
                     changed += 1
+        topic_parts = [part.strip() for part in str(row.get("topic", "")).split(",") if part.strip()]
+        canonical_topic = snake_case(topic_parts[0] if topic_parts else "")
+        aliases = [part.strip() for part in str(row.get("aliases", "")).split(",") if part.strip()]
+        aliases = list(dict.fromkeys([*topic_parts[1:], *aliases]))
+        if row.get("topic", "") != canonical_topic:
+            row["topic"] = canonical_topic
+            changed += 1
+        normalized_aliases = ",".join(aliases)
+        if row.get("aliases", "") != normalized_aliases:
+            row["aliases"] = normalized_aliases
+            changed += 1
         for field in ("knowledge_class", "knowledge_class_basic"):
             canonical = flat_oghma_rule(row[field], domains, tag_frequency)
             if canonical != row[field]:
                 row[field] = canonical
                 changed += 1
-            used_classes.update(tag.lstrip("!") for tag in canonical.split(",") if tag)
-        canonical_topic = snake_case(str(row.get("topic", "")).split(",", 1)[0])
-        retrieval_phrases = RETRIEVAL_PHRASES.get(canonical_topic, "")
-        if row.get("retrieval_phrases", "") != retrieval_phrases:
-            row["retrieval_phrases"] = retrieval_phrases
-            changed += 1
-        editorial = str(row.get("editorial_note", "")).replace("Access v2 (", "Oghma parity (")
-        editorial = re.sub(
-            r"\b(?:faction|region|role|domain|person|place|community|race):([a-z0-9_]+)",
-            r"\1",
-            editorial,
+        advanced_rule, basic_rule = tier_exclusive_rules(
+            row["knowledge_class"], row["knowledge_class_basic"], canonical_topic, row["topic_desc_basic"]
         )
-        if re.search(r"Oghma parity \([^)]+\):.*\b(?:AND|OR)\b", editorial):
-            editorial = re.sub(
-                r"Oghma parity \(([^)]+)\):.*$",
-                r"Oghma parity (\1): Access was converted to reviewed flat knowledge classes.",
-                editorial,
-            )
-        if editorial != row.get("editorial_note", ""):
-            row["editorial_note"] = editorial
+        if advanced_rule != row["knowledge_class"]:
+            row["knowledge_class"] = advanced_rule
             changed += 1
+        if basic_rule != row["knowledge_class_basic"]:
+            row["knowledge_class_basic"] = basic_rule
+            changed += 1
+        for field in ("knowledge_class", "knowledge_class_basic"):
+            used_classes.update(tag.lstrip("!") for tag in row[field].split(",") if tag)
         if canonical_topic in seen_topics:
             raise RuntimeError(f"Fallout World Knowledge curation produced duplicate topic {canonical_topic}")
         seen_topics.add(canonical_topic)
         curated_rows.append(row)
     output = StringIO(newline="")
-    writer = csv.DictWriter(output, fieldnames=fields, lineterminator="\n")
+    writer = csv.DictWriter(output, fieldnames=CATALOG_FIELDS, lineterminator="\n")
     writer.writeheader()
     writer.writerows(curated_rows)
     content = output.getvalue().encode("utf-8")
+    if content == path.read_bytes():
+        changed = 0
     if not check:
         path.write_bytes(content)
     return changed, content, used_classes, curated_rows
@@ -379,10 +439,11 @@ def rewrite_npc_tags(path: Path, *, check: bool, allowed: set[str]) -> tuple[int
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
-    parser.add_argument("--catalog-version", default="parity-v1.6-2026-08-14")
+    parser.add_argument("--catalog-version", default="parity-v1.7-2026-08-14")
     args = parser.parse_args()
 
     vocabulary = json.loads(VOCABULARY.read_text(encoding="utf-8"))
+    article_access_markers = set(vocabulary.get("article_access_markers", []))
     domains = set(vocabulary["domains"])
     stable_classes = {
         *vocabulary["roles"],
@@ -417,7 +478,7 @@ def main() -> int:
     npc_changes, _ = rewrite_npc_tags(
         NPC_TAGS,
         check=args.check,
-        allowed=stable_classes | used_classes,
+        allowed=(stable_classes | used_classes) - article_access_markers,
     )
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     expected_checksum = hashlib.sha256(catalog_content).hexdigest()
@@ -446,7 +507,7 @@ def main() -> int:
     expected_manifest["editorial_review"]["reviewed_at"] = "2026-08-14T06:00:00Z"
     expected_manifest["editorial_review"]["method"] = (
         "source-bound validation, Fallout-specific scope curation, deterministic checks, "
-        "duplicate and chronology audit, and representative article review"
+        "alias ownership and access review, and representative article review"
     )
     expected_manifest["knowledge_vocabulary"] = {
         "file": VOCABULARY.name,

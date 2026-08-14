@@ -619,6 +619,7 @@ if (!$existsColumn[0]["column_name"]) {
 $db->execQuery("
     CREATE TABLE IF NOT EXISTS public.worldknowledge (
         topic character varying NOT NULL,
+        aliases text NOT NULL DEFAULT '',
         topic_desc character varying NOT NULL,
         native_vector tsvector,
         knowledge_class text,
@@ -628,6 +629,7 @@ $db->execQuery("
         category text
     )
 ");
+$db->execQuery("ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS aliases text NOT NULL DEFAULT ''");
 $db->execQuery("ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS native_vector tsvector");
 $db->execQuery("ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS knowledge_class text");
 $db->execQuery("ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS topic_desc_basic text");
@@ -4312,6 +4314,7 @@ if ($checkVersion("fallout_worldknowledge_seed") < 20260722001) {
         try {
             $expectedHeader = [
                 'topic',
+                'aliases',
                 'topic_desc',
                 'knowledge_class',
                 'topic_desc_basic',
@@ -4368,7 +4371,11 @@ if ($checkVersion("fallout_worldknowledge_seed") < 20260722001) {
                     throw new RuntimeException('Unable to map a world knowledge seed row');
                 }
 
-                $topic = dialecticWorldKnowledgeNormalizeTopicList($data['topic'] ?? '');
+                $topicAndAliases = trim(strval($data['topic'] ?? ''));
+                if (trim(strval($data['aliases'] ?? '')) !== '') {
+                    $topicAndAliases .= ',' . trim(strval($data['aliases']));
+                }
+                $topic = dialecticWorldKnowledgeNormalizeTopicList($topicAndAliases);
                 $canonicalTopic = dialecticWorldKnowledgeCanonicalTopic($topic);
                 $basicDescription = trim(strval($data['topic_desc_basic'] ?? ''));
                 $category = strtolower(trim(strval($data['category'] ?? '')));
@@ -4618,6 +4625,43 @@ if ($checkVersion('worldknowledge_oghma_parity') < 20260814001) {
             $db->execQuery('ROLLBACK');
         }
         Logger::error('Error applying World Knowledge Oghma parity: ' . $e->getMessage());
+    }
+}
+
+if ($checkVersion('worldknowledge_herika_v1') < 20260814001) {
+    Logger::debug('Applying worldknowledge_herika_v1 20260814001 - use the eight-field Herika article contract');
+    $migrationOk = false;
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge Herika V1 migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '' || !$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge Herika V1 schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge Herika V1 schema');
+        }
+        $transactionOpen = false;
+
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR, true);
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge Herika V1 contract: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_herika_v1', 20260814001);
+        Logger::info('Applied patch worldknowledge_herika_v1 20260814001');
     }
 }
 

@@ -133,7 +133,6 @@ foreach ($catalog as $row) {
     }
 }
 
-$year = dialecticWorldKnowledgeCurrentYear();
 $knowledgeTags = dialecticWorldKnowledgeKnowledgeTags();
 $trace['context_tags'] = $knowledgeTags;
 $selectedCount = 0;
@@ -144,17 +143,6 @@ foreach ($topics as $topic) {
     if (!is_array($row) || dialecticWorldKnowledgeTopicWasInjected(strval($row['topic'] ?? $topic))) {
         continue;
     }
-    if (!dialecticWorldKnowledgeChronologyAllows($row, $year)) {
-        $trace['rejected_candidates'][] = [
-            'topic' => $topic,
-            'reason' => 'outside_chronology',
-            'year' => $year,
-            'valid_from_year' => $row['valid_from_year'] ?? null,
-            'valid_to_year' => $row['valid_to_year'] ?? null,
-        ];
-        continue;
-    }
-
     $decision = dialecticWorldKnowledgeAccessDecision($row, $knowledgeTags);
     $decision['source'] = 'conversation';
     $trace['access_decisions'][] = $decision;

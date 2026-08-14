@@ -17,30 +17,34 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $topics = [];
         $aliasCount = 0;
         $categoryCounts = [];
+        $nameOwners = [];
         foreach ($catalog['rows'] as $data) {
-            $topicList = strval($data['topic'] ?? '');
-            $topic = dialecticWorldKnowledgeCanonicalTopic($topicList);
+            $topic = strval($data['topic'] ?? '');
             $this->assertMatchesRegularExpression('/^[a-z0-9_]+$/', $topic);
             $this->assertArrayNotHasKey($topic, $topics);
             $topics[$topic] = true;
-            $parts = dialecticWorldKnowledgeTopicParts($topicList);
-            $this->assertSame($topic, $parts[0] ?? null);
-            $this->assertSame(
-                count($parts),
-                count(array_unique(array_map('dialecticWorldKnowledgeComparableTopic', $parts)))
-            );
-            $aliasCount += max(0, count($parts) - 1);
-            $this->assertNotEmpty($data['topic_desc']);
-            if (trim(strval($data['topic_desc_basic'] ?? '')) === '') {
-                $this->assertNotEmpty(trim(strval($data['editorial_note'] ?? '')));
+            $topicKey = dialecticWorldKnowledgeComparableTopic($topic);
+            $this->assertArrayNotHasKey($topicKey, $nameOwners);
+            $nameOwners[$topicKey] = $topic;
+            $aliases = dialecticWorldKnowledgeSplitAliases($data['aliases'] ?? '');
+            $aliasCount += count($aliases);
+            foreach ($aliases as $alias) {
+                $aliasKey = dialecticWorldKnowledgeComparableTopic($alias);
+                $this->assertArrayNotHasKey($aliasKey, $nameOwners);
+                $nameOwners[$aliasKey] = $topic;
             }
+            $this->assertNotEmpty($data['topic_desc']);
             $this->assertStringNotContainsString('&', strval($data['knowledge_class'] ?? ''));
             $this->assertStringNotContainsString('|', strval($data['knowledge_class'] ?? ''));
             $this->assertStringNotContainsString('&', strval($data['knowledge_class_basic'] ?? ''));
             $this->assertStringNotContainsString('|', strval($data['knowledge_class_basic'] ?? ''));
+            $tierConflicts = dialecticWorldKnowledgeAccessTierConflicts(
+                $data['knowledge_class'] ?? '',
+                $data['knowledge_class_basic'] ?? ''
+            );
+            $this->assertSame([], $tierConflicts['duplicates'], $topic);
+            $this->assertSame([], $tierConflicts['contradictions'], $topic);
             $this->assertGreaterThanOrEqual(4, count(array_filter(array_map('trim', explode(',', $data['tags'])))));
-            $this->assertNotEmpty($data['source_url']);
-            $this->assertMatchesRegularExpression('/^\d+$/', $data['source_revision']);
             $category = strval($data['category']);
             $categoryCounts[$category] = intval($categoryCounts[$category] ?? 0) + 1;
         }
@@ -81,6 +85,25 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $this->assertSame(array_keys($topics), array_keys($sourceTopics));
     }
 
+    public function testKnowledgeClassesCannotConflictAcrossTiers(): void
+    {
+        $conflicts = dialecticWorldKnowledgeAccessTierConflicts('historian,!raider', 'historian,raider');
+        $this->assertSame(['historian'], $conflicts['duplicates']);
+        $this->assertSame(['raider'], $conflicts['contradictions']);
+
+        $this->expectException(RuntimeException::class);
+        dialecticWorldKnowledgeValidateFactoryRow([
+            'topic' => 'tier_conflict',
+            'aliases' => '',
+            'topic_desc' => str_repeat('Advanced reviewed knowledge. ', 10),
+            'knowledge_class' => 'historian',
+            'topic_desc_basic' => str_repeat('Basic public knowledge. ', 10),
+            'knowledge_class_basic' => 'historian',
+            'tags' => 'fallout history,public record,regional history,wasteland account',
+            'category' => 'history',
+        ]);
+    }
+
     public function testWorldKnowledgeSchemaSupportsCustomOverridesWithoutChangingFactoryRows(): void
     {
         $testDb = new sql();
@@ -103,23 +126,25 @@ final class WorldKnowledgeTest extends DatabaseTestCase
              WHERE source_kind = 'factory'
         ");
         $firstImport = $testDb->execQuery("
-            INSERT INTO worldknowledge (topic, canonical_topic, topic_desc_basic, category, source_kind, is_active)
-            VALUES ('megaton,The Town of Megaton', 'megaton', 'Megaton is a fortified Capital Wasteland settlement.', 'location', 'custom', TRUE)
+            INSERT INTO worldknowledge (topic, aliases, canonical_topic, topic_desc_basic, category, source_kind, is_active)
+            VALUES ('megaton', 'The Town of Megaton', 'megaton', 'Megaton is a fortified Capital Wasteland settlement.', 'location', 'custom', TRUE)
             ON CONFLICT (canonical_topic) WHERE source_kind='custom' AND is_active DO UPDATE
                 SET topic = EXCLUDED.topic,
                     topic_desc_basic = EXCLUDED.topic_desc_basic,
                     category = EXCLUDED.category
         ");
         $secondImport = $testDb->execQuery("
-            INSERT INTO worldknowledge (topic, canonical_topic, topic_desc_basic, category, source_kind, is_active)
-            VALUES ('megaton,Atom Town', 'megaton', 'Megaton is built around an undetonated atomic bomb.', 'location', 'custom', TRUE)
+            INSERT INTO worldknowledge (topic, aliases, canonical_topic, topic_desc_basic, category, source_kind, is_active)
+            VALUES ('megaton', 'Atom Town', 'megaton', 'Megaton is built around an undetonated atomic bomb.', 'location', 'custom', TRUE)
             ON CONFLICT (canonical_topic) WHERE source_kind='custom' AND is_active DO UPDATE
                 SET topic_desc_basic = EXCLUDED.topic_desc_basic,
                     topic = EXCLUDED.topic,
+                    aliases = EXCLUDED.aliases,
                     category = EXCLUDED.category
         ");
         $imported = $testDb->fetchOne("
-            SELECT COUNT(*) AS total, MAX(topic) AS topic, MAX(topic_desc_basic) AS topic_desc_basic,
+            SELECT COUNT(*) AS total, MAX(topic) AS topic, MAX(aliases) AS aliases,
+                   MAX(topic_desc_basic) AS topic_desc_basic,
                    MAX(source_kind) AS source_kind
               FROM worldknowledge_effective
              WHERE canonical_topic = 'megaton'
@@ -136,7 +161,8 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $this->assertNotFalse($firstImport);
         $this->assertNotFalse($secondImport);
         $this->assertSame(1, intval($imported['total'] ?? 0));
-        $this->assertSame('megaton,Atom Town', $imported['topic'] ?? null);
+        $this->assertSame('megaton', $imported['topic'] ?? null);
+        $this->assertSame('Atom Town', $imported['aliases'] ?? null);
         $this->assertSame(
             'Megaton is built around an undetonated atomic bomb.',
             $imported['topic_desc_basic'] ?? null
@@ -151,9 +177,9 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $testDb = new sql();
         $testDb->execQuery("
             INSERT INTO worldknowledge
-                (topic, canonical_topic, topic_desc_basic, category, source_kind, is_active)
+                (topic, aliases, canonical_topic, topic_desc_basic, category, source_kind, is_active)
             VALUES
-                ('codex_custom_lore,Codex Custom Lore', 'codex_custom_lore',
+                ('codex_custom_lore', 'Codex Custom Lore', 'codex_custom_lore',
                  'A deliberately user-authored article that must survive factory reprovisioning.',
                  'history', 'custom', TRUE)
         ");
@@ -266,9 +292,10 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $testDb = new sql();
         dialecticWorldKnowledgeRemoveLegacyFactorySeed($testDb, $root);
         $testDb->execQuery("DELETE FROM worldknowledge WHERE source_kind='custom' AND canonical_topic=" . $testDb->escapeLiteral($canonical));
-        $columns = ['topic', 'canonical_topic', 'topic_desc', 'knowledge_class', 'topic_desc_basic', 'knowledge_class_basic', 'tags', 'category'];
+        $columns = ['topic', 'aliases', 'canonical_topic', 'topic_desc', 'knowledge_class', 'topic_desc_basic', 'knowledge_class_basic', 'tags', 'category'];
         $valuesSql = [
             $testDb->escapeLiteral(trim(strval($seed['topic']))),
+            $testDb->escapeLiteral(trim(strval($seed['aliases']))),
             $testDb->escapeLiteral($canonical),
             $testDb->escapeLiteral(trim(strval($seed['topic_desc']))),
             $testDb->escapeLiteral(trim(strval($seed['knowledge_class']))),
@@ -280,7 +307,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $testDb->execQuery('INSERT INTO worldknowledge (' . implode(',', $columns) . ') VALUES (' . implode(',', $valuesSql) . ')');
         $this->assertSame(1, dialecticWorldKnowledgeRemoveLegacyFactorySeed($testDb, $root));
 
-        $valuesSql[4] = $testDb->escapeLiteral(trim(strval($seed['topic_desc_basic'])) . ' User edit.');
+        $valuesSql[5] = $testDb->escapeLiteral(trim(strval($seed['topic_desc_basic'])) . ' User edit.');
         $testDb->execQuery('INSERT INTO worldknowledge (' . implode(',', $columns) . ') VALUES (' . implode(',', $valuesSql) . ')');
         $this->assertSame(0, dialecticWorldKnowledgeRemoveLegacyFactorySeed($testDb, $root));
         $preserved = $testDb->fetchOne(
@@ -366,7 +393,8 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $testDb->insert(
             'worldknowledge',
             array(
-                'topic' => 'new_california_republic,NCR',
+                'topic' => 'new_california_republic',
+                'aliases' => 'NCR',
                 'canonical_topic' => 'new_california_republic',
                 'source_kind' => 'custom',
                 'topic_desc_basic' => 'The New California Republic, commonly called the NCR, is a large republic expanding east from California.'
@@ -376,9 +404,10 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             UPDATE worldknowledge
                SET native_vector =
                      setweight(to_tsvector(coalesce(topic, '')), 'A')
+                  || setweight(to_tsvector(coalesce(aliases, '')), 'A')
                   || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
                   || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
-             WHERE topic = 'new_california_republic,NCR'
+             WHERE topic = 'new_california_republic'
         ");
         $testDb->close();
 
@@ -675,7 +704,8 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $testDb->insert(
             'worldknowledge',
             array(
-                'topic' => 'stimpack_seller,stimpack vendor,Lair of the Stimpack Vendor',
+                'topic' => 'stimpack_seller',
+                'aliases' => 'stimpack vendor,Lair of the Stimpack Vendor',
                 'canonical_topic' => 'stimpack_seller',
                 'source_kind' => 'custom',
                 'topic_desc' => 'The stimpack vendor is a wasteland medic who buys and sells stimpaks, doctor\'s bags, and basic chems. He reserves his best supplies for customers with caps or serious injuries. He respects caravan guards because they keep trade routes open.',

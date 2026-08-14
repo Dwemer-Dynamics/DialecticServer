@@ -48,11 +48,31 @@ if (isset($_GET['error']) && is_string($_GET['error'])) {
 }
 
 function worldknowledge_normalize_topic_key($value) {
-    return dialecticWorldKnowledgeNormalizeTopicList($value);
+    return dialecticWorldKnowledgeNormalizeCanonicalTopic($value);
 }
 
 function worldknowledge_has_description($topicDesc, $topicDescBasic) {
     return trim((string)$topicDesc) !== '' || trim((string)$topicDescBasic) !== '';
+}
+
+/** Format shared tier-conflict validation for create, CSV, and edit errors. */
+function worldknowledge_access_rule_conflicts($advancedRule, $basicRule) {
+    $conflicts = dialecticWorldKnowledgeAccessTierConflicts($advancedRule, $basicRule);
+
+    $problems = [];
+    if ($conflicts['duplicates']) {
+        $problems[] = 'listed in both tiers: ' . implode(', ', $conflicts['duplicates']);
+    }
+    if ($conflicts['contradictions']) {
+        $problems[] = 'allowed in one tier and denied in the other: '
+            . implode(', ', $conflicts['contradictions']);
+    }
+    if (!$problems) {
+        return '';
+    }
+
+    return 'Each knowledge class belongs to one tier only, so nothing was saved. Fix these classes ('
+        . implode('; ', $problems) . ').';
 }
 
 /** Build an entries-table URL while preserving only its supported filters. */
@@ -110,45 +130,22 @@ function worldknowledge_render_access_rule($rawRule, $variant = 'advanced') {
     return '<span class="rule-classes">' . implode('', $chips) . '</span>';
 }
 
-/**
- * Canonicalize the optional reviewed retrieval phrases into one comma-separated
- * lowercase list. Comma, semicolon, and the legacy pipe are all accepted as
- * separators. Nothing is discarded beyond blanks and exact duplicates: the
- * runtime already ignores single-word and ambiguous phrases, and silently
- * dropping an editor's text here would hide that from them.
- */
-function worldknowledge_normalize_retrieval_phrases($value) {
-    $phrases = [];
-    foreach (preg_split('/\s*[,;|]\s*/u', (string)$value) ?: [] as $phrase) {
-        $phrase = trim((string)$phrase);
-        $phrase = function_exists('mb_strtolower') ? mb_strtolower($phrase, 'UTF-8') : strtolower($phrase);
-        $phrase = trim(preg_replace('/\s+/u', ' ', $phrase) ?? $phrase);
-        if ($phrase !== '') {
-            $phrases[$phrase] = true;
-        }
-    }
-    return implode(',', array_keys($phrases));
-}
-
-/** Render stored retrieval phrases as chips; blank reads as an explicit "None". */
-function worldknowledge_render_retrieval_phrases($rawPhrases) {
-    $normalized = worldknowledge_normalize_retrieval_phrases($rawPhrases);
-    if ($normalized === '') {
-        return '<span class="scope-empty">None</span>';
-    }
-
-    $chips = [];
-    foreach (explode(',', $normalized) as $phrase) {
-        $chips[] = '<span class="phrase-tag">' . htmlspecialchars($phrase) . '</span>';
-    }
-    return '<span class="rule-classes">' . implode('', $chips) . '</span>';
-}
-
 // Connect to the database
 $conn = pg_connect(dialecticPgConnectionString($dbSettings));
 if (!$conn) {
     echo "<div class='message'>Failed to connect to database: " . pg_last_error() . "</div>";
     exit;
+}
+
+function worldknowledge_filter_alias_input($conn, string $schema, string $topic, string $aliases): array {
+    $rows = [];
+    $result = pg_query($conn, "SELECT topic, coalesce(aliases, '') AS aliases FROM {$schema}.worldknowledge_effective");
+    if ($result) {
+        while ($row = pg_fetch_assoc($result)) {
+            $rows[] = $row;
+        }
+    }
+    return dialecticWorldKnowledgeFilterAliases($topic, $aliases, $rows);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'activate_catalog') {
@@ -198,24 +195,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
     // The parameterized query keeps the write safe, and every render escapes
     // again at its own output boundary.
     $topic                = worldknowledge_normalize_topic_key($_POST['topic'] ?? '');
+    $aliasesInput         = trim((string)($_POST['aliases'] ?? ''));
+    $filteredAliases      = worldknowledge_filter_alias_input($conn, $schema, $topic, $aliasesInput);
+    $aliases              = $filteredAliases['aliases'];
+    foreach ($filteredAliases['rejected'] as $rejectedAlias) {
+        $message .= '<p>Alias skipped: ' . htmlspecialchars($rejectedAlias['alias'])
+            . ' (' . htmlspecialchars($rejectedAlias['reason']) . ')</p>';
+    }
     $topic_desc           = (string)($_POST['topic_desc']            ?? '');
     $knowledge_class      = dialecticWorldKnowledgeNormalizeAccessRule($_POST['knowledge_class'] ?? '');
     $topic_desc_basic     = (string)($_POST['topic_desc_basic']      ?? '');
     $knowledge_class_basic= dialecticWorldKnowledgeNormalizeAccessRule($_POST['knowledge_class_basic'] ?? '');
-    $retrieval_phrases    = worldknowledge_normalize_retrieval_phrases($_POST['retrieval_phrases'] ?? '');
     $tags                 = (string)($_POST['tags']                  ?? '');
     $category             = (string)($_POST['category']              ?? '');
     $canonicalTopic       = dialecticWorldKnowledgeCanonicalTopic($topic);
+    $classConflict        = worldknowledge_access_rule_conflicts($knowledge_class, $knowledge_class_basic);
 
-    if (!empty($topic) && worldknowledge_has_description($topic_desc, $topic_desc_basic)) {
+    if ($classConflict !== '') {
+        $message .= '<p>' . htmlspecialchars($classConflict) . '</p>';
+    } elseif (!empty($topic) && worldknowledge_has_description($topic_desc, $topic_desc_basic)) {
         $query = "
             INSERT INTO $schema.worldknowledge (
                 topic,
+                aliases,
                 topic_desc,
                 knowledge_class,
                 topic_desc_basic,
                 knowledge_class_basic,
-                retrieval_phrases,
                 tags,
                 category,
                 canonical_topic,
@@ -226,22 +232,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
             ON CONFLICT (canonical_topic) WHERE source_kind='custom' AND is_active
             DO UPDATE SET
                 topic                = EXCLUDED.topic,
+                aliases              = EXCLUDED.aliases,
                 topic_desc           = EXCLUDED.topic_desc,
                 knowledge_class      = EXCLUDED.knowledge_class,
                 topic_desc_basic     = EXCLUDED.topic_desc_basic,
                 knowledge_class_basic= EXCLUDED.knowledge_class_basic,
-                retrieval_phrases    = EXCLUDED.retrieval_phrases,
                 tags                 = EXCLUDED.tags,
                 category             = EXCLUDED.category,
                 updated_at           = CURRENT_TIMESTAMP
         ";
         $result = pg_query_params($conn, $query, [
             $topic,
+            $aliases,
             $topic_desc,
             $knowledge_class,
             $topic_desc_basic,
             $knowledge_class_basic,
-            $retrieval_phrases,
             $tags,
             $category,
             $canonicalTopic
@@ -255,11 +261,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
                 UPDATE $schema.worldknowledge
                 SET native_vector = 
                       setweight(to_tsvector(coalesce(topic, '')), 'A')
+                    || setweight(to_tsvector(coalesce(aliases, '')), 'A')
                     || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
                     || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
-                    || setweight(to_tsvector(coalesce(retrieval_phrases, '')), 'A')
-                    || setweight(to_tsvector(coalesce(tags, '')), 'B')
-                    || setweight(to_tsvector(coalesce(category, '')), 'C')
                 WHERE canonical_topic = $1 AND source_kind = 'custom'
             ";
             $update_result = pg_query_params($conn, $update_query, [$canonicalTopic]);
@@ -332,32 +336,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
 
                 $rowCount = 0;
                 $skippedCount = 0;
+                $conflictCount = 0;
                 while (($data = fgetcsv($handle, 0, ',')) !== false) {
                     if (count(array_filter($data, static function ($value) { return trim((string)$value) !== ''; })) === 0) {
                         continue;
                     }
 
                     $topic                = worldknowledge_normalize_topic_key(worldknowledge_csv_value($data, $headerMap, 'topic', 0));
-                    $topic_desc           = trim(worldknowledge_csv_value($data, $headerMap, 'topic_desc', 1));
-                    $knowledge_class      = dialecticWorldKnowledgeNormalizeAccessRule(worldknowledge_csv_value($data, $headerMap, 'knowledge_class', 2));
-                    $topic_desc_basic     = trim(worldknowledge_csv_value($data, $headerMap, 'topic_desc_basic', 3));
-                    $knowledge_class_basic= dialecticWorldKnowledgeNormalizeAccessRule(worldknowledge_csv_value($data, $headerMap, 'knowledge_class_basic', 4));
-                    // retrieval_phrases has no legacy positional slot, so it is
-                    // read by name only and imports blank from older files.
-                    $retrieval_phrases    = worldknowledge_normalize_retrieval_phrases(worldknowledge_csv_value($data, $headerMap, 'retrieval_phrases'));
-                    $tags                 = trim(worldknowledge_csv_value($data, $headerMap, 'tags', 5));
-                    $category             = trim(worldknowledge_csv_value($data, $headerMap, 'category', 6));
+                    $aliasesInput         = worldknowledge_csv_value($data, $headerMap, 'aliases', 1);
+                    $filteredAliases      = worldknowledge_filter_alias_input($conn, $schema, $topic, $aliasesInput);
+                    $aliases              = $filteredAliases['aliases'];
+                    $topic_desc           = trim(worldknowledge_csv_value($data, $headerMap, 'topic_desc', 2));
+                    $knowledge_class      = dialecticWorldKnowledgeNormalizeAccessRule(worldknowledge_csv_value($data, $headerMap, 'knowledge_class', 3));
+                    $topic_desc_basic     = trim(worldknowledge_csv_value($data, $headerMap, 'topic_desc_basic', 4));
+                    $knowledge_class_basic= dialecticWorldKnowledgeNormalizeAccessRule(worldknowledge_csv_value($data, $headerMap, 'knowledge_class_basic', 5));
+                    $tags                 = trim(worldknowledge_csv_value($data, $headerMap, 'tags', 6));
+                    $category             = trim(worldknowledge_csv_value($data, $headerMap, 'category', 7));
                     $canonicalTopic       = dialecticWorldKnowledgeCanonicalTopic($topic);
+                    $classConflict        = worldknowledge_access_rule_conflicts($knowledge_class, $knowledge_class_basic);
 
-                    if (!empty($topic) && worldknowledge_has_description($topic_desc, $topic_desc_basic)) {
+                    if ($classConflict !== '') {
+                        $message .= "<p>Row skipped for topic '" . htmlspecialchars($topic) . "': "
+                            . htmlspecialchars($classConflict) . "</p>";
+                        $conflictCount++;
+                    } elseif (!empty($topic) && worldknowledge_has_description($topic_desc, $topic_desc_basic)) {
                         $query = "
                             INSERT INTO $schema.worldknowledge (
                                 topic,
+                                aliases,
                                 topic_desc,
                                 knowledge_class,
                                 topic_desc_basic,
                                 knowledge_class_basic,
-                                retrieval_phrases,
                                 tags,
                                 category,
                                 canonical_topic,
@@ -368,22 +378,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                             ON CONFLICT (canonical_topic) WHERE source_kind='custom' AND is_active
                             DO UPDATE SET
                                 topic                = EXCLUDED.topic,
+                                aliases              = EXCLUDED.aliases,
                                 topic_desc           = EXCLUDED.topic_desc,
                                 knowledge_class      = EXCLUDED.knowledge_class,
                                 topic_desc_basic     = EXCLUDED.topic_desc_basic,
                                 knowledge_class_basic= EXCLUDED.knowledge_class_basic,
-                                retrieval_phrases    = EXCLUDED.retrieval_phrases,
                                 tags                 = EXCLUDED.tags,
                                 category             = EXCLUDED.category,
                                 updated_at           = CURRENT_TIMESTAMP
                         ";
                         $result = pg_query_params($conn, $query, [
                             $topic,
+                            $aliases,
                             $topic_desc,
                             $knowledge_class,
                             $topic_desc_basic,
                             $knowledge_class_basic,
-                            $retrieval_phrases,
                             $tags,
                             $category,
                             $canonicalTopic
@@ -396,11 +406,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                                 UPDATE $schema.worldknowledge
                                 SET native_vector = 
                                       setweight(to_tsvector(coalesce(topic, '')), 'A')
+                                    || setweight(to_tsvector(coalesce(aliases, '')), 'A')
                                     || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
                                     || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
-                                    || setweight(to_tsvector(coalesce(retrieval_phrases, '')), 'A')
-                                    || setweight(to_tsvector(coalesce(tags, '')), 'B')
-                                    || setweight(to_tsvector(coalesce(category, '')), 'C')
                                 WHERE canonical_topic = $1 AND source_kind = 'custom'
                             ";
                             pg_query_params($conn, $update_query, [$canonicalTopic]);
@@ -416,6 +424,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                 $message .= "<p>$rowCount records inserted/updated successfully from the CSV file.</p>";
                 if ($skippedCount > 0) {
                     $message .= "<p>$skippedCount row(s) skipped because the topic or both descriptions were missing.</p>";
+                }
+                if ($conflictCount > 0) {
+                    $message .= "<p>$conflictCount row(s) skipped because a knowledge class was used in both tiers.</p>";
                 }
             } else {
                 $message .= '<p>Error opening the CSV file.</p>';
@@ -454,12 +465,12 @@ if (isset($_GET['action']) && $_GET['action'] === 'download_example') {
  *  3.5) EXPORT CUSTOM ENTRIES AS CSV
  ********************************************************************/
 if (isset($_GET['action']) && $_GET['action'] === 'export_custom') {
-    // Same column order the importer reads, including retrieval_phrases, so an
+    // Same eight-column Herika order the importer reads, so an
     // export can be edited and uploaded straight back. Factory rows are owned by
     // the catalog and are deliberately not exported here.
     $exportColumns = [
-        'topic', 'topic_desc', 'knowledge_class', 'topic_desc_basic',
-        'knowledge_class_basic', 'retrieval_phrases', 'tags', 'category',
+        'topic', 'aliases', 'topic_desc', 'knowledge_class', 'topic_desc_basic',
+        'knowledge_class_basic', 'tags', 'category',
     ];
     $exportResult = @pg_query(
         $conn,
@@ -537,26 +548,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // Sanitize and read posted fields - use htmlspecialchars_decode to convert HTML entities back
     $topic_original       = $_POST['topic_original'] ?? '';
     $topic_new           = worldknowledge_normalize_topic_key(htmlspecialchars_decode($_POST['topic_new'] ?? ''));
+    $aliases_input       = htmlspecialchars_decode($_POST['aliases_new'] ?? '');
+    $filtered_aliases    = worldknowledge_filter_alias_input($conn, $schema, $topic_new, $aliases_input);
+    $aliases_new         = $filtered_aliases['aliases'];
+    foreach ($filtered_aliases['rejected'] as $rejectedAlias) {
+        $message .= '<p>Alias skipped: ' . htmlspecialchars($rejectedAlias['alias'])
+            . ' (' . htmlspecialchars($rejectedAlias['reason']) . ')</p>';
+    }
     $topic_desc_new      = htmlspecialchars_decode($_POST['topic_desc_new'] ?? '');
     $knowledge_class_new = dialecticWorldKnowledgeNormalizeAccessRule(htmlspecialchars_decode($_POST['knowledge_class_new'] ?? ''));
     $topic_desc_basic_new = htmlspecialchars_decode($_POST['topic_desc_basic_new'] ?? '');
     $knowledge_class_basic_new = dialecticWorldKnowledgeNormalizeAccessRule(htmlspecialchars_decode($_POST['knowledge_class_basic_new'] ?? ''));
-    $retrieval_phrases_new = worldknowledge_normalize_retrieval_phrases(htmlspecialchars_decode($_POST['retrieval_phrases_new'] ?? ''));
     $tags_new            = htmlspecialchars_decode($_POST['tags_new'] ?? '');
     $category_new        = htmlspecialchars_decode($_POST['category_new'] ?? '');
     $canonical_topic_new = dialecticWorldKnowledgeCanonicalTopic($topic_new);
+    $class_conflict      = worldknowledge_access_rule_conflicts($knowledge_class_new, $knowledge_class_basic_new);
 
-    if (!empty($topic_new) && worldknowledge_has_description($topic_desc_new, $topic_desc_basic_new)) {
+    if ($class_conflict !== '') {
+        $message .= '<p>' . htmlspecialchars($class_conflict) . '</p>';
+    } elseif (!empty($topic_new) && worldknowledge_has_description($topic_desc_new, $topic_desc_basic_new)) {
         // Perform the update
         $update_sql = "
             UPDATE $schema.worldknowledge
             SET 
                 topic = $1,
-                topic_desc = $2,
-                knowledge_class = $3,
-                topic_desc_basic = $4,
-                knowledge_class_basic = $5,
-                retrieval_phrases = $6,
+                aliases = $2,
+                topic_desc = $3,
+                knowledge_class = $4,
+                topic_desc_basic = $5,
+                knowledge_class_basic = $6,
                 tags = $7,
                 category = $8,
                 canonical_topic = $9,
@@ -566,11 +586,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         $update_result = pg_query_params($conn, $update_sql, [
             $topic_new,
+            $aliases_new,
             $topic_desc_new,
             $knowledge_class_new,
             $topic_desc_basic_new,
             $knowledge_class_basic_new,
-            $retrieval_phrases_new,
             $tags_new,
             $category_new,
             $canonical_topic_new,
@@ -585,11 +605,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 UPDATE $schema.worldknowledge
                 SET native_vector = 
                       setweight(to_tsvector(coalesce(topic, '')), 'A')
+                    || setweight(to_tsvector(coalesce(aliases, '')), 'A')
                     || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
                     || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
-                    || setweight(to_tsvector(coalesce(retrieval_phrases, '')), 'A')
-                    || setweight(to_tsvector(coalesce(tags, '')), 'B')
-                    || setweight(to_tsvector(coalesce(category, '')), 'C')
                 WHERE canonical_topic = $1 AND source_kind = 'custom'
             ";
             pg_query_params($conn, $vector_sql, [$canonical_topic_new]);
@@ -1118,15 +1136,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 
     .wk-col-topic      { width: 9%; }
+    .wk-col-aliases    { width: 9%; }
     .wk-col-adv-desc   { width: 18%; }
     .wk-col-adv-rule   { width: 10%; }
     .wk-col-basic-desc { width: 15%; }
     .wk-col-basic-rule { width: 10%; }
-    .wk-col-phrases    { width: 9%; }
     .wk-col-tags       { width: 6%; }
     .wk-col-category   { width: 6%; }
-    .wk-col-source     { width: 6%; }
-    .wk-col-region     { width: 6%; }
     .wk-col-action     { width: 5%; }
 
     .entries-pager {
@@ -1276,20 +1292,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         font-style: italic;
         text-transform: lowercase;
         opacity: 0.9;
-    }
-
-    /* Reviewed retrieval phrases are neither classes nor tags, so they get their
-       own neutral chip. */
-    .phrase-tag {
-        display: inline-block;
-        background: rgba(129, 199, 132, 0.14);
-        border: 1px solid rgba(129, 199, 132, 0.38);
-        color: #a5d6a7;
-        padding: 2px 7px;
-        margin: 2px;
-        border-radius: 4px;
-        font-size: 0.85em;
-        font-weight: 500;
     }
 
     .rule-none {
@@ -1583,10 +1585,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             <!-- Regular WorldKnowledge Content -->
             <div id="worldknowledge-header-content">
                 <p><b>World Knowledge</b> is DIALECTIC's Fallout encyclopedia for grounded NPC roleplay.</p>
-                <p>Deterministic topic, alias, and speech matching selects the relevant articles, with reviewed retrieval phrases used only when that matching abstains. Custom articles override factory articles with the same canonical topic.</p>
-                
-                <h3><strong>Ensure all topic titles are lowercase and spaces are replaced with underscores (_).</strong></h3>
-                <h4>Example: "Fishy Stick" becomes "fishy_stick"</h4>
+                <p>Deterministic topic, alias, and speech matching selects relevant articles. Custom articles override factory articles with the same canonical topic.</p>
+
             <p>Knowledge classes control which uploaded Fallout world knowledge entries a character can access.</p>
 
                 <div class="logic-section">
@@ -1602,26 +1602,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         <div class="logic-step">
                             <div class="step-number">2</div>
                             <div class="step-content">
-                                <strong>Retrieval Phrases</strong>
-                                <p><code>retrieval_phrases</code> are optional reviewed multiword phrases used only when topic and alias matching abstains. Ordinary <code>tags</code> never acquire a topic; they only support ranking and relationships once one is identified.</p>
-                            </div>
-                        </div>
-                        <div class="logic-step">
-                            <div class="step-number">3</div>
-                            <div class="step-content">
                                 <strong>Advanced Access Check</strong>
                                 <p><code>knowledge_class</code> controls expert or involved access. Write one comma-separated list of classes: any matching class grants that tier. A matching <code>!class</code> denies it first, and a blank list is unrestricted.</p>
                             </div>
                         </div>
                         <div class="logic-step">
-                            <div class="step-number">4</div>
+                            <div class="step-number">3</div>
                             <div class="step-content">
                                 <strong>Basic Access Check</strong>
                                 <p><code>knowledge_class_basic</code> controls average-person access in the appropriate region or community, using the same flat class list.</p>
                             </div>
                         </div>
                         <div class="logic-step">
-                            <div class="step-number">5</div>
+                            <div class="step-number">4</div>
                             <div class="step-content">
                                 <strong>Bounded Fallback</strong>
                                 <p>Only explicit unmatched lore requests may use one configured connector fallback, and suggestions must resolve back to this catalog.</p>
@@ -1659,12 +1652,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 </form>
 
                 <p style="margin-top: 15px;">Columns are matched by header name:
-                    <code>topic</code>, <code>topic_desc</code>, <code>knowledge_class</code>,
+                    <code>topic</code>, <code>aliases</code>, <code>topic_desc</code>, <code>knowledge_class</code>,
                     <code>topic_desc_basic</code>, <code>knowledge_class_basic</code>,
-                    <code>retrieval_phrases</code>, <code>tags</code>, <code>category</code>.
-                    Older files without a <code>retrieval_phrases</code> column import it as blank.
+                    <code>tags</code>, <code>category</code>.
                     Export writes the same columns back, so an export can be edited and uploaded again.</p>
                 <p>Uploads are saved as custom articles. A custom canonical topic safely overrides the active factory article without modifying factory data.</p>
+
+                <h3><strong>Ensure all topic titles are lowercase and spaces are replaced with underscores (_).</strong></h3>
+                <h4>Example: "Fishy Stick" becomes "fishy_stick"</h4>
             </div>
 
             <div class="content-section">
@@ -1719,8 +1714,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     onclick="return confirm('Restore and activate the shipped DIALECTIC factory catalog? Custom articles will be preserved.');">
                     </form>
                 </div>
-                
-                <p style="margin-top: 15px;">Download backup: <a href="https://discord.gg/NDn9qud2ug" target="_blank" rel="noopener" style="color: yellow;">Discord CSV files channel</a></p>
             </div>
         </div>
         <div class="full-width-section">
@@ -1762,8 +1755,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             <div class="action-container">
                 <button onclick="openNewEntryModal()" class="action-button add-new">Add New Entry</button>
                 <div class="search-container">
-                    <label for="searchBox" class="visually-hidden">Search World Knowledge topics, tags, and retrieval phrases</label>
-                    <input type="text" id="searchBox" value="<?php echo htmlspecialchars($searchTerm, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Search topics, tags, phrases..." style="flex-grow: 1; padding: 8px; border-radius: 4px; border: 1px solid #555555; background-color: #4a4a4a; color: #f8f9fa;">
+                    <label for="searchBox" class="visually-hidden">Search World Knowledge topics, aliases, and tags</label>
+                    <input type="text" id="searchBox" value="<?php echo htmlspecialchars($searchTerm, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Search topics, aliases, or tags..." style="flex-grow: 1; padding: 8px; border-radius: 4px; border: 1px solid #555555; background-color: #4a4a4a; color: #f8f9fa;">
                     <button onclick="applySearch()" class="action-button edit">Search</button>
                 </div>
             </div>
@@ -1772,11 +1765,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <div style="margin-bottom: 15px;">
                     <strong>Filter by Category:</strong><br>
                     <div class="filter-buttons" style="margin-top: 10px;">
-                        <a class="alphabet-button" href="<?php echo htmlspecialchars(worldknowledge_entries_url(['cat' => null, 'page' => 1]), ENT_QUOTES, 'UTF-8'); ?>">All Categories</a>
+                        <a class="alphabet-button" href="<?php echo htmlspecialchars(worldknowledge_entries_url([
+                            'cat' => null,
+                            'letter' => null,
+                            'search' => null,
+                            'order' => null,
+                            'per_page' => null,
+                            'page' => null,
+                        ]), ENT_QUOTES, 'UTF-8'); ?>">All Categories</a>
                         <?php
                         foreach ($categories as $cat) {
                             $style = ($selectedCategory === $cat) ? 'style="background-color:#0056b3;"' : '';
-                            $categoryUrl = worldknowledge_entries_url(['cat' => $cat, 'page' => 1]);
+                            $categoryUrl = worldknowledge_entries_url([
+                                'cat' => $cat,
+                                'letter' => null,
+                                'search' => null,
+                                'order' => null,
+                                'per_page' => null,
+                                'page' => null,
+                            ]);
                             echo '<a class="alphabet-button" ' . $style . ' href="'
                                 . htmlspecialchars($categoryUrl, ENT_QUOTES, 'UTF-8') . '">'
                                 . htmlspecialchars($cat) . '</a>';
@@ -1809,8 +1816,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             if ($searchTerm) {
                 $params[] = '%' . $searchTerm . '%';
                 $conditions[] = '(topic ILIKE $' . count($params)
+                    . ' OR aliases ILIKE $' . count($params)
                     . ' OR tags ILIKE $' . count($params)
-                    . ' OR retrieval_phrases ILIKE $' . count($params) . ')';
+                    . ')';
             }
             $whereSql = $conditions ? ' WHERE ' . implode(' AND ', $conditions) : '';
             $countResult = pg_query_params(
@@ -1825,9 +1833,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $rangeStart = $totalEntries > 0 ? $offset + 1 : 0;
             $rangeEnd = min($offset + $perPage, $totalEntries);
 
-            $query = "SELECT topic, topic_desc, knowledge_class, topic_desc_basic,
-                             knowledge_class_basic, retrieval_phrases, tags, category, source_kind,
-                             catalog_id, catalog_version, region, editorial_note
+            $query = "SELECT topic, aliases, topic_desc, knowledge_class, topic_desc_basic,
+                             knowledge_class_basic, tags, category, source_kind
                         FROM $schema.worldknowledge_effective"
                 . $whereSql
                 . " ORDER BY topic $order LIMIT " . intval($perPage) . " OFFSET " . intval($offset);
@@ -1869,66 +1876,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <?php endif; ?>
                 </div>
             </div>
-            <div class="access-legend">
-                <p class="access-legend-item access-legend-advanced">
-                    <b>Advanced knowledge</b>
-                    The expert or personally-involved version of the article. An NPC only receives it
-                    when one of their knowledge classes appears in the advanced list.
-                </p>
-                <p class="access-legend-item access-legend-basic">
-                    <b>Basic knowledge</b>
-                    What an ordinary person in the right place would know. A blank list is
-                    unrestricted and reads as <em>Everyone</em>.
-                </p>
-                <p class="access-legend-item">
-                    <b>Reading knowledge classes</b>
-                    Classes are one comma-separated list. Any matching class grants that tier.
-                    A chip reading <code>except raider</code> is a <code>!class</code> denial and
-                    is applied first. A blank list is unrestricted.
-                </p>
-                <p class="access-legend-item">
-                    <b>Retrieval phrases</b>
-                    Optional reviewed multiword phrases, used only when topic and alias matching
-                    abstains. Ordinary tags support ranking and relationships instead; they never
-                    acquire a topic on their own.
-                </p>
-            </div>
             <?php
             // tabindex makes the horizontally scrolling table reachable by keyboard.
             echo '<div class="table-container" tabindex="0" role="region" aria-label="World Knowledge entries">';
             echo '<table>';
             echo '<colgroup>
                     <col class="wk-col-topic">
+                    <col class="wk-col-aliases">
                     <col class="wk-col-adv-desc">
                     <col class="wk-col-adv-rule">
                     <col class="wk-col-basic-desc">
                     <col class="wk-col-basic-rule">
-                    <col class="wk-col-phrases">
                     <col class="wk-col-tags">
                     <col class="wk-col-category">
-                    <col class="wk-col-source">
-                    <col class="wk-col-region">
                     <col class="wk-col-action">
                   </colgroup>';
-            // Two header rows: the Advanced and Basic groups each own an
-            // article + knowledge class pair, so the pairing is labelled once.
             echo '<thead>
                   <tr>
-                    <th scope="col" rowspan="2">Topic</th>
-                    <th scope="colgroup" colspan="2" class="wk-group wk-group-advanced wk-divide">Advanced knowledge</th>
-                    <th scope="colgroup" colspan="2" class="wk-group wk-group-basic wk-divide">Basic knowledge</th>
-                    <th scope="col" rowspan="2" class="wk-divide">Retrieval phrases</th>
-                    <th scope="col" rowspan="2">Tags</th>
-                    <th scope="col" rowspan="2">Category</th>
-                    <th scope="col" rowspan="2">Source</th>
-                    <th scope="col" rowspan="2">Region &amp; Notes</th>
-                    <th scope="col" rowspan="2">Action</th>
-                  </tr>
-                  <tr>
-                    <th scope="col" class="wk-sub wk-divide">Article</th>
-                    <th scope="col" class="wk-sub">Knowledge classes</th>
-                    <th scope="col" class="wk-sub wk-divide">Article</th>
-                    <th scope="col" class="wk-sub">Knowledge classes</th>
+                    <th scope="col">Topic</th>
+                    <th scope="col">Aliases</th>
+                    <th scope="col">Topic Description (Advanced)</th>
+                    <th scope="col">Knowledge Class (Advanced)</th>
+                    <th scope="col">Topic Description (Basic)</th>
+                    <th scope="col">Knowledge Class (Basic)</th>
+                    <th scope="col">Tags</th>
+                    <th scope="col">Category</th>
+                    <th scope="col">Action</th>
                   </tr>
                   </thead>';
             echo '<tbody>';
@@ -1937,25 +1910,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $rowCount = 0;
                 while ($row = pg_fetch_assoc($result)) {
                     $topic                = htmlspecialchars($row['topic']                ?? '');
+                    $aliases              = htmlspecialchars($row['aliases']              ?? '');
                     $topic_desc           = htmlspecialchars($row['topic_desc']           ?? '');
                     $knowledge_class      = htmlspecialchars($row['knowledge_class']      ?? '');
                     $topic_desc_basic     = htmlspecialchars($row['topic_desc_basic']     ?? '');
                     $knowledge_class_basic= htmlspecialchars($row['knowledge_class_basic']?? '');
-                    $retrieval_phrases    = htmlspecialchars($row['retrieval_phrases']    ?? '');
                     $tags                 = htmlspecialchars($row['tags']                 ?? '');
                     $category             = htmlspecialchars($row['category']             ?? '');
                     $sourceKind           = strtolower(trim((string)($row['source_kind'] ?? 'custom')));
-                    $catalogLabel         = trim((string)($row['catalog_id'] ?? '') . '/' . (string)($row['catalog_version'] ?? ''), '/');
-                    $region               = htmlspecialchars($row['region'] ?? '');
-                    $editorialNote        = htmlspecialchars($row['editorial_note'] ?? '');
                     // Raw (unescaped) values for chip rendering; the escaped copies above feed the edit modal.
                     $knowledgeClassRaw    = (string)($row['knowledge_class']       ?? '');
                     $knowledgeClassBasicRaw = (string)($row['knowledge_class_basic'] ?? '');
-                    $retrievalPhrasesRaw  = (string)($row['retrieval_phrases']     ?? '');
 
                     // Normal row display
                     echo '<tr>';
                     echo '<th scope="row">' . $topic . '</th>';
+                    echo '<td>' . ($aliases !== '' ? $aliases : '<span class="scope-empty">None</span>') . '</td>';
                     echo '<td class="wk-divide">' . nl2br($topic_desc) . '</td>';
 
                     // Advanced knowledge classes, one flat any-of list of chips.
@@ -1970,13 +1940,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     echo worldknowledge_render_access_rule($knowledgeClassBasicRaw, 'basic');
                     echo '</td>';
 
-                    echo '<td class="wk-divide">' . worldknowledge_render_retrieval_phrases($retrievalPhrasesRaw) . '</td>';
                     echo '<td>' . nl2br($tags) . '</td>';
                     echo '<td>' . nl2br($category) . '</td>';
-                    echo '<td><strong>' . htmlspecialchars(ucfirst($sourceKind)) . '</strong>'
-                        . ($catalogLabel !== '' ? '<br><small>' . htmlspecialchars($catalogLabel) . '</small>' : '') . '</td>';
-                    echo '<td>' . ($region !== '' ? '<strong>' . $region . '</strong>' : '<span class="scope-empty">Unspecified</span>')
-                        . ($editorialNote !== '' ? '<br><small>' . $editorialNote . '</small>' : '') . '</td>';
 
                     // Action column
                     echo '<td style="white-space: nowrap;">';
@@ -1986,11 +1951,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         echo '<button onclick="openEditModal(' .
                             htmlspecialchars(json_encode([
                                 'topic' => $topic,
+                                'aliases' => $aliases,
                                 'topic_desc' => $topic_desc,
                                 'knowledge_class' => $knowledge_class,
                                 'topic_desc_basic' => $topic_desc_basic,
                                 'knowledge_class_basic' => $knowledge_class_basic,
-                                'retrieval_phrases' => $retrieval_phrases,
                                 'tags' => $tags,
                                 'category' => $category
                             ]), ENT_QUOTES, 'UTF-8') .
@@ -2035,8 +2000,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <input type="hidden" name="topic_original" id="edit_topic_original">
 
                 <label for="edit_topic">Topic:</label>
-                <small>Canonical topic followed by optional comma-separated aliases.</small>
+                <small>Canonical lowercase topic identifier.</small>
                 <input type="text" name="topic_new" id="edit_topic" required>
+
+                <label for="edit_aliases">Aliases:</label>
+                <small>Alternate names that should find this article. Separate aliases with commas.</small>
+                <input type="text" name="aliases_new" id="edit_aliases">
 
                 <fieldset class="access-group access-group-advanced">
                     <legend>Advanced knowledge</legend>
@@ -2063,10 +2032,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <small>Same flat list. Limit average-person knowledge to the appropriate audience, for example <code>common,mojave</code>. Leave blank only when every NPC should know it.</small>
                     <input type="text" name="knowledge_class_basic_new" id="edit_knowledge_class_basic">
                 </fieldset>
-
-                <label for="edit_retrieval_phrases">Retrieval phrases:</label>
-                <small>Optional reviewed multiword phrases, comma-separated. They are used only when topic and alias matching abstains, so each phrase needs at least two words and must belong to this article alone. Leave blank for most entries.</small>
-                <input type="text" name="retrieval_phrases_new" id="edit_retrieval_phrases">
 
                 <label for="edit_tags">Tags:</label>
                 <small>Lowercase descriptive tags that support ranking and relationships after a topic is identified. Tags never acquire a topic on their own.</small>
@@ -2096,8 +2061,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <input type="hidden" name="submit_individual" value="1">
 
                 <label for="topic">Topic (required):</label>
-                <small>Canonical topic followed by optional comma-separated aliases.</small>
+                <small>Canonical lowercase topic identifier.</small>
                 <input type="text" name="topic" id="topic" required>
+
+                <label for="aliases">Aliases:</label>
+                <small>Alternate names that should find this article. Separate aliases with commas.</small>
+                <input type="text" name="aliases" id="aliases">
 
                 <fieldset class="access-group access-group-advanced">
                     <legend>Advanced knowledge</legend>
@@ -2124,10 +2093,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <small>Same flat list. Limit average-person knowledge to the appropriate audience, for example <code>common,capital_wasteland</code>. Leave blank only when every NPC should know it.</small>
                     <input type="text" name="knowledge_class_basic" id="knowledge_class_basic">
                 </fieldset>
-
-                <label for="retrieval_phrases">Retrieval phrases:</label>
-                <small>Optional reviewed multiword phrases, comma-separated. They are used only when topic and alias matching abstains, so each phrase needs at least two words and must belong to this article alone. Leave blank for most entries.</small>
-                <input type="text" name="retrieval_phrases" id="retrieval_phrases">
 
                 <label for="tags">Tags:</label>
                 <small>Lowercase descriptive tags that support ranking and relationships after a topic is identified. Tags never acquire a topic on their own.</small>
@@ -2278,11 +2243,11 @@ function openEditModal(data) {
 
         document.getElementById("edit_topic_original").value = decodeHTML(data.topic);
         document.getElementById("edit_topic").value = decodeHTML(data.topic);
+        document.getElementById("edit_aliases").value = decodeHTML(data.aliases || '');
         document.getElementById("edit_topic_desc").value = decodeHTML(data.topic_desc);
         document.getElementById("edit_knowledge_class").value = decodeHTML(data.knowledge_class);
         document.getElementById("edit_topic_desc_basic").value = decodeHTML(data.topic_desc_basic);
         document.getElementById("edit_knowledge_class_basic").value = decodeHTML(data.knowledge_class_basic);
-        document.getElementById("edit_retrieval_phrases").value = decodeHTML(data.retrieval_phrases || '');
         document.getElementById("edit_tags").value = decodeHTML(data.tags);
         document.getElementById("edit_category").value = decodeHTML(data.category);
 

@@ -6,7 +6,6 @@
   "semantics": {
     "knowledge_tags": "Plain permissions representing knowledge an NPC can plausibly use.",
     "article_tags": "Natural descriptive phrases used for search and for ranking an already grounded topic.",
-    "retrieval_phrases": "Small reviewed phrases that may identify one article after topic and alias grounding abstain.",
     "profile_subjects": "Exact plain NPC IDs used only for knowledge specifically about that NPC.",
     "rule_grammar": "Comma-separated classes are simple alternatives. A matching exclamation-prefixed class denies first. Empty classes are unrestricted."
   },
@@ -33,7 +32,8 @@
     "anchorage", "big_mt", "capital_wasteland", "divide", "mojave",
     "mothership_zeta", "point_lookout", "sierra_madre", "the_pitt", "zion"
   ],
-  "reserved": ["common", "knowall"],
+  "reserved": ["blocked", "common", "knowall"],
+  "article_access_markers": ["blocked"],
   "legacy_namespaces": [
     "person", "region", "community", "place", "faction", "role", "domain", "race"
   ],

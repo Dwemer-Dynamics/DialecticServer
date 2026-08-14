@@ -1,10 +1,10 @@
 {
   "schema": "dialectic.worldknowledge-catalog.v1",
   "catalog_id": "fallout-3-new-vegas-ttw-official",
-  "catalog_version": "parity-v1.6-2026-08-14",
+  "catalog_version": "parity-v1.7-2026-08-14",
   "display_name": "DIALECTIC Fallout 3, New Vegas, DLC and TTW",
   "csv_file": "fallout_worldknowledge_parity_v1.csv",
-  "checksum_sha256": "8305481338b1ac18030a6740b706372614e3b6ecd097492fbfe99b78e382b08e",
+  "checksum_sha256": "668643b70ebc932603e730a754d972733a1c0c380c8e4ae3e4c67199535e22f1",
   "row_count": 1169,
   "source_snapshot": {
     "file": "fallout_worldknowledge_sources.jsonl",
@@ -56,10 +56,10 @@
     "status": "approved",
     "reviewer": "Codex-assisted Dwemer Dynamics access audit",
     "reviewed_at": "2026-08-14T06:00:00Z",
-    "method": "source-bound validation, Fallout-specific scope curation, deterministic checks, duplicate and chronology audit, and representative article review"
+    "method": "source-bound validation, Fallout-specific scope curation, deterministic checks, alias ownership and access review, and representative article review"
   },
   "knowledge_vocabulary": {
     "file": "fallout_worldknowledge_vocabulary.json",
-    "checksum_sha256": "743195fb32a81539dd1a7c0753b3a9ce75d8ff7ec2aefa12e0facd77ef921eb5"
+    "checksum_sha256": "97c37f26e405a2ad56a3f39f7e53032f72c20a4779fc66dab55cfefd630d7660"
   }
 }

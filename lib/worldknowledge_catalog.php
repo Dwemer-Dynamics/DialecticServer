@@ -6,20 +6,13 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'worldknowledge_topic.php';
 
 const DIALECTIC_WORLDKNOWLEDGE_CATALOG_FIELDS = [
     'topic',
+    'aliases',
     'topic_desc',
     'knowledge_class',
     'topic_desc_basic',
     'knowledge_class_basic',
-    'retrieval_phrases',
     'tags',
     'category',
-    'setting',
-    'region',
-    'valid_from_year',
-    'valid_to_year',
-    'source_url',
-    'source_revision',
-    'editorial_note',
 ];
 
 const DIALECTIC_WORLDKNOWLEDGE_CATEGORIES = [
@@ -99,7 +92,7 @@ function dialecticWorldKnowledgeLoadFactoryCatalog(string $rootPath): array
             }
             $row = array_map(static fn(mixed $value): string => trim(strval($value)), $row);
             dialecticWorldKnowledgeValidateFactoryRow($row, $seenTopics);
-            $row['canonical_topic'] = dialecticWorldKnowledgeCanonicalTopic($row['topic']);
+            $row['canonical_topic'] = $row['topic'];
             $row['content_hash'] = dialecticWorldKnowledgeContentHash($row);
             $seenTopics[$row['canonical_topic']] = true;
             $rows[] = $row;
@@ -110,6 +103,7 @@ function dialecticWorldKnowledgeLoadFactoryCatalog(string $rootPath): array
     if (count($rows) !== intval($manifest['row_count'])) {
         throw new RuntimeException('World Knowledge catalog row count does not match its manifest');
     }
+    dialecticWorldKnowledgeValidateAliasOwnership($rows);
 
     return [
         'manifest' => $manifest,
@@ -121,19 +115,14 @@ function dialecticWorldKnowledgeLoadFactoryCatalog(string $rootPath): array
 
 function dialecticWorldKnowledgeValidateFactoryRow(array $row, array $seenTopics = []): void
 {
-    $topic = dialecticWorldKnowledgeNormalizeTopicList($row['topic'] ?? '');
-    $canonical = dialecticWorldKnowledgeCanonicalTopic($topic);
-    if ($canonical === '' || !preg_match('/^[a-z0-9_]+$/', $canonical)) {
+    $canonical = dialecticWorldKnowledgeNormalizeCanonicalTopic($row['topic'] ?? '');
+    if ($canonical === '' || $canonical !== strval($row['topic'] ?? '') || !preg_match('/^[a-z0-9_]+$/', $canonical)) {
         throw new RuntimeException('World Knowledge catalog contains an invalid canonical topic');
     }
     if (isset($seenTopics[$canonical])) {
         throw new RuntimeException("World Knowledge catalog contains duplicate topic {$canonical}");
     }
     $basicText = trim(strval($row['topic_desc_basic'] ?? ''));
-    $allowsOmittedBasic = trim(strval($row['editorial_note'] ?? '')) !== '';
-    if ($basicText === '' && !$allowsOmittedBasic) {
-        throw new RuntimeException("World Knowledge catalog is missing basic text for {$canonical}");
-    }
     $advancedWordCount = count(preg_split(
         '/\s+/u',
         trim(strval($row['topic_desc'] ?? '')),
@@ -150,10 +139,10 @@ function dialecticWorldKnowledgeValidateFactoryRow(array $row, array $seenTopics
         || ($basicText !== '' && ($basicWordCount < 20 || $basicWordCount > 220))) {
         throw new RuntimeException("World Knowledge article lengths are outside reviewed bounds for {$canonical}");
     }
-    if (trim(strval($row['topic_desc'] ?? '')) === '' && trim(strval($row['editorial_note'] ?? '')) === '') {
-        throw new RuntimeException("Basic-only World Knowledge article {$canonical} requires an editorial note");
+    if (trim(strval($row['topic_desc'] ?? '')) === '') {
+        throw new RuntimeException("World Knowledge catalog is missing advanced text for {$canonical}");
     }
-    foreach (['category', 'setting', 'source_url', 'source_revision'] as $required) {
+    foreach (['category'] as $required) {
         if (trim(strval($row[$required] ?? '')) === '') {
             throw new RuntimeException("World Knowledge catalog is missing {$required} for {$canonical}");
         }
@@ -177,22 +166,12 @@ function dialecticWorldKnowledgeValidateFactoryRow(array $row, array $seenTopics
             throw new RuntimeException("World Knowledge catalog contains an invalid tag for {$canonical}");
         }
     }
-    $retrievalPhrases = array_values(array_unique(array_filter(array_map(
-        static fn(string $value): string => strtolower(trim($value)),
-        preg_split('/[,;|]+/', strval($row['retrieval_phrases'] ?? '')) ?: []
-    ))));
-    foreach ($retrievalPhrases as $phrase) {
-        $words = preg_split('/\s+/u', $phrase) ?: [];
-        if (count($words) < 2 || count($words) > 5
-            || !preg_match('/^[\p{L}\p{N}][\p{L}\p{N} .\'-]*$/u', $phrase)) {
-            throw new RuntimeException("World Knowledge catalog contains an invalid retrieval phrase for {$canonical}");
-        }
-    }
     foreach (['knowledge_class', 'knowledge_class_basic'] as $field) {
         if (str_contains(strval($row[$field] ?? ''), '&') || str_contains(strval($row[$field] ?? ''), '|')) {
             throw new RuntimeException("World Knowledge catalog contains a compound access rule for {$canonical}");
         }
         $rawClasses = preg_split('/[,;]+/', strval($row[$field] ?? '')) ?: [];
+        $seenClasses = [];
         foreach ($rawClasses as $class) {
             $class = trim($class);
             if ($class === '') {
@@ -202,29 +181,54 @@ function dialecticWorldKnowledgeValidateFactoryRow(array $row, array $seenTopics
                 || dialecticWorldKnowledgeNormalizeAccessTag($class) !== $class) {
                 throw new RuntimeException("World Knowledge catalog contains unsupported access tag {$class} for {$canonical}");
             }
+            if (isset($seenClasses[$class])) {
+                throw new RuntimeException("World Knowledge catalog repeats access tag {$class} for {$canonical}");
+            }
+            $seenClasses[$class] = true;
         }
     }
-    if (filter_var(strval($row['source_url'] ?? ''), FILTER_VALIDATE_URL) === false
-        || !preg_match('/^\d+$/', strval($row['source_revision'] ?? ''))) {
-        throw new RuntimeException("World Knowledge provenance is invalid for {$canonical}");
+    $tierConflicts = dialecticWorldKnowledgeAccessTierConflicts(
+        $row['knowledge_class'] ?? '',
+        $row['knowledge_class_basic'] ?? ''
+    );
+    if ($tierConflicts['duplicates'] !== []) {
+        throw new RuntimeException(
+            "World Knowledge catalog repeats access tags across tiers for {$canonical}: "
+            . implode(', ', $tierConflicts['duplicates'])
+        );
     }
-    $from = dialecticWorldKnowledgeOptionalYear($row['valid_from_year'] ?? '');
-    $to = dialecticWorldKnowledgeOptionalYear($row['valid_to_year'] ?? '');
-    if ($from !== null && $to !== null && $from > $to) {
-        throw new RuntimeException("World Knowledge chronology is inverted for {$canonical}");
+    if ($tierConflicts['contradictions'] !== []) {
+        throw new RuntimeException(
+            "World Knowledge catalog contradicts access tags across tiers for {$canonical}: "
+            . implode(', ', $tierConflicts['contradictions'])
+        );
     }
 }
 
-function dialecticWorldKnowledgeOptionalYear(mixed $value): ?int
+/** Reject aliases that duplicate a canonical topic or belong to more than one article. */
+function dialecticWorldKnowledgeValidateAliasOwnership(array $rows): void
 {
-    $value = trim(strval($value));
-    if ($value === '') {
-        return null;
+    $owners = [];
+    foreach ($rows as $row) {
+        $topic = strval($row['topic'] ?? '');
+        $key = dialecticWorldKnowledgeComparableTopic($topic);
+        if ($key !== '') {
+            $owners[$key] = $topic;
+        }
     }
-    if (!preg_match('/^\d{1,4}$/', $value)) {
-        throw new RuntimeException("Invalid World Knowledge year: {$value}");
+    foreach ($rows as $row) {
+        $topic = strval($row['topic'] ?? '');
+        foreach (dialecticWorldKnowledgeSplitAliases($row['aliases'] ?? '') as $alias) {
+            $key = dialecticWorldKnowledgeComparableTopic($alias);
+            if ($key === '' || $key === dialecticWorldKnowledgeComparableTopic($topic)) {
+                throw new RuntimeException("World Knowledge catalog contains a duplicate alias for {$topic}");
+            }
+            if (isset($owners[$key]) && $owners[$key] !== $topic) {
+                throw new RuntimeException("World Knowledge alias {$alias} conflicts with {$owners[$key]}");
+            }
+            $owners[$key] = $topic;
+        }
     }
-    return intval($value);
 }
 
 function dialecticWorldKnowledgeContentHash(array $row): string
@@ -251,7 +255,7 @@ function dialecticWorldKnowledgeRemoveLegacyFactorySeed(object $db, string $root
     $removed = 0;
     try {
         $header = fgetcsv($handle, 0, ',', '"', '\\');
-        $expected = ['topic', 'topic_desc', 'knowledge_class', 'topic_desc_basic', 'knowledge_class_basic', 'tags', 'category'];
+        $expected = ['topic', 'aliases', 'topic_desc', 'knowledge_class', 'topic_desc_basic', 'knowledge_class_basic', 'tags', 'category'];
         if ($header !== $expected) {
             return 0;
         }
@@ -267,6 +271,7 @@ function dialecticWorldKnowledgeRemoveLegacyFactorySeed(object $db, string $root
             $predicate = ' WHERE source_kind=\'custom\' AND is_active'
                 . ' AND canonical_topic=' . $db->escapeLiteral($canonical)
                 . ' AND topic=' . $db->escapeLiteral(trim(strval($row['topic'] ?? '')))
+                . ' AND coalesce(aliases,\'\')=' . $db->escapeLiteral(trim(strval($row['aliases'] ?? '')))
                 . ' AND coalesce(topic_desc,\'\')=' . $db->escapeLiteral(trim(strval($row['topic_desc'] ?? '')))
                 . ' AND coalesce(knowledge_class,\'\')=' . $db->escapeLiteral(trim(strval($row['knowledge_class'] ?? '')))
                 . ' AND coalesce(topic_desc_basic,\'\')=' . $db->escapeLiteral(trim(strval($row['topic_desc_basic'] ?? '')))
@@ -472,36 +477,26 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
             $values = [
                 $db->escapeLiteral($row['topic']),
                 $db->escapeLiteral($row['canonical_topic']),
+                $db->escapeLiteral($row['aliases']),
                 dialecticWorldKnowledgeSqlNullable($db, $row['topic_desc']),
                 dialecticWorldKnowledgeSqlNullable($db, $row['knowledge_class']),
                 $db->escapeLiteral($row['topic_desc_basic']),
                 dialecticWorldKnowledgeSqlNullable($db, $row['knowledge_class_basic']),
-                $db->escapeLiteral($row['retrieval_phrases']),
                 $db->escapeLiteral($row['tags']),
                 $db->escapeLiteral($row['category']),
                 $db->escapeLiteral('factory'),
                 $db->escapeLiteral($catalogId),
                 $db->escapeLiteral($catalogVersion),
                 $db->escapeLiteral($row['content_hash']),
-                $db->escapeLiteral($row['source_url']),
-                $db->escapeLiteral($row['source_revision']),
-                $db->escapeLiteral($row['setting']),
-                dialecticWorldKnowledgeSqlNullable($db, $row['region']),
-                dialecticWorldKnowledgeSqlNullableInteger($row['valid_from_year']),
-                dialecticWorldKnowledgeSqlNullableInteger($row['valid_to_year']),
-                dialecticWorldKnowledgeSqlNullable($db, $row['editorial_note']),
             ];
             $insertSql = 'INSERT INTO public.worldknowledge ('
-                . 'topic,canonical_topic,topic_desc,knowledge_class,topic_desc_basic,knowledge_class_basic,retrieval_phrases,'
-                . 'tags,category,source_kind,catalog_id,catalog_version,content_hash,source_url,source_revision,'
-                . 'setting,region,valid_from_year,valid_to_year,editorial_note,native_vector'
+                . 'topic,canonical_topic,aliases,topic_desc,knowledge_class,topic_desc_basic,knowledge_class_basic,'
+                . 'tags,category,source_kind,catalog_id,catalog_version,content_hash,native_vector'
                 . ') VALUES (' . implode(',', $values) . ','
                 . "setweight(to_tsvector('simple',coalesce(" . $db->escapeLiteral($row['topic']) . ",'')),'A')"
+                . "||setweight(to_tsvector('simple',coalesce(" . $db->escapeLiteral($row['aliases']) . ",'')),'A')"
                 . "||setweight(to_tsvector('simple',coalesce(" . dialecticWorldKnowledgeSqlNullable($db, $row['topic_desc']) . ",'')),'B')"
-                . "||setweight(to_tsvector('simple',coalesce(" . $db->escapeLiteral($row['topic_desc_basic']) . ",'')),'C')"
-                . "||setweight(to_tsvector('simple',coalesce(" . $db->escapeLiteral($row['retrieval_phrases']) . ",'')),'A')"
-                . "||setweight(to_tsvector('simple',coalesce(" . $db->escapeLiteral($row['tags']) . ",'')),'B')"
-                . "||setweight(to_tsvector('simple',coalesce(" . $db->escapeLiteral($row['category']) . ",'')),'C'))";
+                . "||setweight(to_tsvector('simple',coalesce(" . $db->escapeLiteral($row['topic_desc_basic']) . ",'')),'C'))";
             if (!$db->execQuery($insertSql)) {
                 throw new RuntimeException("Unable to install World Knowledge article {$row['canonical_topic']}");
             }
@@ -596,10 +591,4 @@ function dialecticWorldKnowledgeSqlNullable(object $db, mixed $value): string
 {
     $value = trim(strval($value));
     return $value === '' ? 'NULL' : $db->escapeLiteral($value);
-}
-
-function dialecticWorldKnowledgeSqlNullableInteger(mixed $value): string
-{
-    $year = dialecticWorldKnowledgeOptionalYear($value);
-    return $year === null ? 'NULL' : strval($year);
 }

@@ -932,6 +932,7 @@ ALTER SEQUENCE public.moods_issued_rowid_seq OWNED BY public.moods_issued.rowid;
 
 CREATE TABLE public.worldknowledge (
     topic character varying NOT NULL,
+    aliases text DEFAULT ''::text NOT NULL,
     topic_desc character varying,
     native_vector tsvector,
     knowledge_class text,

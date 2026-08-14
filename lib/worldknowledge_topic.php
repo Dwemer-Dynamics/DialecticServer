@@ -56,6 +56,96 @@ if (!function_exists('dialecticWorldKnowledgeNormalizeTopicList')) {
     }
 }
 
+if (!function_exists('dialecticWorldKnowledgeNormalizeCanonicalTopic')) {
+    /** Normalize the stable Herika-compatible topic identifier. */
+    function dialecticWorldKnowledgeNormalizeCanonicalTopic($value): string
+    {
+        $value = strtolower(trim((string)$value));
+        $value = preg_replace('/[^a-z0-9]+/', '_', $value);
+        return trim((string)$value, '_');
+    }
+}
+
+if (!function_exists('dialecticWorldKnowledgeSplitAliases')) {
+    function dialecticWorldKnowledgeSplitAliases($value): array
+    {
+        $parts = preg_split('/\s*[,;|]\s*/u', (string)$value) ?: [];
+        return array_values(array_filter(array_map('trim', $parts), static fn(string $part): bool => $part !== ''));
+    }
+}
+
+if (!function_exists('dialecticWorldKnowledgeNormalizeAliases')) {
+    /** Store aliases as one deduplicated comma-separated list, separate from topic. */
+    function dialecticWorldKnowledgeNormalizeAliases($value, string $topic = ''): string
+    {
+        $topicKey = dialecticWorldKnowledgeComparableTopic($topic);
+        $aliases = [];
+        $seen = [];
+        foreach (dialecticWorldKnowledgeSplitAliases($value) as $alias) {
+            $alias = trim(preg_replace('/\s+/u', ' ', $alias) ?? $alias);
+            $key = dialecticWorldKnowledgeComparableTopic($alias);
+            if ($key === '' || $key === $topicKey || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $aliases[] = $alias;
+        }
+        return implode(',', $aliases);
+    }
+}
+
+if (!function_exists('dialecticWorldKnowledgeFilterAliases')) {
+    /** Enforce one unambiguous owner for every canonical topic and alias. */
+    function dialecticWorldKnowledgeFilterAliases(string $topic, $aliases, array $rows): array
+    {
+        $topicKey = dialecticWorldKnowledgeComparableTopic($topic);
+        $canonicalOwners = [];
+        $aliasOwners = [];
+        foreach ($rows as $row) {
+            $owner = trim((string)($row['topic'] ?? ''));
+            $ownerKey = dialecticWorldKnowledgeComparableTopic($owner);
+            if ($ownerKey !== '') {
+                $canonicalOwners[$ownerKey] = $owner;
+            }
+            foreach (dialecticWorldKnowledgeSplitAliases($row['aliases'] ?? '') as $existingAlias) {
+                $key = dialecticWorldKnowledgeComparableTopic($existingAlias);
+                if ($key !== '') {
+                    $aliasOwners[$key][$owner] = true;
+                }
+            }
+        }
+
+        $accepted = [];
+        $rejected = [];
+        $seen = [];
+        foreach (dialecticWorldKnowledgeSplitAliases($aliases) as $alias) {
+            $key = dialecticWorldKnowledgeComparableTopic($alias);
+            $reason = '';
+            if ($key === '' || $key === $topicKey || isset($seen[$key])) {
+                $reason = 'duplicate or canonical variant';
+            } elseif (isset($canonicalOwners[$key])
+                && dialecticWorldKnowledgeComparableTopic($canonicalOwners[$key]) !== $topicKey) {
+                $reason = 'matches canonical topic ' . $canonicalOwners[$key];
+            } else {
+                $otherOwners = array_filter(
+                    array_keys($aliasOwners[$key] ?? []),
+                    static fn(string $owner): bool => dialecticWorldKnowledgeComparableTopic($owner) !== $topicKey
+                );
+                if ($otherOwners !== []) {
+                    $reason = 'already used by ' . implode(', ', $otherOwners);
+                }
+            }
+            if ($reason !== '') {
+                $rejected[] = ['alias' => $alias, 'reason' => $reason];
+                continue;
+            }
+            $seen[$key] = true;
+            $accepted[] = trim(preg_replace('/\s+/u', ' ', $alias) ?? $alias);
+        }
+        return ['aliases' => implode(',', $accepted), 'rejected' => $rejected];
+    }
+}
+
 if (!function_exists('dialecticWorldKnowledgeNormalizeAccessTag')) {
     /** Normalize legacy namespaced and current plain tags to one canonical vocabulary. */
     function dialecticWorldKnowledgeNormalizeAccessTag($value): string
@@ -166,6 +256,40 @@ if (!function_exists('dialecticWorldKnowledgeNormalizeAccessRule')) {
             $classes[] = '!' . $denied;
         }
         return implode(',', array_values(array_unique($classes)));
+    }
+}
+
+if (!function_exists('dialecticWorldKnowledgeAccessTierConflicts')) {
+    /** Report duplicate or contradictory classes shared by advanced and basic tiers. */
+    function dialecticWorldKnowledgeAccessTierConflicts($advancedValue, $basicValue): array
+    {
+        $signedClasses = static function ($value): array {
+            $rule = dialecticWorldKnowledgeParseAccessRule($value);
+            return array_merge($rule['allowed'], array_map(
+                static fn(string $denied): string => '!' . $denied,
+                $rule['denied']
+            ));
+        };
+        $advanced = $signedClasses($advancedValue);
+        $basic = $signedClasses($basicValue);
+        $duplicates = array_values(array_unique(array_intersect($advanced, $basic)));
+        $advancedByBase = [];
+        foreach ($advanced as $class) {
+            $advancedByBase[ltrim($class, '!')] = $class;
+        }
+        $basicByBase = [];
+        foreach ($basic as $class) {
+            $basicByBase[ltrim($class, '!')] = $class;
+        }
+        $contradictions = [];
+        foreach (array_intersect(array_keys($advancedByBase), array_keys($basicByBase)) as $base) {
+            if ($advancedByBase[$base] !== $basicByBase[$base]) {
+                $contradictions[] = $base;
+            }
+        }
+        sort($duplicates, SORT_STRING);
+        sort($contradictions, SORT_STRING);
+        return ['duplicates' => $duplicates, 'contradictions' => $contradictions];
     }
 }
 

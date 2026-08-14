@@ -86,6 +86,9 @@ def normalize_classes(value: Any, *, topic: str, level: str, tier: str, category
     if not classes or invalid_tags:
         detail = ", ".join(invalid_tags) if invalid_tags else "empty class list"
         raise RuntimeError(f"{topic} {level} contains unsupported access tag(s): {detail}")
+    metadata_tags = sorted(set(classes) & (TIERS | {"global", "both"}))
+    if metadata_tags:
+        raise RuntimeError(f"{topic} {level} used review metadata as access classes: {', '.join(metadata_tags)}")
     if level == "advanced":
         classes = [tag for tag in classes if tag != "common" and tag not in BROAD_REGION_TAGS]
     if len(classes) > (5 if level == "advanced" else 4):
@@ -141,11 +144,10 @@ def validate_result(source: dict[str, str], result: dict[str, Any]) -> dict[str,
     basic_rules = normalize_classes(
         result.get("basic_allow_any"), topic=topic, level="basic", tier=tier, category=source["category"]
     )
-    # Secret and personal subjects have no average-person summary. Reuse their
-    # stricter advanced audience instead of allowing a model-supplied public rule.
+    # Secret and personal subjects have no average-person summary or basic audience.
     if tier in {"secret", "personal"}:
         basic = ""
-        basic_rules = advanced_rules
+        basic_rules = ["blocked"]
     elif tier == "local_public" and "common" in basic_rules:
         boundary = region if region in {"capital_wasteland", "mojave"} else topic
         basic_rules = [boundary if value == "common" else value for value in basic_rules]
@@ -167,6 +169,26 @@ def validate_result(source: dict[str, str], result: dict[str, Any]) -> dict[str,
         for required_region in ("capital_wasteland", "mojave"):
             if required_region not in basic_rules:
                 raise RuntimeError(f"{topic} cross-region public rule lacks {required_region}")
+    advanced_by_base = {value.lstrip("!"): value for value in advanced_rules}
+    basic_by_base = {value.lstrip("!"): value for value in basic_rules}
+    contradictions = sorted(
+        base for base in advanced_by_base.keys() & basic_by_base.keys()
+        if advanced_by_base[base] != basic_by_base[base]
+    )
+    if contradictions:
+        raise RuntimeError(f"{topic} has contradictory knowledge classes across tiers: {', '.join(contradictions)}")
+    overlap = set(advanced_rules) & set(basic_rules)
+    advanced_without_overlap = [value for value in advanced_rules if value not in overlap]
+    if advanced_without_overlap:
+        advanced_rules = advanced_without_overlap
+    elif overlap and basic.strip():
+        raise RuntimeError(
+            f"{topic} needs a distinct expert or insider class because its basic article has an audience"
+        )
+    else:
+        basic_rules = [value for value in basic_rules if value not in overlap]
+    if not basic_rules:
+        basic_rules = ["blocked"]
     editorial = ENRICHER.normalize_space(source.get("editorial_note", ""))
     access_note = f"Oghma parity ({tier}; {region}): {note}"
     return {
@@ -203,6 +225,7 @@ def generate_batch(api_key: str, base_url: str, batch: list[dict[str, Any]], max
         "Classify awareness as universal_public, regional_public, local_public, faction_public, specialist, secret, or personal. Normalize geography to global, capital_wasteland, mojave, or both. "
         "Return flat any-of knowledge class lists. Any single matching class grants that tier. Basic classes describe average public awareness in the correct geography. "
         "Advanced rules are only for relevant experts, faction insiders, local participants, direct associates, or the person themself; never grant advanced access through common or geography alone. "
+        "Every knowledge class belongs to exactly one tier for an article; never repeat or invert the same class between advanced and basic. "
         "Use only plain lowercase snake-case knowledge IDs with no namespace prefixes. Tags use underscores, never spaces, hyphens, or colons. global and both are not access tags; use common for global basic knowledge and role/domain combinations for global advanced knowledge. "
         "Choose only classes whose members would independently know the subject; do not encode combinations or nested rules. "
         "People and obscure local sites must not be global common knowledge. Capital and Mojave regional knowledge must remain separated unless trade, national importance, or a shared subject genuinely justifies both. "

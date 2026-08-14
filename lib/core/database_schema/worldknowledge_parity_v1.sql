@@ -15,26 +15,23 @@ CREATE TABLE IF NOT EXISTS public.worldknowledge_catalogs (
 
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS entry_id bigserial;
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS canonical_topic text;
+ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS aliases text NOT NULL DEFAULT '';
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS source_kind text NOT NULL DEFAULT 'custom';
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS catalog_id text;
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS catalog_version text;
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS content_hash character varying(64);
-ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS source_url text;
-ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS source_revision text;
-ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS setting text;
-ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS region text;
-ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS valid_from_year integer;
-ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS valid_to_year integer;
-ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS editorial_note text;
-ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS retrieval_phrases text NOT NULL DEFAULT '';
-ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS updated_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 UPDATE public.worldknowledge
-SET canonical_topic = lower(btrim(split_part(topic, ',', 1)))
-WHERE canonical_topic IS NULL OR btrim(canonical_topic) = '';
+SET aliases = CASE
+        WHEN btrim(aliases) = '' AND strpos(topic, ',') > 0
+            THEN btrim(regexp_replace(topic, '^[^,]*,\s*', ''))
+        ELSE aliases
+    END,
+    topic = lower(btrim(split_part(topic, ',', 1))),
+    canonical_topic = lower(btrim(split_part(topic, ',', 1)));
 
 ALTER TABLE public.worldknowledge ALTER COLUMN canonical_topic SET NOT NULL;
 
@@ -73,16 +70,6 @@ BEGIN
         ALTER TABLE public.worldknowledge
             ADD CONSTRAINT worldknowledge_content_hash_check CHECK (
                 content_hash IS NULL OR content_hash ~ '^[a-f0-9]{64}$'
-            );
-    END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'worldknowledge_chronology_check'
-          AND conrelid = 'public.worldknowledge'::regclass
-    ) THEN
-        ALTER TABLE public.worldknowledge
-            ADD CONSTRAINT worldknowledge_chronology_check CHECK (
-                valid_from_year IS NULL OR valid_to_year IS NULL OR valid_from_year <= valid_to_year
             );
     END IF;
 END
@@ -145,11 +132,9 @@ CREATE INDEX IF NOT EXISTS worldknowledge_catalog_lookup_idx
 UPDATE public.worldknowledge
 SET native_vector =
       setweight(to_tsvector('simple', coalesce(topic, '')), 'A')
+   || setweight(to_tsvector('simple', coalesce(aliases, '')), 'A')
    || setweight(to_tsvector('simple', coalesce(topic_desc, '')), 'B')
-   || setweight(to_tsvector('simple', coalesce(topic_desc_basic, '')), 'C')
-   || setweight(to_tsvector('simple', coalesce(retrieval_phrases, '')), 'A')
-   || setweight(to_tsvector('simple', coalesce(tags, '')), 'B')
-   || setweight(to_tsvector('simple', coalesce(category, '')), 'C');
+   || setweight(to_tsvector('simple', coalesce(topic_desc_basic, '')), 'C');
 
 DROP VIEW IF EXISTS public.worldknowledge_effective;
 CREATE VIEW public.worldknowledge_effective AS
@@ -171,11 +156,10 @@ WITH candidates AS (
           OR (wk.source_kind = 'factory' AND catalog.is_active)
       )
 )
-SELECT entry_id, topic, canonical_topic, topic_desc, native_vector,
-       knowledge_class, topic_desc_basic, knowledge_class_basic, retrieval_phrases,
+SELECT entry_id, topic, aliases, canonical_topic, topic_desc, native_vector,
+       knowledge_class, topic_desc_basic, knowledge_class_basic,
        tags, category, source_kind, catalog_id, catalog_version,
-       content_hash, source_url, source_revision, setting, region,
-       valid_from_year, valid_to_year, editorial_note, metadata,
+       content_hash,
        is_active, created_at, updated_at
 FROM candidates
 WHERE effective_rank = 1;
