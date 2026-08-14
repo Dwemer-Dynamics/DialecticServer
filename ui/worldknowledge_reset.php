@@ -22,7 +22,7 @@ $redirect = static function (string $message, bool $error = false): never {
 };
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
-    $redirect('Factory restore requires a POST request.', true);
+    $redirect('Factory sync requires a POST request.', true);
 }
 
 try {
@@ -32,5 +32,5 @@ try {
         . ' (' . $result['row_count'] . ' articles). Custom articles were preserved.'
     );
 } catch (Throwable $exception) {
-    $redirect('Factory restore failed: ' . $exception->getMessage(), true);
+    $redirect('Factory sync failed: ' . $exception->getMessage(), true);
 }
