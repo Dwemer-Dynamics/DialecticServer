@@ -410,6 +410,32 @@ function dialecticWorldKnowledgeInstallNpcAccessTags(object $db, string $rootPat
     return intval($result['updated'] ?? 0);
 }
 
+/** Prevent an incomplete factory catalog from becoming the runtime projection. */
+function dialecticWorldKnowledgeAssertCatalogComplete(object $db, string $catalogId, string $catalogVersion): int
+{
+    $catalog = $db->fetchOne(
+        'SELECT catalog.row_count AS expected_rows, count(article.entry_id) AS installed_rows'
+        . ' FROM public.worldknowledge_catalogs AS catalog'
+        . ' LEFT JOIN public.worldknowledge AS article ON article.source_kind=\'factory\''
+        . ' AND article.catalog_id=catalog.catalog_id AND article.catalog_version=catalog.catalog_version'
+        . ' WHERE catalog.catalog_id=' . $db->escapeLiteral($catalogId)
+        . ' AND catalog.catalog_version=' . $db->escapeLiteral($catalogVersion)
+        . ' GROUP BY catalog.row_count'
+    );
+    if (!is_array($catalog) || $catalog === []) {
+        throw new RuntimeException("World Knowledge catalog {$catalogId}/{$catalogVersion} is not installed");
+    }
+    $expectedRows = intval($catalog['expected_rows'] ?? -1);
+    $installedRows = intval($catalog['installed_rows'] ?? -1);
+    if ($expectedRows < 0 || $installedRows !== $expectedRows) {
+        throw new RuntimeException(
+            "World Knowledge catalog {$catalogId}/{$catalogVersion} is incomplete: "
+            . "expected {$expectedRows} factory articles, found {$installedRows}"
+        );
+    }
+    return $installedRows;
+}
+
 /** Install one immutable factory version, then atomically make it the effective catalog. */
 function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPath, bool $activate = true): array
 {
@@ -524,6 +550,7 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
         }
 
         $npcTemplateTagsInstalled = dialecticWorldKnowledgeInstallNpcAccessTags($db, $rootPath);
+        dialecticWorldKnowledgeAssertCatalogComplete($db, $catalogId, $catalogVersion);
 
         if ($activate) {
             if (!$db->execQuery(
@@ -566,21 +593,13 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
 
 function dialecticWorldKnowledgeActivateCatalog(object $db, string $catalogId, string $catalogVersion): void
 {
-    $target = $db->fetchOne(
-        'SELECT catalog_id FROM public.worldknowledge_catalogs'
-        . ' WHERE catalog_id=' . $db->escapeLiteral($catalogId)
-        . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion)
-        . ' LIMIT 1'
-    );
-    if (!is_array($target) || $target === []) {
-        throw new RuntimeException("World Knowledge catalog {$catalogId}/{$catalogVersion} is not installed");
-    }
     $transactionOpen = false;
     try {
         if (!$db->execQuery('BEGIN')) {
             throw new RuntimeException('Unable to begin World Knowledge catalog activation');
         }
         $transactionOpen = true;
+        dialecticWorldKnowledgeAssertCatalogComplete($db, $catalogId, $catalogVersion);
         if (!$db->execQuery(
             'UPDATE public.worldknowledge_catalogs SET is_active=FALSE, activated_at=NULL WHERE is_active'
             . ' AND NOT (catalog_id=' . $db->escapeLiteral($catalogId)

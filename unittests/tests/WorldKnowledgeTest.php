@@ -239,7 +239,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $this->assertStringNotContainsString(':', $templateTags[1]['worldknowledge_tags'] ?? '');
     }
 
-    public function testCatalogActivationCanRollBackWithoutDeletingInstalledVersions(): void
+    public function testIncompleteCatalogCannotReplaceTheActiveFactoryCatalog(): void
     {
         $root = dirname(__DIR__, 2);
         $catalog = dialecticWorldKnowledgeLoadFactoryCatalog($root);
@@ -250,28 +250,28 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             INSERT INTO worldknowledge_catalogs
                 (catalog_id, catalog_version, display_name, checksum_sha256, row_count, manifest, is_active)
             VALUES
-                ('{$catalogId}', 'rollback-fixture', 'Rollback fixture', '" . str_repeat('0', 64) . "', 0, '{}'::jsonb, FALSE)
+                ('{$catalogId}', 'incomplete-fixture', 'Incomplete fixture', '" . str_repeat('0', 64) . "', 1, '{}'::jsonb, FALSE)
         ");
 
-        dialecticWorldKnowledgeActivateCatalog($testDb, $catalogId, 'rollback-fixture');
-        $rolledBack = $testDb->fetchOne("
+        try {
+            dialecticWorldKnowledgeActivateCatalog($testDb, $catalogId, 'incomplete-fixture');
+            $this->fail('Incomplete factory catalog activation should fail');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('expected 1 factory articles, found 0', $exception->getMessage());
+        }
+        $stillActive = $testDb->fetchOne("
             SELECT catalog_version FROM worldknowledge_catalogs WHERE is_active LIMIT 1
         ");
-        $hiddenFactory = $testDb->fetchOne("
+        $effectiveFactory = $testDb->fetchOne("
             SELECT COUNT(*) AS total FROM worldknowledge_effective WHERE source_kind = 'factory'
-        ");
-        dialecticWorldKnowledgeActivateCatalog($testDb, $catalogId, $catalogVersion);
-        $restored = $testDb->fetchOne("
-            SELECT catalog_version FROM worldknowledge_catalogs WHERE is_active LIMIT 1
         ");
         $installedVersions = $testDb->fetchOne("
             SELECT COUNT(*) AS total FROM worldknowledge_catalogs WHERE catalog_id = '{$catalogId}'
         ");
         $testDb->close();
 
-        $this->assertSame('rollback-fixture', $rolledBack['catalog_version'] ?? null);
-        $this->assertSame(0, intval($hiddenFactory['total'] ?? -1));
-        $this->assertSame($catalogVersion, $restored['catalog_version'] ?? null);
+        $this->assertSame($catalogVersion, $stillActive['catalog_version'] ?? null);
+        $this->assertSame(1169, intval($effectiveFactory['total'] ?? -1));
         $this->assertSame(2, intval($installedVersions['total'] ?? 0));
     }
 

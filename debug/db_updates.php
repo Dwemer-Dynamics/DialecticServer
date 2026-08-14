@@ -4740,6 +4740,31 @@ if ($checkVersion('worldknowledge_npc_class_cleanup') < 20260814005) {
     }
 }
 
+if ($checkVersion('worldknowledge_catalog_integrity') < 20260814006) {
+    Logger::debug('Applying worldknowledge_catalog_integrity 20260814006 - restore and verify the complete active factory catalog');
+    $migrationOk = false;
+    try {
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        $catalogResult = dialecticWorldKnowledgeInstallFactoryCatalog(
+            $db,
+            dirname(__DIR__) . DIRECTORY_SEPARATOR,
+            true
+        );
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        Logger::error('Error restoring the complete active World Knowledge catalog: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_catalog_integrity', 20260814006);
+        Logger::info(
+            'Applied patch worldknowledge_catalog_integrity 20260814006; activated '
+            . $catalogResult['catalog_id'] . '/' . $catalogResult['catalog_version']
+            . ' with ' . $catalogResult['row_count'] . ' factory articles'
+        );
+    }
+}
+
 if ($checkVersion("latest_diary_context") < 20260727001) {
     Logger::debug("Applying latest_diary_context 20260727001 - index latest NPC diary lookups");
 
