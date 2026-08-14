@@ -4665,8 +4665,8 @@ if ($checkVersion('worldknowledge_herika_v1') < 20260814002) {
     }
 }
 
-if ($checkVersion('worldknowledge_npc_common_cleanup') < 20260814003) {
-    Logger::debug('Applying worldknowledge_npc_common_cleanup 20260814003 - remove the legacy public marker from factory NPC tags');
+if ($checkVersion('worldknowledge_npc_common_cleanup') < 20260814004) {
+    Logger::debug('Applying worldknowledge_npc_common_cleanup 20260814004 - remove the legacy public marker from NPC tags');
     $migrationOk = false;
     try {
         require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
@@ -4674,14 +4674,30 @@ if ($checkVersion('worldknowledge_npc_common_cleanup') < 20260814003) {
             $db,
             dirname(__DIR__) . DIRECTORY_SEPARATOR
         );
+        $removedCommonTags = 0;
+        foreach (['bio_templates', 'bio_templates_custom', 'core_npc_master', 'core_npc_master_history'] as $npcTable) {
+            $result = $db->fetchOne(
+                "WITH updated AS (UPDATE public.{$npcTable} AS npc SET worldknowledge_tags=COALESCE(("
+                . "SELECT string_agg(btrim(entry.tag), ',' ORDER BY entry.ordinality)"
+                . " FROM unnest(string_to_array(coalesce(npc.worldknowledge_tags,''), ','))"
+                . " WITH ORDINALITY AS entry(tag, ordinality)"
+                . " WHERE btrim(entry.tag)<>'' AND lower(btrim(entry.tag))<>'common'"
+                . "),'') WHERE 'common'=ANY(regexp_split_to_array(lower(coalesce(npc.worldknowledge_tags,'')),"
+                . " '[,|[:space:]]+')) RETURNING 1) SELECT count(*) AS updated FROM updated"
+            );
+            if (!is_array($result) || !array_key_exists('updated', $result)) {
+                throw new RuntimeException("Unable to remove common from {$npcTable} World Knowledge tags");
+            }
+            $removedCommonTags += intval($result['updated'] ?? 0);
+        }
         $migrationOk = true;
     } catch (Throwable $e) {
-        Logger::error('Error removing the legacy common marker from factory NPC tags: ' . $e->getMessage());
+        Logger::error('Error removing the legacy common marker from NPC tags: ' . $e->getMessage());
     }
 
     if ($migrationOk) {
-        $updateVersion('worldknowledge_npc_common_cleanup', 20260814003);
-        Logger::info("Applied patch worldknowledge_npc_common_cleanup 20260814003; updated {$updatedNpcTags} factory NPC tag rows");
+        $updateVersion('worldknowledge_npc_common_cleanup', 20260814004);
+        Logger::info("Applied patch worldknowledge_npc_common_cleanup 20260814004; reprojected {$updatedNpcTags} factory rows and removed common from {$removedCommonTags} NPC tag rows");
     }
 }
 
