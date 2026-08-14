@@ -142,7 +142,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             UPDATE bio_templates
                SET worldknowledge_tags = CASE npc_name
                    WHEN 'doc_mitchell' THEN 'domain:user_authored'
-                   WHEN 'sunny_smiles' THEN ''
+                   WHEN 'sunny_smiles' THEN 'community:goodsprings,domain:survival,domain:wildlife,person:sunny_smiles,place:goodsprings,race:human,region:mojave,role:hunter,role:soldier,role:survivalist'
                    ELSE worldknowledge_tags
                END
              WHERE npc_name IN ('doc_mitchell', 'sunny_smiles')
@@ -180,7 +180,8 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $custom['topic_desc_basic'] ?? null
         );
         $this->assertSame('domain:user_authored', $templateTags[0]['worldknowledge_tags'] ?? null);
-        $this->assertStringContainsString('person:sunny_smiles', $templateTags[1]['worldknowledge_tags'] ?? '');
+        $this->assertStringContainsString('sunny_smiles', $templateTags[1]['worldknowledge_tags'] ?? '');
+        $this->assertStringNotContainsString(':', $templateTags[1]['worldknowledge_tags'] ?? '');
     }
 
     public function testCatalogActivationCanRollBackWithoutDeletingInstalledVersions(): void

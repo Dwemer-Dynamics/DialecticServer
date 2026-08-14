@@ -27,17 +27,6 @@ const DIALECTIC_WORLDKNOWLEDGE_CATEGORIES = [
     'person', 'robot', 'technology', 'vault', 'weapon',
 ];
 
-const DIALECTIC_WORLDKNOWLEDGE_CLASSES = [
-    'common', 'capital_wasteland', 'mojave', 'wastelander', 'historian', 'scientist',
-    'doctor', 'engineer', 'merchant', 'caravaner', 'tribal', 'vault_dweller', 'ghoul',
-    'super_mutant', 'robot', 'military', 'ncr', 'legion', 'brotherhood', 'enclave',
-    'followers', 'great_khan', 'boomers', 'powder_ganger', 'raider', 'courier',
-];
-
-const DIALECTIC_WORLDKNOWLEDGE_ACCESS_NAMESPACES = [
-    'person', 'region', 'community', 'place', 'faction', 'role', 'domain', 'race',
-];
-
 /** Load and checksum-validate the shipped factory catalog without touching the database. */
 function dialecticWorldKnowledgeLoadFactoryCatalog(string $rootPath): array
 {
@@ -73,6 +62,19 @@ function dialecticWorldKnowledgeLoadFactoryCatalog(string $rootPath): array
     $actualChecksum = hash_file('sha256', $csvPath);
     if (!is_string($actualChecksum) || !hash_equals(strtolower(strval($manifest['checksum_sha256'])), $actualChecksum)) {
         throw new RuntimeException('World Knowledge catalog checksum does not match its manifest');
+    }
+    $vocabularyFile = basename(strval($manifest['knowledge_vocabulary']['file'] ?? ''));
+    $vocabularyChecksum = strtolower(strval($manifest['knowledge_vocabulary']['checksum_sha256'] ?? ''));
+    $vocabularyPath = $dataPath . DIRECTORY_SEPARATOR . $vocabularyFile;
+    if ($vocabularyFile === '' || !is_readable($vocabularyPath)) {
+        throw new RuntimeException('World Knowledge canonical vocabulary is not readable');
+    }
+    $actualVocabularyChecksum = hash_file('sha256', $vocabularyPath);
+    $vocabulary = json_decode(strval(file_get_contents($vocabularyPath)), true, 512, JSON_THROW_ON_ERROR);
+    if (!is_string($actualVocabularyChecksum)
+        || !hash_equals($vocabularyChecksum, $actualVocabularyChecksum)
+        || strval($vocabulary['canonical_style'] ?? '') !== 'lowercase_snake_case') {
+        throw new RuntimeException('World Knowledge canonical vocabulary does not match its manifest');
     }
 
     $handle = fopen($csvPath, 'rb');
@@ -175,16 +177,11 @@ function dialecticWorldKnowledgeValidateFactoryRow(array $row, array $seenTopics
         }
     }
     foreach (['knowledge_class', 'knowledge_class_basic'] as $field) {
-        $rule = dialecticWorldKnowledgeParseAccessRule(strval($row[$field] ?? ''));
-        $classes = array_merge($rule['denied'], ...$rule['clauses']);
-        foreach ($classes as $class) {
-            $parts = explode(':', $class, 2);
-            if (count($parts) === 1 && in_array($class, DIALECTIC_WORLDKNOWLEDGE_CLASSES, true)) {
-                continue;
-            }
-            if (count($parts) !== 2
-                || !in_array($parts[0], DIALECTIC_WORLDKNOWLEDGE_ACCESS_NAMESPACES, true)
-                || !preg_match('/^[a-z0-9][a-z0-9_]{0,100}$/', $parts[1])) {
+        $rawClasses = preg_split('/[&|]/', strval($row[$field] ?? '')) ?: [];
+        foreach ($rawClasses as $class) {
+            $class = trim($class);
+            if (!preg_match('/^!?[a-z0-9][a-z0-9_]{0,100}$/', $class)
+                || dialecticWorldKnowledgeNormalizeAccessTag($class) !== $class) {
                 throw new RuntimeException("World Knowledge catalog contains unsupported access tag {$class} for {$canonical}");
             }
         }
@@ -301,10 +298,10 @@ function dialecticWorldKnowledgeInstallNpcAccessTags(object $db, string $rootPat
             if ($npcName === '' || $tags === []) {
                 throw new RuntimeException('Fallout NPC World Knowledge tag row is empty');
             }
-            foreach ($tags as $tag) {
-                $parts = explode(':', $tag, 2);
-                if (count($parts) !== 2
-                    || !in_array($parts[0], DIALECTIC_WORLDKNOWLEDGE_ACCESS_NAMESPACES, true)) {
+            $rawTags = array_map('trim', explode(',', strval($row[1])));
+            foreach ($rawTags as $index => $tag) {
+                if (!preg_match('/^[a-z0-9][a-z0-9_]{0,100}$/', $tag)
+                    || ($tags[$index] ?? '') !== $tag) {
                     throw new RuntimeException("Fallout NPC template {$npcName} contains unsupported access tag {$tag}");
                 }
             }
@@ -317,12 +314,40 @@ function dialecticWorldKnowledgeInstallNpcAccessTags(object $db, string $rootPat
     if ($valuesSql === []) {
         return 0;
     }
+    $seedSql = 'WITH seed(npc_name,tags) AS (VALUES ' . implode(',', $valuesSql) . ')';
+    $existingRows = $db->fetchAll(
+        $seedSql . ' SELECT template.npc_name, template.worldknowledge_tags, seed.tags AS seed_tags'
+        . ' FROM public.bio_templates AS template JOIN seed ON template.npc_name=seed.npc_name'
+    );
+    if (!is_array($existingRows)) {
+        throw new RuntimeException('Unable to inspect existing Fallout NPC World Knowledge tags');
+    }
+    $updatesSql = [];
+    foreach ($existingRows as $existingRow) {
+        $currentRaw = trim(strval($existingRow['worldknowledge_tags'] ?? ''));
+        $seedTags = array_values(array_filter(explode(',', strval($existingRow['seed_tags'] ?? ''))));
+        $currentTags = array_values(array_unique(array_filter(array_map(
+            'dialecticWorldKnowledgeNormalizeAccessTag',
+            explode(',', $currentRaw)
+        ))));
+        if ($currentRaw !== '' && !in_array('common', $currentTags, true)) {
+            $currentTags[] = 'common';
+        }
+        sort($currentTags);
+        sort($seedTags);
+        if ($currentRaw !== '' && $currentTags !== $seedTags) {
+            continue;
+        }
+        $updatesSql[] = '(' . $db->escapeLiteral(strval($existingRow['npc_name'] ?? '')) . ','
+            . $db->escapeLiteral(implode(',', $seedTags)) . ')';
+    }
+    if ($updatesSql === []) {
+        return 0;
+    }
     $result = $db->fetchOne(
-        'WITH seed(npc_name,tags) AS (VALUES ' . implode(',', $valuesSql) . '), updated AS ('
+        'WITH seed(npc_name,tags) AS (VALUES ' . implode(',', $updatesSql) . '), updated AS ('
         . 'UPDATE public.bio_templates AS template SET worldknowledge_tags=seed.tags FROM seed'
-        . ' WHERE template.npc_name=seed.npc_name'
-        . " AND coalesce(btrim(template.worldknowledge_tags),'')='' RETURNING 1)"
-        . ' SELECT count(*) AS updated FROM updated'
+        . ' WHERE template.npc_name=seed.npc_name RETURNING 1) SELECT count(*) AS updated FROM updated'
     );
     if (!is_array($result) || !array_key_exists('updated', $result)) {
         throw new RuntimeException('Unable to install Fallout NPC World Knowledge tags');
@@ -396,7 +421,8 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
                 $db->escapeLiteral($manifestJson) . '::jsonb',
                 'FALSE',
             ])
-            . ') ON CONFLICT (catalog_id,catalog_version) DO NOTHING';
+            . ') ON CONFLICT (catalog_id,catalog_version) DO UPDATE SET '
+            . 'display_name=EXCLUDED.display_name, manifest=EXCLUDED.manifest';
         if (!$db->execQuery($catalogSql)) {
             throw new RuntimeException('Unable to record World Knowledge catalog manifest');
         }

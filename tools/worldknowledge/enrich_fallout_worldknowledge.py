@@ -29,6 +29,7 @@ DEFAULT_MANIFEST = ROOT_DIR / "data" / "fallout_worldknowledge_manifest.json"
 DEFAULT_PUBLISHED_SOURCES = ROOT_DIR / "data" / "fallout_worldknowledge_sources.jsonl"
 DEFAULT_EXPANSION_MANIFEST = SCRIPT_DIR / "fallout_worldknowledge_expansion_topics.csv"
 DEFAULT_EDITORIAL_OVERRIDES = SCRIPT_DIR / "fallout_worldknowledge_editorial_overrides.json"
+DEFAULT_VOCABULARY = ROOT_DIR / "data" / "fallout_worldknowledge_vocabulary.json"
 DEFAULT_EXPANSION_INPUT = SCRIPT_DIR / "output" / "fallout_worldknowledge_expansion_input.local.csv"
 DEFAULT_EXPANSION_SOURCES = SCRIPT_DIR / "output" / "fallout_worldknowledge_expansion_sources.local.jsonl"
 DEFAULT_MODEL = "z-ai/glm-5.2"
@@ -51,11 +52,11 @@ CATEGORIES = {
     "flora", "food_drink", "history", "item", "location", "medicine", "organization",
     "person", "robot", "technology", "vault", "weapon",
 }
+_VOCABULARY = json.loads(DEFAULT_VOCABULARY.read_text(encoding="utf-8"))
 KNOWLEDGE_CLASSES = {
-    "common", "capital_wasteland", "mojave", "wastelander", "historian", "scientist",
-    "doctor", "engineer", "merchant", "caravaner", "tribal", "vault_dweller", "ghoul",
-    "super_mutant", "robot", "military", "ncr", "legion", "brotherhood", "enclave",
-    "followers", "great_khan", "boomers", "powder_ganger", "raider", "courier",
+    str(value)
+    for group in ("roles", "domains", "factions", "races", "regions", "reserved")
+    for value in _VOCABULARY.get(group, [])
 }
 OUT_OF_WORLD_PATTERNS = [
     r"\bplayer characters?\b", r"\bthe player\b", r"\bperks?\b", r"\bquests?\b",
@@ -665,11 +666,7 @@ def validate_output(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
             for value in re.split(r"[,|&]", row[field])
             if value.strip()
         ]
-        if any(
-            value not in KNOWLEDGE_CLASSES
-            and re.fullmatch(r"(?:person|region|community|place|faction|role|domain|race):[a-z0-9][a-z0-9_]{0,100}", value) is None
-            for value in classes
-        ):
+        if any(re.fullmatch(r"[a-z0-9][a-z0-9_]{0,100}", value) is None for value in classes):
             issues.append({"topic": topic, "issue": "invalid_knowledge_class"})
         if not row["tags"] or not row["setting"] or not row["source_url"] or not row["source_revision"]:
             issues.append({"topic": topic, "issue": "missing_metadata"})

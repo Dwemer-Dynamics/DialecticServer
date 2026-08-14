@@ -72,23 +72,23 @@ def validate_rows(rows: list[dict[str, str]], originals: list[dict[str, str]]) -
             for clause in clauses:
                 if any(ACCESS.TAG_PATTERN.fullmatch(tag) is None for tag in clause):
                     raise RuntimeError(f"{topic} {level} rule contains an unsupported tag")
-        if any("common" in clause or set(clause).issubset(ACCESS.REGION_TAGS) for clause in advanced):
+        if any("common" in clause or set(clause).issubset(ACCESS.BROAD_REGION_TAGS) for clause in advanced):
             raise RuntimeError(f"Advanced access is overbroad for {topic}")
         if tier == "universal_public" and ["common"] not in basic:
             raise RuntimeError(f"Universal basic access is missing for {topic}")
         if tier in {"local_public", "secret", "personal"} and ["common"] in basic:
             raise RuntimeError(f"Basic access is globally overbroad for {topic}")
         if region == "capital_wasteland" and tier in {"regional_public", "local_public"}:
-            if not any("region:capital_wasteland" in clause or any(tag.startswith(("community:", "place:", "person:")) for tag in clause) for clause in basic):
+            if not any("capital_wasteland" in clause or any(tag not in {"common", *ACCESS.ROLES, *ACCESS.DOMAINS, *ACCESS.FACTIONS, *ACCESS.BROAD_REGION_TAGS} for tag in clause) for clause in basic):
                 raise RuntimeError(f"Capital basic access lacks a Capital or local boundary for {topic}")
         if region == "mojave" and tier in {"regional_public", "local_public"}:
-            if not any("region:mojave" in clause or any(tag.startswith(("community:", "place:", "person:")) for tag in clause) for clause in basic):
+            if not any("mojave" in clause or any(tag not in {"common", *ACCESS.ROLES, *ACCESS.DOMAINS, *ACCESS.FACTIONS, *ACCESS.BROAD_REGION_TAGS} for tag in clause) for clause in basic):
                 raise RuntimeError(f"Mojave basic access lacks a Mojave or local boundary for {topic}")
         if region == "both" and tier == "regional_public" and any("common" in clause for clause in basic):
-            for required_region in ("region:capital_wasteland", "region:mojave"):
+            for required_region in ("capital_wasteland", "mojave"):
                 if not any("common" in clause and required_region in clause for clause in basic):
                     raise RuntimeError(f"Cross-region public access lacks {required_region} for {topic}")
-        if row["category"] == "person" and [f"person:{topic}"] not in advanced:
+        if row["category"] == "person" and [topic] not in advanced:
             raise RuntimeError(f"Person self-access is missing for {topic}")
         if tier in {"secret", "personal"}:
             if row["topic_desc_basic"]:

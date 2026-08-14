@@ -79,6 +79,10 @@ function worldknowledge_entries_url(array $overrides = []) {
  * legacy comma form as any-of. Required tags are shown as one adjacent group
  * rather than repeating a literal AND between every chip; the conjunction is kept
  * for screen readers only. Takes the raw database value and escapes it once.
+ *
+ * Chips always read as canonical plain ids, so a legacy namespaced rule stored as
+ * faction:ncr renders as ncr. The caller keeps the raw value for the edit form and
+ * cell tooltip so legacy custom rules can still be inspected and round-tripped.
  */
 function worldknowledge_render_access_rule($rawRule, $variant = 'advanced') {
     $rawRule = trim((string)$rawRule);
@@ -176,16 +180,16 @@ if ($installedCatalogResult) {
  *  1) SINGLE TOPIC UPLOAD
  ********************************************************************/
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual'])) {
-    // Store the raw form values, exactly like the edit and CSV paths do.
+    // Store article text as entered and access permissions in canonical plain form.
     // Encoding here wrote &amp;, &#039; and friends into PostgreSQL, which
-    // silently broke access rules such as role:doc&region:mojave or !raider and
+    // silently broke access rules such as doctor&mojave or !raider and
     // put entities in article text. The parameterized query below keeps the
     // write safe, and every render escapes again at its own output boundary.
     $topic                = worldknowledge_normalize_topic_key($_POST['topic'] ?? '');
     $topic_desc           = (string)($_POST['topic_desc']            ?? '');
-    $knowledge_class      = (string)($_POST['knowledge_class']       ?? '');
+    $knowledge_class      = dialecticWorldKnowledgeNormalizeAccessRule($_POST['knowledge_class'] ?? '');
     $topic_desc_basic     = (string)($_POST['topic_desc_basic']      ?? '');
-    $knowledge_class_basic= (string)($_POST['knowledge_class_basic'] ?? '');
+    $knowledge_class_basic= dialecticWorldKnowledgeNormalizeAccessRule($_POST['knowledge_class_basic'] ?? '');
     $tags                 = (string)($_POST['tags']                  ?? '');
     $category             = (string)($_POST['category']              ?? '');
     $canonicalTopic       = dialecticWorldKnowledgeCanonicalTopic($topic);
@@ -316,9 +320,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
 
                     $topic                = worldknowledge_normalize_topic_key(worldknowledge_csv_value($data, $headerMap, 'topic', 0));
                     $topic_desc           = trim(worldknowledge_csv_value($data, $headerMap, 'topic_desc', 1));
-                    $knowledge_class      = trim(worldknowledge_csv_value($data, $headerMap, 'knowledge_class', 2));
+                    $knowledge_class      = dialecticWorldKnowledgeNormalizeAccessRule(worldknowledge_csv_value($data, $headerMap, 'knowledge_class', 2));
                     $topic_desc_basic     = trim(worldknowledge_csv_value($data, $headerMap, 'topic_desc_basic', 3));
-                    $knowledge_class_basic= trim(worldknowledge_csv_value($data, $headerMap, 'knowledge_class_basic', 4));
+                    $knowledge_class_basic= dialecticWorldKnowledgeNormalizeAccessRule(worldknowledge_csv_value($data, $headerMap, 'knowledge_class_basic', 4));
                     $tags                 = trim(worldknowledge_csv_value($data, $headerMap, 'tags', 5));
                     $category             = trim(worldknowledge_csv_value($data, $headerMap, 'category', 6));
                     $canonicalTopic       = dialecticWorldKnowledgeCanonicalTopic($topic);
@@ -463,9 +467,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $topic_original       = $_POST['topic_original'] ?? '';
     $topic_new           = worldknowledge_normalize_topic_key(htmlspecialchars_decode($_POST['topic_new'] ?? ''));
     $topic_desc_new      = htmlspecialchars_decode($_POST['topic_desc_new'] ?? '');
-    $knowledge_class_new = htmlspecialchars_decode($_POST['knowledge_class_new'] ?? '');
+    $knowledge_class_new = dialecticWorldKnowledgeNormalizeAccessRule(htmlspecialchars_decode($_POST['knowledge_class_new'] ?? ''));
     $topic_desc_basic_new = htmlspecialchars_decode($_POST['topic_desc_basic_new'] ?? '');
-    $knowledge_class_basic_new = htmlspecialchars_decode($_POST['knowledge_class_basic_new'] ?? '');
+    $knowledge_class_basic_new = dialecticWorldKnowledgeNormalizeAccessRule(htmlspecialchars_decode($_POST['knowledge_class_basic_new'] ?? ''));
     $tags_new            = htmlspecialchars_decode($_POST['tags_new'] ?? '');
     $category_new        = htmlspecialchars_decode($_POST['category_new'] ?? '');
     $canonical_topic_new = dialecticWorldKnowledgeCanonicalTopic($topic_new);
@@ -1944,7 +1948,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <textarea name="topic_desc_new" id="edit_topic_desc" rows="8"></textarea>
 
                     <label for="edit_knowledge_class">Access rule:</label>
-                    <small>Use <code>&amp;</code> for required tags and <code>|</code> for alternatives, for example <code>role:doctor&amp;domain:medicine|person:doc_mitchell</code>. Prefix a tag with <code>!</code> to deny it. Legacy comma-separated rules remain supported. Leave empty to let every NPC receive it.</small>
+                    <small>Tags are plain lowercase ids. Use <code>&amp;</code> for required tags and <code>|</code> for alternatives, for example <code>doctor&amp;medicine|doc_mitchell</code>. Prefix a tag with <code>!</code> to deny it. Legacy comma-separated rules remain supported. Leave empty to let every NPC receive it.</small>
                     <input type="text" name="knowledge_class_new" id="edit_knowledge_class">
                 </fieldset>
 
@@ -1957,7 +1961,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <textarea name="topic_desc_basic_new" id="edit_topic_desc_basic" rows="8"></textarea>
 
                     <label for="edit_knowledge_class_basic">Access rule:</label>
-                    <small>Same syntax as above. Limit average-person knowledge to the appropriate audience, for example <code>common&amp;region:mojave</code>. Leave empty only when every NPC should know it.</small>
+                    <small>Same syntax as above. Limit average-person knowledge to the appropriate audience, for example <code>common&amp;mojave</code>. Leave empty only when every NPC should know it.</small>
                     <input type="text" name="knowledge_class_basic_new" id="edit_knowledge_class_basic">
                 </fieldset>
 
@@ -2001,7 +2005,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <textarea name="topic_desc" id="topic_desc" rows="5"></textarea>
 
                     <label for="knowledge_class">Access rule:</label>
-                    <small>Use <code>&amp;</code> for required tags and <code>|</code> for alternatives, for example <code>role:doctor&amp;domain:medicine|person:doc_mitchell</code>. Prefix a tag with <code>!</code> to deny it. Legacy comma-separated rules remain supported. Leave empty to let every NPC receive it.</small>
+                    <small>Tags are plain lowercase ids. Use <code>&amp;</code> for required tags and <code>|</code> for alternatives, for example <code>doctor&amp;medicine|doc_mitchell</code>. Prefix a tag with <code>!</code> to deny it. Legacy comma-separated rules remain supported. Leave empty to let every NPC receive it.</small>
                     <input type="text" name="knowledge_class" id="knowledge_class">
                 </fieldset>
 
@@ -2014,7 +2018,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <textarea name="topic_desc_basic" id="topic_desc_basic" rows="5"></textarea>
 
                     <label for="knowledge_class_basic">Access rule:</label>
-                    <small>Same syntax as above. Limit average-person knowledge to the appropriate audience, for example <code>common&amp;region:capital_wasteland</code>. Leave empty only when every NPC should know it.</small>
+                    <small>Same syntax as above. Limit average-person knowledge to the appropriate audience, for example <code>common&amp;capital_wasteland</code>. Leave empty only when every NPC should know it.</small>
                     <input type="text" name="knowledge_class_basic" id="knowledge_class_basic">
                 </fieldset>
 

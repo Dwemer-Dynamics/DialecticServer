@@ -35,16 +35,16 @@ final class WorldKnowledgeForcedContextTest extends TestCase
 
     public function testDlcWorldspacesRetainLocalAndParentRegionTags(): void
     {
-        $this->assertSame(['region:big_mt', 'region:mojave'], dialecticWorldKnowledgeNormalizeRegionTags('Big MT'));
+        $this->assertSame(['big_mt', 'mojave'], dialecticWorldKnowledgeNormalizeRegionTags('Big MT'));
         $this->assertSame(
-            ['region:point_lookout', 'region:capital_wasteland'],
+            ['point_lookout', 'capital_wasteland'],
             dialecticWorldKnowledgeNormalizeRegionTags('Point Lookout')
         );
         $this->assertSame(
-            ['region:mothership_zeta', 'region:capital_wasteland'],
+            ['mothership_zeta', 'capital_wasteland'],
             dialecticWorldKnowledgeNormalizeRegionTags('Mothership Zeta')
         );
-        $this->assertSame('region:mojave', dialecticWorldKnowledgeNormalizeRegionTag('Zion Canyon'));
+        $this->assertSame('mojave', dialecticWorldKnowledgeNormalizeRegionTag('Zion Canyon'));
     }
 
     public function testAdvancedAndBasicKnowledgePermissionsArePreserved(): void
@@ -92,9 +92,9 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         $row = [
             'topic' => 'alien',
             'topic_desc' => 'Confirmed technical details.',
-            'knowledge_class' => 'role:scientist&domain:xenotechnology|person:lone_wanderer',
+            'knowledge_class' => 'scientist&xenotechnology|lone_wanderer',
             'topic_desc_basic' => 'Some wastelanders tell stories about strange lights.',
-            'knowledge_class_basic' => 'common&region:capital_wasteland',
+            'knowledge_class_basic' => 'common&capital_wasteland',
         ];
 
         $this->assertSame('denied', dialecticWorldKnowledgeAccessDecision($row, ['common'])['level']);
@@ -102,8 +102,38 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         $this->assertSame('basic', dialecticWorldKnowledgeAccessDecision($row, ['role:scientist', 'common', 'region:capital_wasteland'])['level']);
         $advanced = dialecticWorldKnowledgeAccessDecision($row, ['role:scientist', 'domain:xenotechnology']);
         $this->assertSame('advanced', $advanced['level']);
-        $this->assertSame(['role:scientist', 'domain:xenotechnology'], $advanced['matched_clause']);
+        $this->assertSame(['scientist', 'xenotechnology'], $advanced['matched_clause']);
         $this->assertSame('advanced', dialecticWorldKnowledgeAccessDecision($row, ['person:lone_wanderer'])['level']);
+    }
+
+    public function testLegacyNamespacesNormalizeWithoutCollidingWithExactPeople(): void
+    {
+        $this->assertSame('ncr', dialecticWorldKnowledgeNormalizeAccessTag('faction:ncr'));
+        $this->assertSame('raider', dialecticWorldKnowledgeNormalizeAccessTag('raiders'));
+        $this->assertSame('zion', dialecticWorldKnowledgeNormalizeAccessTag('community:zion_canyon'));
+        $this->assertSame('traveler', dialecticWorldKnowledgeNormalizeAccessTag('role:courier'));
+        $this->assertSame('courier', dialecticWorldKnowledgeNormalizeAccessTag('person:courier'));
+        $this->assertSame('the_vault_dweller', dialecticWorldKnowledgeNormalizeAccessTag('person:vault_dweller'));
+        $this->assertSame('vault_dweller', dialecticWorldKnowledgeNormalizeAccessTag('role:vault_dweller'));
+        $this->assertSame(
+            'scientist&xenotechnology|lone_wanderer',
+            dialecticWorldKnowledgeNormalizeAccessRule('role:scientist&domain:xenotechnology|person:lone_wanderer')
+        );
+        $courierArticle = [
+            'topic' => 'courier',
+            'topic_desc' => 'Personal history of the Courier.',
+            'knowledge_class' => 'courier',
+            'topic_desc_basic' => '',
+            'knowledge_class_basic' => 'courier',
+        ];
+        $this->assertSame(
+            'denied',
+            dialecticWorldKnowledgeAccessDecision($courierArticle, ['role:courier'])['level']
+        );
+        $this->assertSame(
+            'advanced',
+            dialecticWorldKnowledgeAccessDecision($courierArticle, ['person:courier'])['level']
+        );
     }
 
     public function testMalformedNonemptyRuleFailsClosedWithoutBreakingNegativeOnlyRules(): void
@@ -124,16 +154,16 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         $amata = [
             'topic' => 'amata',
             'topic_desc' => 'Private details known to close associates.',
-            'knowledge_class' => 'person:amata|person:lone_wanderer|person:alphonse_almodovar|person:james',
+            'knowledge_class' => 'amata|lone_wanderer|alphonse_almodovar|james',
             'topic_desc_basic' => 'Amata is the Overseer\'s daughter in Vault 101.',
-            'knowledge_class_basic' => 'community:vault_101|person:amata|person:lone_wanderer',
+            'knowledge_class_basic' => 'vault_101|amata|lone_wanderer',
         ];
         $goodsprings = [
             'topic' => 'goodsprings',
             'topic_desc' => 'Detailed local history.',
-            'knowledge_class' => 'community:goodsprings|role:historian&region:mojave',
+            'knowledge_class' => 'goodsprings|historian&mojave',
             'topic_desc_basic' => 'Goodsprings is a small Mojave settlement.',
-            'knowledge_class_basic' => 'common&region:mojave|role:caravaner',
+            'knowledge_class_basic' => 'common&mojave|traveler',
         ];
 
         $this->assertSame('denied', dialecticWorldKnowledgeAccessDecision($amata, ['common', 'region:capital_wasteland'])['level']);
@@ -151,9 +181,9 @@ final class WorldKnowledgeForcedContextTest extends TestCase
             'source_kind' => 'factory',
             'catalog_id' => 'fallout-3-new-vegas-ttw-official',
             'topic_desc' => 'Restricted operational details known only to the archive custodian and authorized Enclave researchers.',
-            'knowledge_class' => 'person:archive_custodian|faction:enclave&role:researcher&domain:prewar_archives',
+            'knowledge_class' => 'archive_custodian|enclave&researcher&prewar_archives',
             'topic_desc_basic' => '',
-            'knowledge_class_basic' => 'person:archive_custodian',
+            'knowledge_class_basic' => 'archive_custodian',
         ];
 
         foreach ([
@@ -200,10 +230,10 @@ final class WorldKnowledgeForcedContextTest extends TestCase
 
         try {
             $tags = dialecticWorldKnowledgeKnowledgeTags();
-            $this->assertContains('domain:medicine', $tags);
-            $this->assertContains('community:goodsprings', $tags);
-            $this->assertContains('region:mojave', $tags);
-            $this->assertContains('person:doc_mitchell', $tags);
+            $this->assertContains('medicine', $tags);
+            $this->assertContains('goodsprings', $tags);
+            $this->assertContains('mojave', $tags);
+            $this->assertContains('doc_mitchell', $tags);
         } finally {
             $GLOBALS['db'] = $previousDb;
         }
@@ -330,18 +360,18 @@ final class WorldKnowledgeForcedContextTest extends TestCase
 
         dialecticWorldKnowledgeRecordAudit($db, [
             'status' => 'grounded',
-            'context_tags' => ['common', 'region:mojave', 'role:scientist'],
+            'context_tags' => ['common', 'mojave', 'scientist'],
             'access_decisions' => [[
                 'topic' => 'big_mt',
                 'level' => 'advanced',
-                'matched_clause' => ['role:scientist', 'domain:robotics'],
+                'matched_clause' => ['scientist', 'robotics'],
                 'rule_version' => 2,
             ]],
         ]);
 
         $this->assertStringContainsString('tag_decisions,context_tags,fallback', $db->query);
-        $this->assertStringContainsString('"region:mojave"', $db->query);
-        $this->assertStringContainsString('"matched_clause":["role:scientist","domain:robotics"]', $db->query);
+        $this->assertStringContainsString('"mojave"', $db->query);
+        $this->assertStringContainsString('"matched_clause":["scientist","robotics"]', $db->query);
         $this->assertStringContainsString('"rule_version":2', $db->query);
     }
 

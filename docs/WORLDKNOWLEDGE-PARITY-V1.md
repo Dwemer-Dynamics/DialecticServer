@@ -40,7 +40,9 @@ Semantic tags describe an article. Knowledge classes authorize an NPC to receive
 
 Factory access-v2 articles always use their reviewed rules. The legacy `knowall` compatibility tag applies only to custom articles and cannot expose protected factory knowledge. A matching `!class` remains a denial.
 
-NPC context tags use controlled `person:`, `community:`, `place:`, `faction:`, `role:`, `domain:`, `race:`, and `region:` namespaces. Template-derived tags fill only blank factory-template fields; user-created profiles and existing tag values are preserved. Capital Wasteland and Mojave public knowledge is separated unless a reviewed rule explicitly grants both regions.
+Knowledge permissions use plain lowercase snake-case IDs such as `ncr`, `doctor`, `medicine`, and `mojave`, matching the canonical storage style used by CHIM and ALMSIVI. Article `tags` remain natural descriptive retrieval phrases and are not access permissions. The frozen contract lives in `data/fallout_worldknowledge_vocabulary.json`.
+
+Legacy namespaced permissions such as `faction:ncr` and `region:mojave` normalize at the access boundary, but new factory and generated data is always written in plain form. Namespace-aware aliases prevent collisions: the old `role:courier` becomes `traveler`, while `person:courier` becomes the exact subject `courier`. Every factory biography carries `common`; template reprovisioning rewrites only blank values or values that are semantically identical to the generated seed, preserving divergent user-authored tags. Capital Wasteland and Mojave public knowledge remains separated unless a reviewed rule explicitly grants both regions.
 
 ## Catalog lifecycle
 

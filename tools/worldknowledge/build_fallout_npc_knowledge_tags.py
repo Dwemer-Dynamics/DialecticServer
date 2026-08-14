@@ -38,7 +38,7 @@ COMMUNITIES = {
     "camp mccarran": ("camp_mccarran", "mojave"),
     "hoover dam": ("hoover_dam", "mojave"),
     "hidden valley": ("hidden_valley", "mojave"),
-    "zion canyon": ("zion_canyon", "mojave"),
+    "zion canyon": ("zion", "mojave"),
     "big mt": ("big_mt", "mojave"),
     "sierra madre": ("sierra_madre", "mojave"),
 }
@@ -65,12 +65,12 @@ FACTIONS = {
 }
 
 ROLE_RULES = {
-    "caravan": "caravaner", "courier": "courier", "doctor": "doctor",
+    "caravan": "traveler", "courier": "traveler", "doctor": "doctor",
     "engineer": "engineer", "gunsmith": "gunsmith", "historian": "historian",
     "hunter": "hunter", "merchant": "merchant", "medic": "medic",
     "leader": "leader", "mayor": "leader", "overseer": "leader",
     "raider": "raider", "researcher": "researcher", "scientist": "scientist",
-    "soldier": "soldier", "guard": "soldier", "military": "military",
+    "soldier": "soldier", "guard": "soldier", "military": "soldier",
     "survival": "survivalist", "tribal": "tribal",
     "vault dweller": "vault_dweller",
 }
@@ -169,7 +169,8 @@ def extract_rows(sql: str) -> list[list[str | None]]:
 def build_tags(row: list[str | None]) -> list[str]:
     npc_name = str(row[0] or "")
     identity = normalize(npc_name.split("__", 1)[0])
-    tags = {f"person:{identity}"}
+    identity = {"powder_ganger": "powder_gangers"}.get(identity, identity)
+    tags = {"common", identity}
     core, bio, appearance, occupation, skills, race = (
         str(row[2] or ""), str(row[3] or ""), str(row[4] or ""),
         str(row[7] or ""), str(row[8] or ""), str(row[13] or ""),
@@ -181,13 +182,12 @@ def build_tags(row: list[str | None]) -> list[str]:
             communities.append((profile_text.find(phrase), community, region))
     if communities:
         _, community, region = min(communities)
-        tags.add(f"community:{community}")
-        tags.add(f"place:{community}")
-        tags.add(f"region:{region}")
+        tags.add(community)
+        tags.add(region)
     elif any(term in profile_text for term in ["mojave", "new california", "las vegas"]):
-        tags.add("region:mojave")
+        tags.add("mojave")
     elif any(term in profile_text for term in ["capital wasteland", "washington, d.c.", "washington dc"]):
-        tags.add("region:capital_wasteland")
+        tags.add("capital_wasteland")
     # Occupation is the strongest affiliation signal. The short core prefix
     # captures forms such as "NCR ranger" without treating enemies mentioned
     # later in a biography as the NPC's own faction.
@@ -195,21 +195,21 @@ def build_tags(row: list[str | None]) -> list[str]:
     matched_factions = set()
     for phrase, faction in FACTIONS.items():
         if phrase in faction_text:
-            tags.add(f"faction:{faction}")
+            tags.add(faction)
             matched_factions.add(faction)
-    if not any(tag.startswith("region:") for tag in tags) and matched_factions.intersection({
+    if not tags.intersection({"capital_wasteland", "mojave"}) and matched_factions.intersection({
         "ncr", "caesars_legion", "followers_of_the_apocalypse", "great_khans",
         "powder_gangers", "boomers", "the_kings", "white_glove_society",
         "chairmen", "fiends",
     }):
-        tags.add("region:mojave")
+        tags.add("mojave")
     role_text = f" {occupation} {skills} ".lower()
     for phrase, role in ROLE_RULES.items():
         if phrase in role_text:
-            tags.add(f"role:{role}")
+            tags.add(role)
     for phrase, domain in DOMAIN_RULES.items():
         if phrase in role_text:
-            tags.add(f"domain:{domain}")
+            tags.add(domain)
     # Appearance is explicit enough to distinguish a human who studies or
     # resembles a creature from an NPC who actually is one. Fall back to the
     # short role summary only when appearance carries no controlled race.
@@ -217,12 +217,12 @@ def build_tags(row: list[str | None]) -> list[str]:
     core_race_text = f" {race} {core[:120]} ".lower()
     for controlled_race, patterns in RACE_RULES.items():
         if any(re.search(pattern, appearance_race_text) for pattern in patterns):
-            tags.add(f"race:{controlled_race}")
+            tags.add(controlled_race)
             break
     else:
         for controlled_race, patterns in RACE_RULES.items():
             if any(re.search(pattern, core_race_text) for pattern in patterns):
-                tags.add(f"race:{controlled_race}")
+                tags.add(controlled_race)
                 break
     return sorted(tags)
 

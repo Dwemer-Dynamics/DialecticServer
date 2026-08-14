@@ -66,7 +66,6 @@ function dialecticWorldKnowledgeKnowledgeTags(): array
     $npcName = dialecticWorldKnowledgeNormalizeAccessTag(strval($GLOBALS['DIALECTIC_NAME'] ?? ''));
     if ($npcName !== '') {
         $tags[] = $npcName;
-        $tags[] = 'person:' . $npcName;
     }
 
     $db = $GLOBALS['db'] ?? null;
@@ -95,14 +94,12 @@ function dialecticWorldKnowledgeKnowledgeTags(): array
             $tag = dialecticWorldKnowledgeNormalizeAccessTag($value);
             if ($tag !== '') {
                 $tags[] = $tag;
-                $tags[] = 'race:' . $tag;
             }
         }
         foreach ((array)($signals['faction'] ?? []) as $value) {
             $tag = dialecticWorldKnowledgeNormalizeAccessTag($value);
             if ($tag !== '') {
                 $tags[] = $tag;
-                $tags[] = 'faction:' . $tag;
             }
         }
     }
@@ -112,7 +109,7 @@ function dialecticWorldKnowledgeKnowledgeTags(): array
         foreach ((array)($signals['location'] ?? []) as $value) {
             $tag = dialecticWorldKnowledgeNormalizeAccessTag($value);
             if ($tag !== '') {
-                $tags[] = 'place:' . $tag;
+                $tags[] = $tag;
             }
         }
         foreach ((array)($signals['worldspace'] ?? []) as $value) {
@@ -132,7 +129,7 @@ function dialecticWorldKnowledgeKnowledgeTags(): array
 function dialecticWorldKnowledgeNormalizeRegionTag($value): string
 {
     $tags = dialecticWorldKnowledgeNormalizeRegionTags($value);
-    foreach (['region:mojave', 'region:capital_wasteland'] as $parent) {
+    foreach (['mojave', 'capital_wasteland'] as $parent) {
         if (in_array($parent, $tags, true)) {
             return $parent;
         }
@@ -148,27 +145,27 @@ function dialecticWorldKnowledgeNormalizeRegionTags($value): array
         return [];
     }
     $dlcRegions = [
-        'point_lookout' => ['point_lookout', 'region:capital_wasteland'],
-        'the_pitt' => ['the_pitt', 'region:capital_wasteland'],
-        'anchorage' => ['anchorage', 'region:capital_wasteland'],
-        'mothership_zeta' => ['mothership_zeta', 'region:capital_wasteland'],
-        'zion' => ['zion', 'region:mojave'],
-        'big_mt' => ['big_mt', 'region:mojave'],
-        'big_empty' => ['big_mt', 'region:mojave'],
-        'sierra_madre' => ['sierra_madre', 'region:mojave'],
-        'the_divide' => ['divide', 'region:mojave'],
-        'divide' => ['divide', 'region:mojave'],
+        'point_lookout' => ['point_lookout', 'capital_wasteland'],
+        'the_pitt' => ['the_pitt', 'capital_wasteland'],
+        'anchorage' => ['anchorage', 'capital_wasteland'],
+        'mothership_zeta' => ['mothership_zeta', 'capital_wasteland'],
+        'zion' => ['zion', 'mojave'],
+        'big_mt' => ['big_mt', 'mojave'],
+        'big_empty' => ['big_mt', 'mojave'],
+        'sierra_madre' => ['sierra_madre', 'mojave'],
+        'the_divide' => ['divide', 'mojave'],
+        'divide' => ['divide', 'mojave'],
     ];
     foreach ($dlcRegions as $needle => [$local, $parent]) {
         if (str_contains($value, $needle)) {
-            return ['region:' . $local, $parent];
+            return [$local, $parent];
         }
     }
     if (str_contains($value, 'mojave')) {
-        return ['region:mojave'];
+        return ['mojave'];
     }
     if (str_contains($value, 'capital_wasteland') || $value === 'washington_dc') {
-        return ['region:capital_wasteland'];
+        return ['capital_wasteland'];
     }
     return [];
 }

@@ -21,6 +21,12 @@ SPEC = importlib.util.spec_from_file_location("worldknowledge_enricher", ENRICHE
 ENRICHER = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(ENRICHER)
+CANONICAL_SPEC = importlib.util.spec_from_file_location(
+    "worldknowledge_tag_canonicalizer", SCRIPT_DIR / "canonicalize_fallout_knowledge_tags.py"
+)
+CANONICAL = importlib.util.module_from_spec(CANONICAL_SPEC)
+assert CANONICAL_SPEC.loader is not None
+CANONICAL_SPEC.loader.exec_module(CANONICAL)
 
 DEFAULT_INPUT = ROOT / "data" / "fallout_worldknowledge_parity_v1.csv"
 DEFAULT_OUTPUT = SCRIPT_DIR / "output" / "fallout_worldknowledge_access_v2.local.csv"
@@ -34,17 +40,17 @@ TIERS = {
     "universal_public", "regional_public", "local_public", "faction_public",
     "specialist", "secret", "personal",
 }
-NAMESPACES = {"person", "region", "community", "place", "faction", "role", "domain", "race"}
 REGIONS = {"global", "capital_wasteland", "mojave", "both"}
 REGION_ACCESS_VALUES = {
     "capital_wasteland", "mojave", "point_lookout", "the_pitt", "anchorage",
     "mothership_zeta", "zion", "big_mt", "sierra_madre", "divide",
 }
-REGION_TAGS = {f"region:{value}" for value in REGION_ACCESS_VALUES}
-TAG_PATTERN = re.compile(r"^(?:common|(?:person|community|place|faction|role|domain|race):[a-z0-9][a-z0-9_]{0,100}|region:(?:" + "|".join(sorted(REGION_ACCESS_VALUES)) + r"))$")
+REGION_TAGS = set(REGION_ACCESS_VALUES)
+BROAD_REGION_TAGS = {"capital_wasteland", "mojave"}
+TAG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_]{0,100}$")
 ROLES = [
-    "caravaner", "courier", "doctor", "engineer", "gunsmith", "historian", "hunter",
-    "leader", "medic", "merchant", "military", "raider", "researcher", "scientist",
+    "traveler", "doctor", "engineer", "gunsmith", "historian", "hunter",
+    "leader", "medic", "merchant", "raider", "researcher", "scientist",
     "soldier", "survivalist", "tribal", "vault_dweller",
 ]
 DOMAINS = [
@@ -55,19 +61,8 @@ DOMAINS = [
 ]
 FACTIONS = [
     "boomers", "brotherhood_of_steel", "caesars_legion", "enclave", "followers_of_the_apocalypse",
-    "great_khans", "ncr", "powder_gangers", "raiders",
+    "great_khans", "ncr", "powder_gangers", "raider",
 ]
-TAG_ALIASES = {
-    "person:lonewanderer": "person:lone_wanderer",
-    "faction:legion": "faction:caesars_legion",
-    "faction:brotherhood": "faction:brotherhood_of_steel",
-    "faction:followers": "faction:followers_of_the_apocalypse",
-    "faction:great_khan": "faction:great_khans",
-    "faction:powder_ganger": "faction:powder_gangers",
-    "race:supermutant": "race:super_mutant",
-    "region:the_divide": "region:divide",
-    "region:zion_canyon": "region:zion",
-}
 
 
 def serialize_rule(clauses: list[list[str]]) -> str:
@@ -80,12 +75,7 @@ def source_fingerprint(row: dict[str, str]) -> str:
 
 
 def normalize_access_tag(value: Any) -> str:
-    raw = str(value).strip().lower()
-    if ":" in raw:
-        namespace, label = raw.split(":", 1)
-        label = re.sub(r"[^a-z0-9]+", "_", label).strip("_")
-        raw = f"{namespace}:{label}"
-    return TAG_ALIASES.get(raw, raw)
+    return CANONICAL.canonical_tag(value)
 
 
 def normalize_clauses(value: Any, *, topic: str, level: str, tier: str, category: str) -> list[list[str]]:
@@ -105,7 +95,7 @@ def normalize_clauses(value: Any, *, topic: str, level: str, tier: str, category
             raise RuntimeError(f"{topic} {level} contains unsupported access tag(s): {detail}")
         if level == "advanced":
             clause = [tag for tag in clause if tag != "common"]
-            if not clause or set(clause).issubset(REGION_TAGS):
+            if not clause or set(clause).issubset(BROAD_REGION_TAGS):
                 continue
         result.append(clause)
     unique: list[list[str]] = []
@@ -117,7 +107,7 @@ def normalize_clauses(value: Any, *, topic: str, level: str, tier: str, category
     if level == "basic" and tier == "local_public" and ["common"] in unique:
         raise RuntimeError(f"{topic} cannot expose {tier} basics globally")
     if level == "advanced" and category == "person":
-        self_clause = [f"person:{topic}"]
+        self_clause = [topic]
         if self_clause not in unique:
             unique.insert(0, self_clause)
     return unique
@@ -125,21 +115,21 @@ def normalize_clauses(value: Any, *, topic: str, level: str, tier: str, category
 
 def advanced_fallback(topic: str, category: str, region: str) -> list[list[str]]:
     if category == "person":
-        return [[f"person:{topic}"]]
+        return [[topic]]
     if category == "location":
-        return [[f"place:{topic}"]]
+        return [[topic]]
     if category in {"faction", "organization"}:
-        return [[f"faction:{topic}"]]
+        return [[topic]]
     if category in {"medicine"}:
-        return [["role:doctor", "domain:medicine"]]
+        return [["doctor", "medicine"]]
     if category in {"technology", "robot", "artifact"}:
-        return [["role:engineer", "domain:technology"]]
+        return [["engineer", "technology"]]
     if category in {"weapon", "armor"}:
-        return [["role:gunsmith", "domain:firearms"]]
+        return [["gunsmith", "firearms"]]
     if category in {"creature", "flora", "food_drink"}:
-        return [["role:hunter", "domain:wildlife"]]
-    boundary = f"region:{region}" if region in {"capital_wasteland", "mojave"} else "domain:history"
-    return [["role:historian", boundary]]
+        return [["hunter", "wildlife"]]
+    boundary = region if region in {"capital_wasteland", "mojave"} else "history"
+    return [["historian", boundary]]
 
 
 def validate_result(source: dict[str, str], result: dict[str, Any]) -> dict[str, str]:
@@ -174,21 +164,21 @@ def validate_result(source: dict[str, str], result: dict[str, Any]) -> dict[str,
         basic = ""
         basic_rules = advanced_rules
     elif tier == "local_public" and ["common"] in basic_rules:
-        boundary = f"region:{region}" if region in {"capital_wasteland", "mojave"} else f"place:{topic}"
+        boundary = region if region in {"capital_wasteland", "mojave"} else topic
         basic_rules = [["common", boundary] if clause == ["common"] else clause for clause in basic_rules]
     elif tier == "regional_public" and region == "both" and ["common"] in basic_rules:
         basic_rules = [
-            ["common", "region:capital_wasteland"],
-            ["common", "region:mojave"],
+            ["common", "capital_wasteland"],
+            ["common", "mojave"],
             *[clause for clause in basic_rules if clause != ["common"]],
         ]
     if tier == "universal_public" and ["common"] not in basic_rules:
         raise RuntimeError(f"{topic} universal public rule is not available to ordinary people")
     if region in {"capital_wasteland", "mojave"} and tier in {"regional_public", "local_public"}:
-        regional_tag = f"region:{region}"
+        regional_tag = region
         has_boundary = any(
             regional_tag in clause
-            or any(tag.startswith(("community:", "place:", "person:")) for tag in clause)
+            or any(tag not in {"common", *ROLES, *DOMAINS, *FACTIONS, *BROAD_REGION_TAGS} for tag in clause)
             for clause in basic_rules
         )
         if not has_boundary:
@@ -201,7 +191,7 @@ def validate_result(source: dict[str, str], result: dict[str, Any]) -> dict[str,
             if not bounded_public:
                 basic_rules.append(["common", regional_tag])
     if region == "both" and tier == "regional_public" and any("common" in clause for clause in basic_rules):
-        for required_region in ("region:capital_wasteland", "region:mojave"):
+        for required_region in ("capital_wasteland", "mojave"):
             if not any("common" in clause and required_region in clause for clause in basic_rules):
                 raise RuntimeError(f"{topic} cross-region public rule lacks {required_region}")
     editorial = ENRICHER.normalize_space(source.get("editorial_note", ""))
@@ -240,7 +230,7 @@ def generate_batch(api_key: str, base_url: str, batch: list[dict[str, Any]], max
         "Classify awareness as universal_public, regional_public, local_public, faction_public, specialist, secret, or personal. Normalize geography to global, capital_wasteland, mojave, or both. "
         "Build deterministic access as an OR-list of AND-clauses: the outer array is OR and every tag inside one inner array is required. Basic rules describe average public awareness in its correct geography. "
         "Advanced rules are only for relevant experts, faction insiders, local participants, direct associates, or the person themself; never grant advanced access through common or geography alone. "
-        "Use only the supplied controlled lowercase tag namespaces and values. Tags use underscores, never spaces or hyphens. region:global and region:both are not access tags; use common for global basic knowledge and role/domain clauses for global advanced knowledge. "
+        "Use only plain lowercase snake-case knowledge IDs with no namespace prefixes. Tags use underscores, never spaces, hyphens, or colons. global and both are not access tags; use common for global basic knowledge and role/domain combinations for global advanced knowledge. "
         "Do not assume every scientist knows every secret: pair roles with a relevant domain, faction, region, place, or community where needed. "
         "People and obscure local sites must not be global common knowledge. Capital and Mojave regional knowledge must remain separated unless trade, national importance, or a shared subject genuinely justifies both. "
         "Return exactly one result for each supplied topic and preserve source uncertainty."
@@ -278,7 +268,7 @@ def generate_batch(api_key: str, base_url: str, batch: list[dict[str, Any]], max
                 "controlled_domains": DOMAINS,
                 "controlled_factions": FACTIONS,
                 "controlled_regions": sorted(REGION_ACCESS_VALUES),
-                "tag_examples": ["common", "region:mojave", "region:big_mt", "region:mothership_zeta", "community:vault_101", "place:goodsprings", "person:amata", "role:doctor", "domain:medicine", "faction:ncr", "race:ghoul"],
+                "tag_examples": ["common", "mojave", "big_mt", "mothership_zeta", "vault_101", "goodsprings", "amata", "doctor", "medicine", "ncr", "ghoul"],
                 "articles": batch,
             }, ensure_ascii=False)},
         ],

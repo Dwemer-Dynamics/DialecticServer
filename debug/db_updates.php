@@ -4526,6 +4526,37 @@ if ($checkVersion('worldknowledge_access') < 20260813001) {
     }
 }
 
+if ($checkVersion('worldknowledge_canonical_tags') < 20260813003) {
+    Logger::debug('Applying worldknowledge_canonical_tags 20260813003 - canonicalize access permissions');
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge canonical tag migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '' || !$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge canonical tag schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge canonical tag schema');
+        }
+        $transactionOpen = false;
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR, true);
+        $updateVersion('worldknowledge_canonical_tags', 20260813003);
+        Logger::info('Applied patch worldknowledge_canonical_tags 20260813003');
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge canonical tags: ' . $e->getMessage());
+    }
+}
+
 if ($checkVersion("latest_diary_context") < 20260727001) {
     Logger::debug("Applying latest_diary_context 20260727001 - index latest NPC diary lookups");
 
