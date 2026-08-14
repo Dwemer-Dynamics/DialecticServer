@@ -26,16 +26,11 @@ def load_module(name: str, path: Path):
 
 ENRICHER = load_module("worldknowledge_enricher", TOOLS / "enrich_fallout_worldknowledge.py")
 ACCESS = load_module("worldknowledge_access_reviewer", TOOLS / "review_fallout_worldknowledge_access.py")
-ACCESS_NOTE = re.compile(r"Access v2 \(([^;]+); ([^)]+)\):")
+ACCESS_NOTE = re.compile(r"Oghma parity \(([^;]+); ([^)]+)\):")
 
 
-def parse_rule(value: str) -> list[list[str]]:
-    clauses = []
-    for raw_clause in value.split("|"):
-        clause = [tag.strip().lower() for tag in raw_clause.split("&") if tag.strip()]
-        if clause:
-            clauses.append(clause)
-    return clauses
+def parse_rule(value: str) -> list[str]:
+    return [tag.strip().lower() for tag in re.split(r"[,;]", value) if tag.strip()]
 
 
 def validate_rows(rows: list[dict[str, str]], originals: list[dict[str, str]]) -> dict[str, Any]:
@@ -68,27 +63,26 @@ def validate_rows(rows: list[dict[str, str]], originals: list[dict[str, str]]) -
         basic = parse_rule(row["knowledge_class_basic"])
         if not advanced or not basic:
             raise RuntimeError(f"Access rules are empty for {topic}")
-        for level, clauses in (("advanced", advanced), ("basic", basic)):
-            for clause in clauses:
-                if any(ACCESS.TAG_PATTERN.fullmatch(tag) is None for tag in clause):
-                    raise RuntimeError(f"{topic} {level} rule contains an unsupported tag")
-        if any("common" in clause or set(clause).issubset(ACCESS.BROAD_REGION_TAGS) for clause in advanced):
+        for level, classes in (("advanced", advanced), ("basic", basic)):
+            if any(ACCESS.TAG_PATTERN.fullmatch(tag) is None for tag in classes):
+                raise RuntimeError(f"{topic} {level} rule contains an unsupported tag")
+        if "common" in advanced or any(tag in ACCESS.BROAD_REGION_TAGS for tag in advanced):
             raise RuntimeError(f"Advanced access is overbroad for {topic}")
-        if tier == "universal_public" and ["common"] not in basic:
+        if tier == "universal_public" and "common" not in basic:
             raise RuntimeError(f"Universal basic access is missing for {topic}")
-        if tier in {"local_public", "secret", "personal"} and ["common"] in basic:
+        if tier in {"local_public", "secret", "personal"} and "common" in basic:
             raise RuntimeError(f"Basic access is globally overbroad for {topic}")
         if region == "capital_wasteland" and tier in {"regional_public", "local_public"}:
-            if not any("capital_wasteland" in clause or any(tag not in {"common", *ACCESS.ROLES, *ACCESS.DOMAINS, *ACCESS.FACTIONS, *ACCESS.BROAD_REGION_TAGS} for tag in clause) for clause in basic):
+            if "capital_wasteland" not in basic and not any(tag not in {"common", *ACCESS.ROLES, *ACCESS.DOMAINS, *ACCESS.FACTIONS, *ACCESS.BROAD_REGION_TAGS} for tag in basic):
                 raise RuntimeError(f"Capital basic access lacks a Capital or local boundary for {topic}")
         if region == "mojave" and tier in {"regional_public", "local_public"}:
-            if not any("mojave" in clause or any(tag not in {"common", *ACCESS.ROLES, *ACCESS.DOMAINS, *ACCESS.FACTIONS, *ACCESS.BROAD_REGION_TAGS} for tag in clause) for clause in basic):
+            if "mojave" not in basic and not any(tag not in {"common", *ACCESS.ROLES, *ACCESS.DOMAINS, *ACCESS.FACTIONS, *ACCESS.BROAD_REGION_TAGS} for tag in basic):
                 raise RuntimeError(f"Mojave basic access lacks a Mojave or local boundary for {topic}")
-        if region == "both" and tier == "regional_public" and any("common" in clause for clause in basic):
+        if region == "both" and tier == "regional_public":
             for required_region in ("capital_wasteland", "mojave"):
-                if not any("common" in clause and required_region in clause for clause in basic):
+                if required_region not in basic:
                     raise RuntimeError(f"Cross-region public access lacks {required_region} for {topic}")
-        if row["category"] == "person" and [topic] not in advanced:
+        if row["category"] == "person" and topic not in advanced:
             raise RuntimeError(f"Person self-access is missing for {topic}")
         if tier in {"secret", "personal"}:
             if row["topic_desc_basic"]:

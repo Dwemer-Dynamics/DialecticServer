@@ -5,6 +5,81 @@ declare(strict_types=1);
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'worldknowledge_retrieval.php';
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'worldknowledge_topic.php';
 
+/** Report which already-applied configuration layer supplied a World Knowledge setting. */
+function dialecticWorldKnowledgeSettingSource(string $name): string
+{
+    $npc = is_array($GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA'] ?? null)
+        ? $GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA']
+        : [];
+    foreach (['extended_data', 'metadata'] as $field) {
+        $values = $npc[$field] ?? [];
+        if (is_string($values)) {
+            $values = json_decode($values, true);
+        }
+        if (is_array($values) && array_key_exists($name, $values)) {
+            return 'npc';
+        }
+    }
+    $profile = is_array($GLOBALS['DIALECTIC_CORE_CURRENT_PROFILE_DATA'] ?? null)
+        ? $GLOBALS['DIALECTIC_CORE_CURRENT_PROFILE_DATA']
+        : [];
+    $metadata = $profile['metadata'] ?? [];
+    if (is_string($metadata)) {
+        $metadata = json_decode($metadata, true);
+    }
+    return is_array($metadata) && array_key_exists($name, $metadata) ? 'core_profile' : 'global';
+}
+
+/** Resolve Global -> Core Profile -> NPC values into the Oghma parity settings contract. */
+function dialecticWorldKnowledgeEffectiveSettings(): array
+{
+    $bool = static function (mixed $value, bool $default = false): bool {
+        if ($value === null || $value === '') {
+            return $default;
+        }
+        return !in_array(strtolower(trim(strval($value))), ['0', 'false', 'no', 'off'], true);
+    };
+    $topicCount = max(1, min(3, intval($GLOBALS['WORLDKNOWLEDGE_AMOUNT'] ?? 1)));
+    $resultLimit = max(1, min(5, intval($GLOBALS['WORLDKNOWLEDGE_RESULT_LIMIT'] ?? $topicCount)));
+    $fallbackKey = array_key_exists('WORLDKNOWLEDGE_EXTRACTOR_FALLBACK', $GLOBALS)
+        ? 'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK'
+        : 'WORLDKNOWLEDGE_CUSTOM';
+    $values = [
+        'enabled' => $bool($GLOBALS['WORLDKNOWLEDGE_INFINIUM'] ?? true, true),
+        'extractor_fallback_enabled' => $bool($GLOBALS[$fallbackKey] ?? false),
+        'topic_count' => $topicCount,
+        'result_limit' => $resultLimit,
+        'racial_context_enabled' => $bool($GLOBALS['RACE_WORLDKNOWLEDGE'] ?? true, true),
+        'faction_context_enabled' => $bool($GLOBALS['FACTION_WORLDKNOWLEDGE'] ?? true, true),
+        'location_context_enabled' => $bool($GLOBALS['LOCATION_WORLDKNOWLEDGE'] ?? true, true),
+        'extractor_timeout_ms' => max(250, min(3000, intval($GLOBALS['WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS'] ?? 1500))),
+        'connector_id' => trim(strval($GLOBALS['CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'] ?? '')),
+    ];
+    $sourceKeys = [
+        'enabled' => 'WORLDKNOWLEDGE_INFINIUM',
+        'extractor_fallback_enabled' => $fallbackKey,
+        'topic_count' => 'WORLDKNOWLEDGE_AMOUNT',
+        'result_limit' => 'WORLDKNOWLEDGE_RESULT_LIMIT',
+        'racial_context_enabled' => 'RACE_WORLDKNOWLEDGE',
+        'faction_context_enabled' => 'FACTION_WORLDKNOWLEDGE',
+        'location_context_enabled' => 'LOCATION_WORLDKNOWLEDGE',
+        'extractor_timeout_ms' => 'WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS',
+        'connector_id' => 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM',
+    ];
+    $sources = [];
+    foreach ($sourceKeys as $field => $key) {
+        $sources[$field] = dialecticWorldKnowledgeSettingSource($key);
+    }
+    $canonical = $values;
+    ksort($canonical, SORT_STRING);
+    return [
+        'contract' => DialecticWorldKnowledgeRetriever::VERSION,
+        'values' => $values,
+        'sources' => $sources,
+        'sha256' => hash('sha256', json_encode($canonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+    ];
+}
+
 function dialecticWorldKnowledgeFetchEffectiveCatalog(object $db): array
 {
     if (!method_exists($db, 'fetchAll')) {
@@ -13,7 +88,7 @@ function dialecticWorldKnowledgeFetchEffectiveCatalog(object $db): array
     try {
         $rows = $db->fetchAll(
             "SELECT entry_id, topic, canonical_topic, topic_desc, knowledge_class, topic_desc_basic,
-                    knowledge_class_basic, tags, category, source_kind, catalog_id, catalog_version,
+                    knowledge_class_basic, retrieval_phrases, tags, category, source_kind, catalog_id, catalog_version,
                     source_url, source_revision, setting, region, valid_from_year, valid_to_year,
                     editorial_note, metadata, is_active
                FROM public.worldknowledge_effective
@@ -23,7 +98,7 @@ function dialecticWorldKnowledgeFetchEffectiveCatalog(object $db): array
         $rows = $db->fetchAll(
             "SELECT topic, lower(btrim(split_part(topic, ',', 1))) AS canonical_topic,
                     topic_desc, knowledge_class, topic_desc_basic, knowledge_class_basic,
-                    tags, category, 'custom'::text AS source_kind, NULL::text AS catalog_id,
+                    ''::text AS retrieval_phrases, tags, category, 'custom'::text AS source_kind, NULL::text AS catalog_id,
                     NULL::text AS catalog_version, NULL::text AS source_url,
                     NULL::text AS source_revision, NULL::text AS setting, NULL::text AS region,
                     NULL::integer AS valid_from_year, NULL::integer AS valid_to_year,
@@ -174,58 +249,49 @@ function dialecticWorldKnowledgeNormalizeRegionTags($value): array
 function dialecticWorldKnowledgeAccessDecision(array $row, array $knowledgeTags): array
 {
     $normalizedTags = array_values(array_unique(array_filter(array_map(
-        static fn(mixed $value): string => strtolower(trim(strval($value))),
+        'dialecticWorldKnowledgeNormalizeAccessTag',
         $knowledgeTags
     ))));
-    $isFactoryArticle = strtolower(trim(strval($row['source_kind'] ?? ''))) === 'factory'
-        || trim(strval($row['catalog_id'] ?? '')) !== '';
-    // Legacy custom articles retain the historical knowall shortcut. Factory
-    // access-v2 articles must satisfy their reviewed rule so a broad or stale
-    // profile tag cannot expose expert, secret, or personal text.
-    $knowallAllowed = !$isFactoryArticle && in_array('knowall', $normalizedTags, true);
-    $advanced = dialecticWorldKnowledgeClassDecision(strval($row['knowledge_class'] ?? ''), $normalizedTags);
-    if (!$advanced['denied']
-        && ($advanced['allowed'] || $knowallAllowed)
-        && trim(strval($row['topic_desc'] ?? '')) !== '') {
-        $decision = [
-            'topic' => dialecticWorldKnowledgeCanonicalTopic(strval($row['topic'] ?? $row['canonical_topic'] ?? '')),
+    $topic = dialecticWorldKnowledgeCanonicalTopic(strval($row['topic'] ?? $row['canonical_topic'] ?? ''));
+    if (in_array('knowall', $normalizedTags, true) && trim(strval($row['topic_desc'] ?? '')) !== '') {
+        return [
+            'topic' => $topic,
             'level' => 'advanced',
-            'reason' => $knowallAllowed ? 'knowall' : $advanced['reason'],
+            'reason' => 'knowall',
+            'matched' => ['knowall'],
             'description' => trim(strval($row['topic_desc'])),
         ];
-        if (isset($advanced['matched_clause'])) {
-            $decision['matched_clause'] = $advanced['matched_clause'];
-            $decision['rule_version'] = $advanced['rule_version'] ?? 1;
-        }
-        $decision['required_clauses'] = $advanced['required_clauses'] ?? [];
-        return $decision;
+    }
+    $advanced = dialecticWorldKnowledgeClassDecision(strval($row['knowledge_class'] ?? ''), $normalizedTags);
+    if ($advanced['allowed'] && trim(strval($row['topic_desc'] ?? '')) !== '') {
+        return [
+            'topic' => $topic,
+            'level' => 'advanced',
+            'reason' => $advanced['reason'],
+            'matched' => $advanced['matched'],
+            'description' => trim(strval($row['topic_desc'])),
+        ];
     }
 
     $basic = dialecticWorldKnowledgeClassDecision(strval($row['knowledge_class_basic'] ?? ''), $normalizedTags);
-    if (!$basic['denied'] && $basic['allowed'] && trim(strval($row['topic_desc_basic'] ?? '')) !== '') {
-        $decision = [
-            'topic' => dialecticWorldKnowledgeCanonicalTopic(strval($row['topic'] ?? $row['canonical_topic'] ?? '')),
+    if ($basic['allowed'] && trim(strval($row['topic_desc_basic'] ?? '')) !== '') {
+        return [
+            'topic' => $topic,
             'level' => 'basic',
             'reason' => $basic['reason'],
+            'matched' => $basic['matched'],
             'description' => trim(strval($row['topic_desc_basic'])),
         ];
-        if (isset($basic['matched_clause'])) {
-            $decision['matched_clause'] = $basic['matched_clause'];
-            $decision['rule_version'] = $basic['rule_version'] ?? 1;
-        }
-        $decision['required_clauses'] = $basic['required_clauses'] ?? [];
-        return $decision;
     }
 
     return [
-        'topic' => dialecticWorldKnowledgeCanonicalTopic(strval($row['topic'] ?? $row['canonical_topic'] ?? '')),
+        'topic' => $topic,
         'level' => 'denied',
-        'reason' => $advanced['denied'] || $basic['denied'] ? 'negative_class' : 'missing_required_class',
+        'reason' => $advanced['reason'] === 'negative_class' || $basic['reason'] === 'negative_class'
+            ? 'negative_class'
+            : 'knowledge_classes_not_authorized',
+        'matched' => array_values(array_unique(array_merge($advanced['matched'], $basic['matched']))),
         'description' => '',
-        'advanced_rule_version' => $advanced['rule_version'] ?? 1,
-        'advanced_required_clauses' => $advanced['required_clauses'] ?? [],
-        'basic_rule_version' => $basic['rule_version'] ?? 1,
-        'basic_required_clauses' => $basic['required_clauses'] ?? [],
     ];
 }
 
@@ -237,74 +303,39 @@ function dialecticWorldKnowledgeClassDecision(string $classes, array $knowledgeT
         $knowledgeTags
     ))));
     if ($rule['unrestricted']) {
-        return [
-            'allowed' => true, 'denied' => false, 'reason' => 'unrestricted',
-            'rule_version' => $rule['version'], 'required_clauses' => [],
-        ];
+        return ['allowed' => true, 'reason' => 'unrestricted', 'matched' => []];
     }
-    if (array_intersect($rule['denied'], $knowledgeTags) !== []) {
-        return [
-            'allowed' => false, 'denied' => true, 'reason' => 'negative_class',
-            'rule_version' => $rule['version'], 'required_clauses' => $rule['clauses'],
-        ];
+    $negativeMatches = array_values(array_intersect($rule['denied'], $knowledgeTags));
+    if ($negativeMatches !== []) {
+        return ['allowed' => false, 'reason' => 'negative_class', 'matched' => $negativeMatches];
     }
-    if ($rule['clauses'] === []) {
-        if ($rule['denied'] === []) {
-            return [
-                'allowed' => false, 'denied' => false, 'reason' => 'invalid_rule',
-                'rule_version' => $rule['version'], 'required_clauses' => [],
-            ];
-        }
-        return [
-            'allowed' => true, 'denied' => false, 'reason' => 'negative_only',
-            'rule_version' => $rule['version'], 'required_clauses' => [],
-        ];
-    }
-    foreach ($rule['clauses'] as $clause) {
-        $matched = $rule['version'] === 1
-            ? array_intersect($clause, $knowledgeTags) !== []
-            : array_diff($clause, $knowledgeTags) === [];
-        if ($matched) {
-            return [
-                'allowed' => true,
-                'denied' => false,
-                'reason' => $rule['version'] === 1 ? 'legacy_class_match' : 'rule_match',
-                'matched_clause' => $clause,
-                'rule_version' => $rule['version'],
-                'required_clauses' => $rule['clauses'],
-            ];
-        }
-    }
+    $positiveMatches = array_values(array_intersect($rule['allowed'], $knowledgeTags));
     return [
-        'allowed' => false,
-        'denied' => false,
-        'reason' => 'missing_required_class',
-        'matched_clause' => [],
-        'rule_version' => $rule['version'],
-        'required_clauses' => $rule['clauses'],
+        'allowed' => $positiveMatches !== [],
+        'reason' => $positiveMatches !== [] ? 'positive_class' : 'missing_class',
+        'matched' => $positiveMatches,
     ];
 }
 
 function dialecticWorldKnowledgeRenderArticleXml(array $row, array $decision, string $source): string
 {
-    $attributes = [
-        'topic' => strval($decision['topic'] ?? ''),
-        'level' => strval($decision['level'] ?? 'denied'),
-        'category' => strval($row['category'] ?? ''),
-        'source' => $source,
-        'ownership' => strval($row['source_kind'] ?? ''),
-        'catalog' => trim(strval($row['catalog_id'] ?? '') . '/' . strval($row['catalog_version'] ?? ''), '/'),
-        'reason' => strval($decision['reason'] ?? ''),
-    ];
-    $attributeText = implode(' ', array_map(
-        static fn(string $name, string $value): string => $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8') . '"',
-        array_keys($attributes),
-        array_values($attributes)
-    ));
-    $description = strval($decision['description'] ?? '');
-    return $description === ''
-        ? '<article ' . $attributeText . ' />'
-        : '<article ' . $attributeText . '>' . htmlspecialchars($description, ENT_QUOTES | ENT_XML1, 'UTF-8') . '</article>';
+    $topic = htmlspecialchars(strval($decision['topic'] ?? ''), ENT_QUOTES | ENT_XML1, 'UTF-8');
+    $articleSource = htmlspecialchars($source, ENT_QUOTES | ENT_XML1, 'UTF-8');
+    $access = htmlspecialchars(strval($decision['level'] ?? 'denied'), ENT_QUOTES | ENT_XML1, 'UTF-8');
+    $lines = ['  <article topic="' . $topic . '" source="' . $articleSource . '" access="' . $access . '">'];
+    if (($decision['level'] ?? 'denied') === 'denied') {
+        $reason = htmlspecialchars(
+            strval($decision['reason'] ?? 'knowledge_classes_not_authorized'),
+            ENT_QUOTES | ENT_XML1,
+            'UTF-8'
+        );
+        $lines[] = '    <denial reason="' . $reason . '" />';
+    } else {
+        $content = htmlspecialchars(strval($decision['description'] ?? ''), ENT_QUOTES | ENT_XML1, 'UTF-8');
+        $lines[] = '    <content>' . $content . '</content>';
+    }
+    $lines[] = '  </article>';
+    return implode("\n", $lines);
 }
 
 function dialecticWorldKnowledgeRecordAudit(object $db, array $trace): void
@@ -319,7 +350,8 @@ function dialecticWorldKnowledgeRecordAudit(object $db, array $trace): void
         )) . '::jsonb';
         $sql = 'INSERT INTO public.worldknowledge_audit ('
             . 'algorithm_version,status,request_type,npc_name,input_text,normalized_input,catalog_id,catalog_version,'
-            . 'grounded_matches,rejected_candidates,tag_decisions,context_tags,fallback,forced_signals,access_decisions,selected_articles,retrieval_elapsed_ms,elapsed_ms'
+            . 'grounded_matches,rejected_candidates,tag_decisions,context_tags,fallback,forced_signals,access_decisions,selected_articles,'
+            . 'settings,catalog_checksum,prompt_hash,retrieval_elapsed_ms,elapsed_ms'
             . ') VALUES (' . implode(',', [
                 $db->escapeLiteral(strval($trace['algorithm_version'] ?? DialecticWorldKnowledgeRetriever::VERSION)),
                 $db->escapeLiteral(strval($trace['status'] ?? 'no_match')),
@@ -337,6 +369,9 @@ function dialecticWorldKnowledgeRecordAudit(object $db, array $trace): void
                 $json($trace['forced_signals'] ?? []),
                 $json($trace['access_decisions'] ?? []),
                 $json($trace['selected_articles'] ?? []),
+                $json($trace['settings'] ?? []),
+                ($trace['catalog_checksum'] ?? '') === '' ? 'NULL' : $db->escapeLiteral(strval($trace['catalog_checksum'])),
+                ($trace['prompt_hash'] ?? '') === '' ? 'NULL' : $db->escapeLiteral(strval($trace['prompt_hash'])),
                 strval(round(floatval($trace['retrieval_elapsed_ms'] ?? 0), 3)),
                 strval(round(floatval($trace['elapsed_ms'] ?? 0), 3)),
             ]) . ')';

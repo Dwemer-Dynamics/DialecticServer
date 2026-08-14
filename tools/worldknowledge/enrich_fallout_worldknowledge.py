@@ -43,7 +43,7 @@ INPUT_FIELDS = [
 ]
 OUTPUT_FIELDS = [
     "topic", "topic_desc", "knowledge_class", "topic_desc_basic",
-    "knowledge_class_basic", "tags", "category", "setting", "region",
+    "knowledge_class_basic", "retrieval_phrases", "tags", "category", "setting", "region",
     "valid_from_year", "valid_to_year", "source_url", "source_revision",
     "editorial_note",
 ]

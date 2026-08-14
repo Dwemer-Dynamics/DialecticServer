@@ -164,10 +164,12 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'WORLDKNOWLEDGE_CUSTOM',
             'WORLDKNOWLEDGE_INFINIUM',
             'WORLDKNOWLEDGE_AMOUNT',
+            'WORLDKNOWLEDGE_RESULT_LIMIT',
             'LOCATION_WORLDKNOWLEDGE',
             'RACE_WORLDKNOWLEDGE',
             'FACTION_WORLDKNOWLEDGE',
             'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK',
+            'WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS',
             'GLOBAL_ITT_CONNECTOR_ID',
             'VISUAL_CONTEXT_SCENE_TTL_MINUTES',
             'VISUAL_CONTEXT_PROMPT_MAX_CHARS',
@@ -237,10 +239,12 @@ if (!function_exists('dialecticPrettySettingLabel')) {
             'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 'World Knowledge Fallback Connector',
             'WORLDKNOWLEDGE_INFINIUM' => 'World Knowledge Enabled',
             'WORLDKNOWLEDGE_AMOUNT' => 'World Knowledge Amount',
+            'WORLDKNOWLEDGE_RESULT_LIMIT' => 'World Knowledge Result Limit',
             'LOCATION_WORLDKNOWLEDGE' => 'Force Location World Knowledge',
             'RACE_WORLDKNOWLEDGE' => 'Force Race / Species World Knowledge',
             'FACTION_WORLDKNOWLEDGE' => 'Force Faction World Knowledge',
             'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK' => 'Explicit Request Fallback',
+            'WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS' => 'Fallback Timeout (ms)',
             'RELLLM_CONNECTOR' => 'Relationship Management',
             'EMOTEMOODS' => 'Emote Moods',
             'RECHAT_H' => 'Rechat Rounds',
@@ -281,7 +285,7 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingCategory')) {
             return 'PipVision';
         }
 
-        if (in_array($flatId, ['WORLDKNOWLEDGE_INFINIUM', 'WORLDKNOWLEDGE_AMOUNT', 'LOCATION_WORLDKNOWLEDGE', 'RACE_WORLDKNOWLEDGE', 'FACTION_WORLDKNOWLEDGE', 'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK', 'WORLDKNOWLEDGE_CUSTOM', 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'], true)) {
+        if (in_array($flatId, ['WORLDKNOWLEDGE_INFINIUM', 'WORLDKNOWLEDGE_AMOUNT', 'WORLDKNOWLEDGE_RESULT_LIMIT', 'LOCATION_WORLDKNOWLEDGE', 'RACE_WORLDKNOWLEDGE', 'FACTION_WORLDKNOWLEDGE', 'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK', 'WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS', 'WORLDKNOWLEDGE_CUSTOM', 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'], true)) {
             return 'World Knowledge';
         }
 

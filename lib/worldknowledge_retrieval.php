@@ -5,7 +5,7 @@ declare(strict_types=1);
 /** Deterministically grounds Fallout dialogue in the installed World Knowledge catalog. */
 final class DialecticWorldKnowledgeRetriever
 {
-    public const VERSION = 'worldknowledge-access-v2';
+    public const VERSION = 'oghma-parity-v1';
 
     private ?array $preparedIndex = null;
 
@@ -152,7 +152,7 @@ final class DialecticWorldKnowledgeRetriever
             }
         }
 
-        $selected = array_values($byTopic);
+        $selected = $this->applyRelationalTagSupport($normalized, $index, array_values($byTopic));
         usort($selected, static function (array $left, array $right): int {
             $mentions = intval($right['mention_count']) <=> intval($left['mention_count']);
             if ($mentions !== 0) {
@@ -165,7 +165,7 @@ final class DialecticWorldKnowledgeRetriever
 
         $tagDecisions = [];
         if ($selected === []) {
-            $tagFallback = $this->tagFallback($normalized, $index, $limit, $explicitRequest, $speakerLabelEnd);
+            $tagFallback = $this->retrievalPhraseFallback($normalized, $index, $limit, $speakerLabelEnd);
             $selected = $tagFallback['matches'];
             $rejected = array_merge($rejected, $tagFallback['rejected']);
             $tagDecisions = $tagFallback['decisions'];
@@ -232,6 +232,7 @@ final class DialecticWorldKnowledgeRetriever
     private function buildIndex(array $catalog): array
     {
         $phrases = [];
+        $retrievalPhrases = [];
         $tags = [];
         foreach ($catalog as $row) {
             if (array_key_exists('is_active', $row) && !$this->boolValue($row['is_active'])) {
@@ -268,6 +269,12 @@ final class DialecticWorldKnowledgeRetriever
                     $tags[$phrase]['owners'][$topic] = true;
                 }
             }
+            foreach ($this->values(strval($row['retrieval_phrases'] ?? '')) as $retrievalPhrase) {
+                $phrase = self::normalize($retrievalPhrase);
+                if ($phrase !== '') {
+                    $retrievalPhrases[$phrase]['owners'][$topic] = true;
+                }
+            }
         }
 
         $entries = [];
@@ -302,21 +309,32 @@ final class DialecticWorldKnowledgeRetriever
             $phoneticByShape[$entry['token_count']][strlen($entry['compact'])][] = $entry;
         }
 
-        $tagEntries = [];
-        $maximumTagTokens = 2;
-        foreach ($tags as $phrase => $owners) {
+        $retrievalPhraseEntries = [];
+        $maximumRetrievalPhraseTokens = 2;
+        foreach ($retrievalPhrases as $phrase => $owners) {
             $tokenCount = count(preg_split('/\s+/u', $phrase) ?: []);
             if ($tokenCount < 2 || isset($phrases[$phrase])) {
                 continue;
             }
             $ownerTopics = array_keys($owners['owners'] ?? []);
-            $tagEntries[$phrase] = [
+            $retrievalPhraseEntries[$phrase] = [
                 'phrase' => $phrase,
                 'owners' => $ownerTopics,
                 'owner_count' => count($ownerTopics),
                 'token_count' => $tokenCount,
             ];
-            $maximumTagTokens = max($maximumTagTokens, $tokenCount);
+            $maximumRetrievalPhraseTokens = max($maximumRetrievalPhraseTokens, $tokenCount);
+        }
+        $relationalTagEntries = [];
+        foreach ($tags as $phrase => $owners) {
+            $tokenCount = count(preg_split('/\s+/u', $phrase) ?: []);
+            if ($tokenCount < 2 || isset($phrases[$phrase])) {
+                continue;
+            }
+            $relationalTagEntries[$phrase] = [
+                'phrase' => $phrase,
+                'owners' => array_keys($owners['owners'] ?? []),
+            ];
         }
 
         return [
@@ -324,9 +342,10 @@ final class DialecticWorldKnowledgeRetriever
             'by_compact' => $byCompact,
             'phonetic_by_shape' => $phoneticByShape,
             'phrase_owners' => $phraseOwners,
-            'tag_entries' => $tagEntries,
+            'retrieval_phrase_entries' => $retrievalPhraseEntries,
+            'relational_tag_entries' => $relationalTagEntries,
             'maximum_phrase_tokens' => min(9, $maximumPhraseTokens),
-            'maximum_tag_tokens' => min(7, $maximumTagTokens),
+            'maximum_retrieval_phrase_tokens' => min(7, $maximumRetrievalPhraseTokens),
         ];
     }
 
@@ -338,10 +357,10 @@ final class DialecticWorldKnowledgeRetriever
         return $this->preparedIndex ?? $this->buildIndex([]);
     }
 
-    /** Use only low-frequency multiword tags after all entity matching abstains. */
-    private function tagFallback(string $text, array $index, int $limit, bool $explicitRequest, int $speakerLabelEnd): array
+    /** Resolve only curated, unique multiword retrieval phrases after entity matching abstains. */
+    private function retrievalPhraseFallback(string $text, array $index, int $limit, int $speakerLabelEnd): array
     {
-        $windows = $this->tokenWindows($text, intval($index['maximum_tag_tokens']));
+        $windows = $this->tokenWindows($text, intval($index['maximum_retrieval_phrase_tokens'] ?? 2));
         $byTopic = [];
         $decisions = [];
         $rejected = [];
@@ -349,12 +368,22 @@ final class DialecticWorldKnowledgeRetriever
             if ($window['token_count'] < 2 || $window['start'] < $speakerLabelEnd) {
                 continue;
             }
-            $entry = $index['tag_entries'][$window['phrase']] ?? null;
+            $entry = $index['retrieval_phrase_entries'][$window['phrase']] ?? null;
             if (!is_array($entry)) {
                 continue;
             }
-            if (intval($entry['owner_count']) > 3) {
-                $decisions[] = ['phrase' => $window['phrase'], 'decision' => 'rejected', 'reason' => 'too_many_owners'];
+            if (intval($entry['owner_count']) !== 1) {
+                $decision = [
+                    'phrase' => $window['phrase'],
+                    'decision' => 'rejected',
+                    'reason' => 'retrieval_phrase_ambiguous',
+                    'source' => 'retrieval_phrase',
+                    'start' => intval($window['start']),
+                    'owner_count' => intval($entry['owner_count']),
+                    'topics' => array_values($entry['owners'] ?? []),
+                ];
+                $decisions[] = $decision;
+                $rejected[] = $decision;
                 continue;
             }
             foreach ($entry['owners'] as $topic) {
@@ -367,39 +396,63 @@ final class DialecticWorldKnowledgeRetriever
 
         $matches = [];
         foreach ($byTopic as $candidate) {
-            $ownerCounts = array_values($candidate['phrases']);
-            $unique = count($ownerCounts) === 1 && intval($ownerCounts[0]) === 1;
-            $corroborated = count($ownerCounts) >= 2 && $explicitRequest;
             $phrases = array_keys($candidate['phrases']);
-            if (!$unique && !$corroborated) {
-                $decisions[] = [
-                    'topic' => $candidate['topic'],
-                    'phrases' => $phrases,
-                    'decision' => 'rejected',
-                    'reason' => $explicitRequest ? 'shared_tag_needs_corroboration' : 'shared_tag_needs_explicit_request',
-                ];
-                continue;
-            }
-            $source = $unique ? 'exact_unique_tag_fallback' : 'corroborated_tag_fallback';
-            $score = ($unique ? 0.82 : 0.78) + ($explicitRequest ? 0.08 : 0.0);
+            $score = 0.82;
             $match = [
                 'topic' => $candidate['topic'],
                 'phrase' => $phrases[0],
                 'entity_phrase' => $phrases[0],
-                'source' => $source,
+                'source' => 'exact safe retrieval phrase',
                 'start' => intval($candidate['start']),
                 'end' => intval($candidate['start']) + strlen($phrases[0]),
                 'score' => $score,
                 'context_score' => $score,
                 'mention_count' => 1,
+                'retrieval_phrases' => $phrases,
+                'retrieval_phrase_owner_counts' => array_values($candidate['phrases']),
             ];
             $matches[] = $match;
-            $decisions[] = ['topic' => $candidate['topic'], 'phrases' => $phrases, 'decision' => 'selected', 'reason' => $source];
+            $decisions[] = [
+                'topic' => $candidate['topic'],
+                'phrase' => $phrases[0],
+                'decision' => 'selected',
+                'reason' => 'retrieval_phrase_selected',
+                'source' => 'exact safe retrieval phrase',
+                'start' => intval($candidate['start']),
+                'support_count' => count($phrases),
+            ];
         }
         usort($matches, static fn(array $left, array $right): int => floatval($right['score']) <=> floatval($left['score'])
             ?: intval($left['start']) <=> intval($right['start']));
 
         return ['matches' => array_slice($matches, 0, $limit), 'rejected' => $rejected, 'decisions' => $decisions];
+    }
+
+    /** Let ordinary tags strengthen an identified topic without selecting one. */
+    private function applyRelationalTagSupport(string $text, array $index, array $entities): array
+    {
+        if ($entities === [] || ($index['relational_tag_entries'] ?? []) === []) {
+            return $entities;
+        }
+        $normalized = ' ' . self::normalize($text) . ' ';
+        foreach ($entities as &$entity) {
+            $topic = strval($entity['topic'] ?? '');
+            $matched = [];
+            foreach ($index['relational_tag_entries'] as $phrase => $entry) {
+                if (str_contains($normalized, ' ' . $phrase . ' ')
+                    && in_array($topic, $entry['owners'] ?? [], true)) {
+                    $matched[] = $phrase;
+                }
+            }
+            if ($matched !== []) {
+                $entity['relational_tag_phrases'] = array_values(array_unique($matched));
+                $bonus = min(0.08, count($entity['relational_tag_phrases']) * 0.04);
+                $entity['score'] = floatval($entity['score'] ?? 0.0) + $bonus;
+                $entity['context_score'] = floatval($entity['context_score'] ?? 0.0) + $bonus;
+            }
+        }
+        unset($entity);
+        return $entities;
     }
 
     private function phoneticCandidates(array $windows, array $index): array

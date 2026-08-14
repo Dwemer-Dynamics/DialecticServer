@@ -29,11 +29,11 @@ assert CANONICAL_SPEC.loader is not None
 CANONICAL_SPEC.loader.exec_module(CANONICAL)
 
 DEFAULT_INPUT = ROOT / "data" / "fallout_worldknowledge_parity_v1.csv"
-DEFAULT_OUTPUT = SCRIPT_DIR / "output" / "fallout_worldknowledge_access_v2.local.csv"
-DEFAULT_REVIEW = SCRIPT_DIR / "output" / "fallout_worldknowledge_access_v2.review.local.json"
+DEFAULT_OUTPUT = SCRIPT_DIR / "output" / "fallout_worldknowledge_oghma_parity.local.csv"
+DEFAULT_REVIEW = SCRIPT_DIR / "output" / "fallout_worldknowledge_oghma_parity.review.local.json"
 DEFAULT_LEDGER = SCRIPT_DIR / "output" / "openrouter_budget_ledger.local.json"
-DEFAULT_CACHE = SCRIPT_DIR / "cache" / "access-v2"
-DEFAULT_TOPIC_CACHE = SCRIPT_DIR / "cache" / "access-v2-topics"
+DEFAULT_CACHE = SCRIPT_DIR / "cache" / "oghma-parity"
+DEFAULT_TOPIC_CACHE = SCRIPT_DIR / "cache" / "oghma-parity-topics"
 SOURCE_CACHE = SCRIPT_DIR / "cache" / "parity-v1" / "sources"
 MODEL = "z-ai/glm-5.2"
 TIERS = {
@@ -65,8 +65,8 @@ FACTIONS = [
 ]
 
 
-def serialize_rule(clauses: list[list[str]]) -> str:
-    return "|".join("&".join(clause) for clause in clauses)
+def serialize_rule(classes: list[str]) -> str:
+    return ",".join(classes)
 
 
 def source_fingerprint(row: dict[str, str]) -> str:
@@ -78,58 +78,41 @@ def normalize_access_tag(value: Any) -> str:
     return CANONICAL.canonical_tag(value)
 
 
-def normalize_clauses(value: Any, *, topic: str, level: str, tier: str, category: str) -> list[list[str]]:
+def normalize_classes(value: Any, *, topic: str, level: str, tier: str, category: str) -> list[str]:
     if not isinstance(value, list) or not value:
-        raise RuntimeError(f"{topic} {level} access requires at least one clause")
-    result: list[list[str]] = []
-    for raw_clause in value:
-        if not isinstance(raw_clause, list) or not raw_clause:
-            raise RuntimeError(f"{topic} {level} contains an empty clause")
-        clause = sorted({
-            normalize_access_tag(tag)
-            for tag in raw_clause if str(tag).strip()
-        })
-        invalid_tags = [tag for tag in clause if TAG_PATTERN.fullmatch(tag) is None]
-        if not clause or invalid_tags:
-            detail = ", ".join(invalid_tags) if invalid_tags else "empty clause"
-            raise RuntimeError(f"{topic} {level} contains unsupported access tag(s): {detail}")
-        if level == "advanced":
-            clause = [tag for tag in clause if tag != "common"]
-            if not clause or set(clause).issubset(BROAD_REGION_TAGS):
-                continue
-        result.append(clause)
-    unique: list[list[str]] = []
-    for clause in result:
-        if clause not in unique:
-            unique.append(clause)
-    if len(unique) > (5 if level == "advanced" else 4):
-        raise RuntimeError(f"{topic} {level} returned too many clauses")
-    if level == "basic" and tier == "local_public" and ["common"] in unique:
+        raise RuntimeError(f"{topic} {level} access requires at least one class")
+    classes = sorted({normalize_access_tag(tag) for tag in value if str(tag).strip()})
+    invalid_tags = [tag for tag in classes if TAG_PATTERN.fullmatch(tag) is None]
+    if not classes or invalid_tags:
+        detail = ", ".join(invalid_tags) if invalid_tags else "empty class list"
+        raise RuntimeError(f"{topic} {level} contains unsupported access tag(s): {detail}")
+    if level == "advanced":
+        classes = [tag for tag in classes if tag != "common" and tag not in BROAD_REGION_TAGS]
+    if len(classes) > (5 if level == "advanced" else 4):
+        raise RuntimeError(f"{topic} {level} returned too many classes")
+    if level == "basic" and tier == "local_public" and "common" in classes:
         raise RuntimeError(f"{topic} cannot expose {tier} basics globally")
-    if level == "advanced" and category == "person":
-        self_clause = [topic]
-        if self_clause not in unique:
-            unique.insert(0, self_clause)
-    return unique
+    if level == "advanced" and category == "person" and topic not in classes:
+        classes.insert(0, topic)
+    return classes
 
 
-def advanced_fallback(topic: str, category: str, region: str) -> list[list[str]]:
+def advanced_fallback(topic: str, category: str, region: str) -> list[str]:
     if category == "person":
-        return [[topic]]
+        return [topic]
     if category == "location":
-        return [[topic]]
+        return [topic]
     if category in {"faction", "organization"}:
-        return [[topic]]
+        return [topic]
     if category in {"medicine"}:
-        return [["doctor", "medicine"]]
+        return ["doctor"]
     if category in {"technology", "robot", "artifact"}:
-        return [["engineer", "technology"]]
+        return ["engineer"]
     if category in {"weapon", "armor"}:
-        return [["gunsmith", "firearms"]]
+        return ["gunsmith"]
     if category in {"creature", "flora", "food_drink"}:
-        return [["hunter", "wildlife"]]
-    boundary = region if region in {"capital_wasteland", "mojave"} else "history"
-    return [["historian", boundary]]
+        return ["hunter"]
+    return ["historian"]
 
 
 def validate_result(source: dict[str, str], result: dict[str, Any]) -> dict[str, str]:
@@ -150,12 +133,12 @@ def validate_result(source: dict[str, str], result: dict[str, Any]) -> dict[str,
     note = ENRICHER.normalize_space(str(result.get("access_note", "")))
     if not 4 <= len(note.split()) <= 80:
         raise RuntimeError(f"{topic} access note failed length validation")
-    advanced_rules = normalize_clauses(
+    advanced_rules = normalize_classes(
         result.get("advanced_allow_any"), topic=topic, level="advanced", tier=tier, category=source["category"]
     )
     if not advanced_rules:
         advanced_rules = advanced_fallback(topic, source["category"], region)
-    basic_rules = normalize_clauses(
+    basic_rules = normalize_classes(
         result.get("basic_allow_any"), topic=topic, level="basic", tier=tier, category=source["category"]
     )
     # Secret and personal subjects have no average-person summary. Reuse their
@@ -163,39 +146,29 @@ def validate_result(source: dict[str, str], result: dict[str, Any]) -> dict[str,
     if tier in {"secret", "personal"}:
         basic = ""
         basic_rules = advanced_rules
-    elif tier == "local_public" and ["common"] in basic_rules:
+    elif tier == "local_public" and "common" in basic_rules:
         boundary = region if region in {"capital_wasteland", "mojave"} else topic
-        basic_rules = [["common", boundary] if clause == ["common"] else clause for clause in basic_rules]
-    elif tier == "regional_public" and region == "both" and ["common"] in basic_rules:
-        basic_rules = [
-            ["common", "capital_wasteland"],
-            ["common", "mojave"],
-            *[clause for clause in basic_rules if clause != ["common"]],
-        ]
-    if tier == "universal_public" and ["common"] not in basic_rules:
+        basic_rules = [boundary if value == "common" else value for value in basic_rules]
+    elif tier == "regional_public" and region == "both" and "common" in basic_rules:
+        basic_rules = ["capital_wasteland", "mojave", *[value for value in basic_rules if value != "common"]]
+    if tier == "universal_public" and "common" not in basic_rules:
         raise RuntimeError(f"{topic} universal public rule is not available to ordinary people")
     if region in {"capital_wasteland", "mojave"} and tier in {"regional_public", "local_public"}:
         regional_tag = region
-        has_boundary = any(
-            regional_tag in clause
-            or any(tag not in {"common", *ROLES, *DOMAINS, *FACTIONS, *BROAD_REGION_TAGS} for tag in clause)
-            for clause in basic_rules
+        has_boundary = regional_tag in basic_rules or any(
+            tag not in {"common", *ROLES, *DOMAINS, *FACTIONS, *BROAD_REGION_TAGS}
+            for tag in basic_rules
         )
         if not has_boundary:
-            bounded_public = False
-            for clause in basic_rules:
-                if "common" in clause:
-                    clause.append(regional_tag)
-                    clause.sort()
-                    bounded_public = True
-            if not bounded_public:
-                basic_rules.append(["common", regional_tag])
-    if region == "both" and tier == "regional_public" and any("common" in clause for clause in basic_rules):
+            basic_rules = [regional_tag if tag == "common" else tag for tag in basic_rules]
+            if regional_tag not in basic_rules:
+                basic_rules.append(regional_tag)
+    if region == "both" and tier == "regional_public":
         for required_region in ("capital_wasteland", "mojave"):
-            if not any("common" in clause and required_region in clause for clause in basic_rules):
+            if required_region not in basic_rules:
                 raise RuntimeError(f"{topic} cross-region public rule lacks {required_region}")
     editorial = ENRICHER.normalize_space(source.get("editorial_note", ""))
-    access_note = f"Access v2 ({tier}; {region}): {note}"
+    access_note = f"Oghma parity ({tier}; {region}): {note}"
     return {
         **source,
         "topic_desc_basic": basic,
@@ -228,10 +201,10 @@ def generate_batch(api_key: str, base_url: str, batch: list[dict[str, Any]], max
         "Basic prose must be 25-90 words, public or observable, and must remove private biography, hidden identities, secret interiors, exact technical operation, inventory/location lists, game mechanics, and mutable quest outcomes. "
         "Rumors must be explicitly described as rumors. For a truly secret or personal topic, basic_article may be empty. Do not rewrite the advanced article. "
         "Classify awareness as universal_public, regional_public, local_public, faction_public, specialist, secret, or personal. Normalize geography to global, capital_wasteland, mojave, or both. "
-        "Build deterministic access as an OR-list of AND-clauses: the outer array is OR and every tag inside one inner array is required. Basic rules describe average public awareness in its correct geography. "
+        "Return flat any-of knowledge class lists. Any single matching class grants that tier. Basic classes describe average public awareness in the correct geography. "
         "Advanced rules are only for relevant experts, faction insiders, local participants, direct associates, or the person themself; never grant advanced access through common or geography alone. "
         "Use only plain lowercase snake-case knowledge IDs with no namespace prefixes. Tags use underscores, never spaces, hyphens, or colons. global and both are not access tags; use common for global basic knowledge and role/domain combinations for global advanced knowledge. "
-        "Do not assume every scientist knows every secret: pair roles with a relevant domain, faction, region, place, or community where needed. "
+        "Choose only classes whose members would independently know the subject; do not encode combinations or nested rules. "
         "People and obscure local sites must not be global common knowledge. Capital and Mojave regional knowledge must remain separated unless trade, national importance, or a shared subject genuinely justifies both. "
         "Return exactly one result for each supplied topic and preserve source uncertainty."
     )
@@ -246,8 +219,8 @@ def generate_batch(api_key: str, base_url: str, batch: list[dict[str, Any]], max
                 "basic_article": {"type": "string"},
                 "awareness_tier": {"type": "string", "enum": sorted(TIERS)},
                 "normalized_region": {"type": "string", "enum": sorted(REGIONS)},
-                "basic_allow_any": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"type": "string"}}},
-                "advanced_allow_any": {"type": "array", "minItems": 1, "maxItems": 5, "items": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"type": "string"}}},
+                "basic_allow_any": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"type": "string"}},
+                "advanced_allow_any": {"type": "array", "minItems": 1, "maxItems": 5, "items": {"type": "string"}},
                 "access_note": {"type": "string"},
             },
             "required": ["topic", "basic_article", "awareness_tier", "normalized_region", "basic_allow_any", "advanced_allow_any", "access_note"],
@@ -332,7 +305,7 @@ def generate_validated_batch(
         ledger["prompt_tokens"] = int(ledger["prompt_tokens"]) + int(usage.get("prompt_tokens", 0) or 0)
         ledger["completion_tokens"] = int(ledger["completion_tokens"]) + int(usage.get("completion_tokens", 0) or 0)
         ledger["requests"].append({
-            "purpose": "access-v2-review", "batch_hash": batch_hash, "topics": [item["topic"] for item in batch],
+            "purpose": "oghma-parity-review", "batch_hash": batch_hash, "topics": [item["topic"] for item in batch],
             "attempt": attempt, "valid_shape": bool(results), "cost_usd": cost,
             "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0), "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
             "parse_error": parse_error, "completed_at": ENRICHER.timestamp(),
@@ -421,7 +394,7 @@ def main() -> int:
 
     args.cache_dir.mkdir(parents=True, exist_ok=True)
     for batch_index, batch in enumerate(batches, 1):
-        digest = hashlib.sha256(json.dumps(["access-v2.1", MODEL, batch], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        digest = hashlib.sha256(json.dumps(["oghma-parity-v1", MODEL, batch], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         cache_path = args.cache_dir / f"{digest}.json"
         results: list[dict[str, Any]] = []
         feedback = ""
@@ -452,7 +425,7 @@ def main() -> int:
                 print(f"[review] {batch_index}/{len(batches)} isolating topics after: {batch_error}")
                 results = []
                 for item_index, item in enumerate(batch, 1):
-                    single_hash = hashlib.sha256(json.dumps(["access-v2.1-single", MODEL, item], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+                    single_hash = hashlib.sha256(json.dumps(["oghma-parity-v1-single", MODEL, item], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
                     single_results, _ = generate_validated_batch(
                         api_key=api_key, base_url=args.openrouter_url, batch=[item], max_tokens=args.max_tokens,
                         by_topic=by_topic, prompt_price=prompt_price, completion_price=completion_price,

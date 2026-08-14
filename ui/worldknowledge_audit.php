@@ -26,16 +26,36 @@ function worldknowledgeAuditWebRoot(): string
     return rtrim($root, '/');
 }
 
-/** Every stable status a stored trace can carry, in pipeline order. */
+/** Every stable Oghma parity status a stored trace can carry, in pipeline order. */
 const WORLDKNOWLEDGE_AUDIT_STATUSES = [
-    'disabled',
-    'ineligible',
     'grounded',
     'no_match',
     'fallback_succeeded',
+    'fallback_unresolved',
     'fallback_failed',
-    'denied',
+    'fallback_disabled',
+    'fallback_unconfigured',
+    'disabled',
+    'ineligible',
+    'unavailable',
+    'not_run',
+    'legacy',
 ];
+
+/**
+ * Group the statuses into three read-at-a-glance tones: a pass, an outright
+ * failure, and everything that simply did not run or did not match.
+ */
+function worldknowledgeAuditStatusTone(string $status): string
+{
+    if (in_array($status, ['grounded', 'fallback_succeeded'], true)) {
+        return 'ok';
+    }
+    if (in_array($status, ['fallback_failed', 'unavailable'], true)) {
+        return 'bad';
+    }
+    return 'idle';
+}
 
 /**
  * Compose the row filters. Matched-only and the status filter are ANDed, so
@@ -93,9 +113,10 @@ function worldknowledgeAuditFetchRows(int $limit = 50, int $offset = 0, bool $ma
         $whereSql = worldknowledgeAuditBuildWhereClause($matchedOnly, $status, $db);
         return $db->fetchAll(
             'SELECT audit_id, created_at, algorithm_version, status, request_type, npc_name,
-                    input_text, normalized_input, catalog_id, catalog_version, grounded_matches,
-                    rejected_candidates, tag_decisions, context_tags, fallback, forced_signals, access_decisions,
-                    selected_articles, retrieval_elapsed_ms, elapsed_ms
+                    input_text, normalized_input, catalog_id, catalog_version, catalog_checksum,
+                    grounded_matches, rejected_candidates, tag_decisions, context_tags, fallback,
+                    forced_signals, access_decisions, selected_articles, settings, prompt_hash,
+                    retrieval_elapsed_ms, elapsed_ms
              FROM public.worldknowledge_audit
              ' . $whereSql . '
              ORDER BY created_at DESC
@@ -139,24 +160,13 @@ function worldknowledgeAuditJson(mixed $value): array
  * A decision carries the resolved article body in `description`, which this
  * screen never needs to show or search. The body is dropped and every
  * access-control field a reviewer relies on is kept: the topic, the level that
- * was granted, the reason, the clause that matched, the rule version, the
- * required clauses, and the advanced/basic evidence recorded on a denial. Only
- * the rendered copy changes; the persisted trace row is never rewritten.
+ * was granted, why it was granted or denied, which flat knowledge classes
+ * matched, and whether the topic came from the conversation or forced context.
+ * Only the rendered copy changes; the persisted trace row is never rewritten.
  */
 function worldknowledgeAuditAccessProjection(array $decisions): array
 {
-    $keep = [
-        'topic',
-        'level',
-        'reason',
-        'matched_clause',
-        'rule_version',
-        'required_clauses',
-        'advanced_rule_version',
-        'advanced_required_clauses',
-        'basic_rule_version',
-        'basic_required_clauses',
-    ];
+    $keep = ['topic', 'level', 'reason', 'matched', 'source'];
 
     $projected = [];
     foreach ($decisions as $decision) {
@@ -177,6 +187,90 @@ function worldknowledgeAuditAccessProjection(array $decisions): array
         $projected[] = $view;
     }
     return $projected;
+}
+
+/**
+ * Flatten the stored settings payload into rows of setting, effective value,
+ * and the configuration layer that supplied it.
+ */
+function worldknowledgeAuditSettingRows(array $settings): array
+{
+    $values = is_array($settings['values'] ?? null) ? $settings['values'] : [];
+    $sources = is_array($settings['sources'] ?? null) ? $settings['sources'] : [];
+    $rows = [];
+    foreach ($values as $name => $value) {
+        if (is_bool($value)) {
+            $display = $value ? 'on' : 'off';
+        } elseif (is_scalar($value)) {
+            $display = trim(strval($value));
+            if ($display === '') {
+                $display = '(not set)';
+            }
+        } else {
+            $display = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+        $rows[] = [
+            'name' => ucwords(str_replace('_', ' ', strval($name))),
+            'value' => strval($display),
+            'source' => str_replace('_', ' ', strval($sources[$name] ?? 'global')),
+        ];
+    }
+    return $rows;
+}
+
+/**
+ * Summarize the bounded connector fallback: whether the request was eligible,
+ * whether one attempt was made, how it ended, and how long it took when the
+ * payload recorded a duration.
+ */
+function worldknowledgeAuditFallbackSummary(array $fallback, string $status): array
+{
+    $eligible = !empty($fallback['eligible']);
+    $attempted = !empty($fallback['attempted']);
+    $error = trim(strval($fallback['error'] ?? ''));
+    $suggestions = is_array($fallback['suggestions'] ?? null) ? $fallback['suggestions'] : [];
+    $resolved = is_array($fallback['resolved_topics'] ?? null) ? $fallback['resolved_topics'] : [];
+
+    if ($attempted && $error !== '') {
+        $state = 'Attempted, failed';
+    } elseif ($attempted && $resolved !== []) {
+        $state = 'Attempted, resolved ' . count($resolved) . ' topic' . (count($resolved) === 1 ? '' : 's');
+    } elseif ($attempted) {
+        $state = 'Attempted, nothing resolved';
+    } elseif ($status === 'fallback_disabled') {
+        $state = 'Eligible, turned off';
+    } elseif ($status === 'fallback_unconfigured') {
+        $state = 'Eligible, no connector configured';
+    } elseif ($eligible) {
+        $state = 'Eligible, not attempted';
+    } else {
+        $state = 'Not eligible';
+    }
+
+    // The processor does not time the fallback separately today, so a duration
+    // is shown only when a payload actually carries one.
+    $elapsed = null;
+    foreach (['elapsed_ms', 'duration_ms'] as $field) {
+        if (isset($fallback[$field]) && is_numeric($fallback[$field])) {
+            $elapsed = round(floatval($fallback[$field]), 3);
+            break;
+        }
+    }
+
+    return [
+        'state' => $state,
+        'error' => $error,
+        'suggestions' => $suggestions,
+        'resolved' => $resolved,
+        'elapsed_ms' => $elapsed,
+    ];
+}
+
+/** Shorten a checksum or prompt hash for the meta grid without losing the full value. */
+function worldknowledgeAuditShortHash(string $hash): string
+{
+    $hash = trim($hash);
+    return strlen($hash) > 12 ? substr($hash, 0, 12) . '...' : $hash;
 }
 
 /**
@@ -315,6 +409,63 @@ $rangeEnd = min($offset + $perPage, $totalRows);
             font-size: .82rem;
             word-break: break-word;
         }
+        /* Status tone: a pass, an outright failure, and everything that simply
+           did not run. Colour is a second cue only; the label always reads. */
+        .status-value.is-ok { color:#9fdca4; }
+        .status-value.is-bad { color:#ff9a9a; }
+        .status-value.is-idle { color:#d8d8d8; }
+        .class-chip {
+            display:inline-block;
+            background: rgba(255, 182, 65,.14);
+            border: 1px solid rgba(255, 182, 65,.32);
+            color: #ffd79a;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: .8rem;
+            word-break: break-word;
+        }
+        .class-chip.is-none { background:transparent; border-style:dashed; color:#a5a5a5; }
+        /* One card per decision so topic, level, reason, and the flat matched
+           classes stay aligned instead of hiding inside a JSON blob. */
+        .decision-row {
+            display:grid;
+            grid-template-columns: minmax(140px, 1.2fr) minmax(90px, .6fr) minmax(150px, 1fr) minmax(160px, 1.4fr);
+            gap: 8px;
+            align-items: baseline;
+            padding: 7px 10px;
+            border: 1px solid rgba(255,255,255,.06);
+            border-radius: 8px;
+            background: rgba(0,0,0,.18);
+            margin-bottom: 6px;
+        }
+        .decision-head {
+            color:rgb(255, 182, 65);
+            font-size:.72rem;
+            text-transform:uppercase;
+            letter-spacing:.04em;
+            background: transparent;
+            border-color: transparent;
+            padding-bottom: 0;
+        }
+        .decision-topic { font-weight:600; word-break: break-word; }
+        .decision-level.is-advanced { color:#9fdca4; }
+        .decision-level.is-basic { color:#a8cdea; }
+        .decision-level.is-denied { color:#ff9a9a; }
+        .decision-meta { color:#c3c3c3; font-size:.85rem; word-break: break-word; }
+        .settings-row {
+            display:grid;
+            grid-template-columns: minmax(160px, 1.2fr) minmax(110px, 1fr) minmax(110px, .7fr);
+            gap:8px;
+            padding: 6px 10px;
+            border-bottom: 1px solid rgba(255,255,255,.05);
+        }
+        .settings-row:last-child { border-bottom:0; }
+        .settings-table {
+            border: 1px solid rgba(255,255,255,.06);
+            border-radius: 8px;
+            background: rgba(0,0,0,.18);
+        }
+        .settings-source { color:#9d9d9d; font-size:.85rem; text-transform:capitalize; }
         .trace-box {
             background: rgba(0,0,0,.22);
             border: 1px solid rgba(255,255,255,.06);
@@ -405,6 +556,19 @@ $rangeEnd = min($offset + $perPage, $totalRows);
         .error-state strong { display:block; margin-bottom:6px; color:#ff9a9a; }
         @media (max-width: 850px) {
             .toolbar-wrap { grid-template-columns: 1fr; }
+            /* Below this width the decision and settings grids stop lining up,
+               so the column header is dropped and each stacked field carries its
+               own inline label instead. */
+            .decision-row, .settings-row { grid-template-columns: 1fr; }
+            .decision-row.decision-head { display:none; }
+            .decision-row > [data-label]::before,
+            .settings-row > [data-label]::before {
+                content: attr(data-label) ": ";
+                color: rgb(255, 182, 65);
+                font-size: .72rem;
+                text-transform: uppercase;
+                letter-spacing: .04em;
+            }
         }
     </style>
 </head>
@@ -537,21 +701,29 @@ $rangeEnd = min($offset + $perPage, $totalRows);
                 $npcName = strval($row['npc_name'] ?? '');
                 $requestType = strval($row['request_type'] ?? '');
                 $catalog = trim(strval($row['catalog_id'] ?? '') . '/' . strval($row['catalog_version'] ?? ''), '/');
+                $catalogChecksum = trim(strval($row['catalog_checksum'] ?? ''));
+                $promptHash = trim(strval($row['prompt_hash'] ?? ''));
                 $matches = worldknowledgeAuditJson($row['grounded_matches'] ?? []);
                 $rejections = worldknowledgeAuditJson($row['rejected_candidates'] ?? []);
-                $tagDecisions = worldknowledgeAuditJson($row['tag_decisions'] ?? []);
+                // Retrieval-phrase decisions are the only entries the retriever
+                // records here; they run solely when topic and alias matching abstains.
+                $phraseDecisions = worldknowledgeAuditJson($row['tag_decisions'] ?? []);
                 $contextTags = worldknowledgeAuditJson($row['context_tags'] ?? []);
                 $fallback = worldknowledgeAuditJson($row['fallback'] ?? []);
+                $fallbackSummary = worldknowledgeAuditFallbackSummary($fallback, $status);
                 $forced = worldknowledgeAuditJson($row['forced_signals'] ?? []);
                 // Article bodies stay out of both the rendered trace and the
                 // search payload; the projection keeps the access evidence.
                 $access = worldknowledgeAuditAccessProjection(worldknowledgeAuditJson($row['access_decisions'] ?? []));
                 $selected = worldknowledgeAuditJson($row['selected_articles'] ?? []);
+                $settings = worldknowledgeAuditJson($row['settings'] ?? []);
+                $settingRows = worldknowledgeAuditSettingRows($settings);
                 $contextTagChips = worldknowledgeAuditTagChips($contextTags);
                 $jsonFlags = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
                 $searchBlob = strtolower(implode(' ', [
                     $input, $normalizedInput, $status, $npcName, $requestType, $catalog,
-                    json_encode([$matches, $rejections, $tagDecisions, $contextTags, $fallback, $forced, $access, $selected], $jsonFlags),
+                    $catalogChecksum, $promptHash, $fallbackSummary['state'],
+                    json_encode([$matches, $rejections, $phraseDecisions, $contextTags, $fallback, $forced, $access, $selected, $settings], $jsonFlags),
                 ]));
                 $cardTitle = trim(sprintf(
                     '%s trace for %s at %s',
@@ -563,15 +735,27 @@ $rangeEnd = min($offset + $perPage, $totalRows);
             <section class="audit-card" data-search="<?= h($searchBlob) ?>" aria-label="<?= h($cardTitle) ?>">
                 <h2 class="sr-only"><?= h($cardTitle) ?></h2>
                 <div class="meta-grid">
-                    <div class="meta-pill"><div class="meta-label">Status</div><div class="meta-value"><?= h(ucwords(str_replace('_', ' ', $status))) ?></div></div>
+                    <div class="meta-pill"><div class="meta-label">Status</div><div class="meta-value status-value is-<?= h(worldknowledgeAuditStatusTone($status)) ?>"><?= h(worldknowledgeAuditStatusLabel($status)) ?></div></div>
                     <div class="meta-pill"><div class="meta-label">NPC</div><div class="meta-value"><?= h($npcName !== '' ? $npcName : '(unknown)') ?></div></div>
                     <div class="meta-pill"><div class="meta-label">Request</div><div class="meta-value"><?= h($requestType !== '' ? $requestType : '(unknown)') ?></div></div>
                     <div class="meta-pill"><div class="meta-label">Catalog</div><div class="meta-value"><?= h($catalog !== '' ? $catalog : '(custom only)') ?></div></div>
+                    <div class="meta-pill">
+                        <div class="meta-label">Catalog Checksum</div>
+                        <div class="meta-value"<?= $catalogChecksum !== '' ? ' title="' . h($catalogChecksum) . '"' : '' ?>><?= h($catalogChecksum !== '' ? worldknowledgeAuditShortHash($catalogChecksum) : '(none)') ?></div>
+                    </div>
+                    <div class="meta-pill">
+                        <div class="meta-label">Prompt Hash</div>
+                        <div class="meta-value"<?= $promptHash !== '' ? ' title="' . h($promptHash) . '"' : '' ?>><?= h($promptHash !== '' ? worldknowledgeAuditShortHash($promptHash) : '(no prompt emitted)') ?></div>
+                    </div>
+                    <div class="meta-pill"><div class="meta-label">Fallback</div><div class="meta-value"><?= h($fallbackSummary['state']) ?></div></div>
                     <div class="meta-pill"><div class="meta-label">Algorithm</div><div class="meta-value"><?= h($row['algorithm_version'] ?? '') ?></div></div>
                     <div class="meta-pill"><div class="meta-label">Audit ID</div><div class="meta-value"><?= h($row['audit_id'] ?? '') ?></div></div>
                     <div class="meta-pill"><div class="meta-label">Created</div><div class="meta-value"><?= h($created) ?></div></div>
                     <div class="meta-pill"><div class="meta-label">Elapsed</div><div class="meta-value"><?= h($elapsed) ?> ms</div></div>
                     <div class="meta-pill"><div class="meta-label">Retrieval</div><div class="meta-value"><?= h($row['retrieval_elapsed_ms'] ?? '0') ?> ms</div></div>
+                    <?php if ($fallbackSummary['elapsed_ms'] !== null): ?>
+                        <div class="meta-pill"><div class="meta-label">Fallback Time</div><div class="meta-value"><?= h(strval($fallbackSummary['elapsed_ms'])) ?> ms</div></div>
+                    <?php endif; ?>
                 </div>
 
                 <h3 class="section-label">Input</h3>

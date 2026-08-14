@@ -19,7 +19,9 @@ if (!function_exists('isWorldKnowledgeEnabled')) {
 
 $db = $GLOBALS['db'] ?? null;
 $requestType = strval($gameRequest[0] ?? '');
-$enabled = isWorldKnowledgeEnabled($GLOBALS['WORLDKNOWLEDGE_INFINIUM'] ?? false);
+$effectiveSettings = dialecticWorldKnowledgeEffectiveSettings();
+$settings = $effectiveSettings['values'];
+$enabled = boolval($settings['enabled']);
 $eligible = DialecticWorldKnowledgeRetriever::isEligibleRequest($requestType);
 $inputText = '';
 
@@ -42,6 +44,7 @@ $trace = [
     'normalized_input' => DialecticWorldKnowledgeRetriever::normalize($inputText),
     'catalog_id' => '',
     'catalog_version' => '',
+    'catalog_checksum' => '',
     'grounded_matches' => [],
     'rejected_candidates' => [],
     'tag_decisions' => [],
@@ -50,6 +53,8 @@ $trace = [
     'forced_signals' => [],
     'access_decisions' => [],
     'selected_articles' => [],
+    'settings' => $effectiveSettings,
+    'prompt_hash' => '',
     'retrieval_elapsed_ms' => 0.0,
     'elapsed_ms' => 0.0,
 ];
@@ -64,6 +69,7 @@ if (!$db || !$enabled || !$eligible) {
 
 $catalog = dialecticWorldKnowledgeFetchEffectiveCatalog($db);
 if ($catalog === []) {
+    $trace['status'] = 'unavailable';
     $trace['elapsed_ms'] = round((hrtime(true) - $worldKnowledgeStarted) / 1_000_000, 3);
     dialecticWorldKnowledgeRecordAudit($db, $trace);
     return;
@@ -73,13 +79,22 @@ foreach ($catalog as $row) {
     if (strval($row['source_kind'] ?? '') === 'factory' && strval($row['catalog_version'] ?? '') !== '') {
         $trace['catalog_id'] = strval($row['catalog_id'] ?? '');
         $trace['catalog_version'] = strval($row['catalog_version']);
+        if (method_exists($db, 'fetchOne') && method_exists($db, 'escapeLiteral')) {
+            $catalogRecord = $db->fetchOne(
+                'SELECT checksum_sha256 FROM public.worldknowledge_catalogs WHERE catalog_id='
+                . $db->escapeLiteral($trace['catalog_id']) . ' AND catalog_version='
+                . $db->escapeLiteral($trace['catalog_version']) . ' LIMIT 1'
+            );
+            $trace['catalog_checksum'] = strval($catalogRecord['checksum_sha256'] ?? '');
+        }
         break;
     }
 }
 
-$limit = max(1, min(3, intval($GLOBALS['WORLDKNOWLEDGE_AMOUNT'] ?? 1)));
+$topicCount = intval($settings['topic_count']);
+$resultLimit = intval($settings['result_limit']);
 $retriever = new DialecticWorldKnowledgeRetriever($catalog);
-$retrieval = $retriever->extract($inputText, [], $limit);
+$retrieval = $retriever->extract($inputText, [], $topicCount);
 $topics = $retrieval['topics'];
 $trace['grounded_matches'] = $retrieval['matches'];
 $trace['rejected_candidates'] = $retrieval['rejected'];
@@ -87,10 +102,11 @@ $trace['tag_decisions'] = $retrieval['tag_decisions'];
 $trace['fallback']['eligible'] = boolval($retrieval['fallback_eligible']);
 $trace['retrieval_elapsed_ms'] = floatval($retrieval['elapsed_ms']);
 
-$fallbackEnabled = isWorldKnowledgeEnabled($GLOBALS['WORLDKNOWLEDGE_EXTRACTOR_FALLBACK'] ?? true);
-$customExtractorEnabled = isWorldKnowledgeEnabled($GLOBALS['WORLDKNOWLEDGE_CUSTOM'] ?? false);
-if ($topics === [] && $retrieval['fallback_eligible'] && $fallbackEnabled && $customExtractorEnabled) {
+$fallbackEnabled = boolval($settings['extractor_fallback_enabled']);
+$fallbackConfigured = strval($settings['connector_id']) !== '';
+if ($topics === [] && $retrieval['fallback_eligible'] && $fallbackEnabled && $fallbackConfigured) {
     $trace['fallback']['attempted'] = true;
+    $fallbackStarted = hrtime(true);
     try {
         require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_llm_service.php';
         $language = trim(strval($GLOBALS['CORE_LANG'] ?? 'en')) ?: 'en';
@@ -98,13 +114,16 @@ if ($topics === [] && $retrieval['fallback_eligible'] && $fallbackEnabled && $cu
         $payload = is_string($response) ? json_decode($response, true) : null;
         $generated = trim(strval(is_array($payload) ? ($payload['generated_tags'] ?? '') : ''));
         $suggestions = array_values(array_filter(array_map('trim', preg_split('/[,;|]+/', $generated) ?: [])));
-        $topics = $retriever->resolveSuggestions($suggestions, [], $limit);
+        $topics = $retriever->resolveSuggestions($suggestions, [], $topicCount);
         $trace['fallback']['suggestions'] = $suggestions;
         $trace['fallback']['resolved_topics'] = $topics;
     } catch (Throwable $exception) {
         $trace['fallback']['error'] = $exception->getMessage();
+    } finally {
+        $trace['fallback']['elapsed_ms'] = round((hrtime(true) - $fallbackStarted) / 1_000_000, 3);
     }
 }
+$topics = array_slice($topics, 0, $resultLimit);
 
 $rowsByTopic = [];
 foreach ($catalog as $row) {
@@ -160,7 +179,7 @@ foreach ($topics as $topic) {
     ];
 }
 
-$GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING'] = max(0, $limit - $promptEntryCount);
+$GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING'] = max(0, $resultLimit - $promptEntryCount);
 $forcedCount = dialecticWorldKnowledgeInjectForcedLocationContext($db)
     + dialecticWorldKnowledgeInjectForcedActorContext($db);
 unset($GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING']);
@@ -170,17 +189,26 @@ $forcedDeniedCount = count(array_filter(
     static fn(array $signal): bool => strval($signal['level'] ?? '') === 'denied'
 ));
 
-if ($trace['fallback']['attempted'] && $selectedCount > 0) {
+if ($trace['fallback']['attempted'] && $topics !== []) {
     $trace['status'] = 'fallback_succeeded';
-} elseif ($selectedCount > 0 || $forcedCount > 0) {
+} elseif ($promptEntryCount > 0 || $forcedCount > 0 || $forcedDeniedCount > 0) {
     $trace['status'] = 'grounded';
-} elseif ($deniedCount > 0 || $forcedDeniedCount > 0) {
-    $trace['status'] = 'denied';
 } elseif ($trace['fallback']['attempted']) {
-    $trace['status'] = 'fallback_failed';
+    $trace['status'] = isset($trace['fallback']['error']) ? 'fallback_failed' : 'fallback_unresolved';
+} elseif ($trace['fallback']['eligible'] && !$fallbackEnabled) {
+    $trace['status'] = 'fallback_disabled';
+} elseif ($trace['fallback']['eligible'] && !$fallbackConfigured) {
+    $trace['status'] = 'fallback_unconfigured';
 } else {
     $trace['status'] = 'no_match';
 }
 
 $trace['elapsed_ms'] = round((hrtime(true) - $worldKnowledgeStarted) / 1_000_000, 3);
+$articleXml = trim(strval($GLOBALS['WORLDKNOWLEDGE_HINT'] ?? ''));
+if ($articleXml !== '') {
+    $status = htmlspecialchars(strval($trace['status']), ENT_QUOTES | ENT_XML1, 'UTF-8');
+    $GLOBALS['WORLDKNOWLEDGE_HINT'] = '<oghma contract="oghma-parity-v1" status="' . $status . '">' . "\n"
+        . $articleXml . "\n</oghma>";
+    $trace['prompt_hash'] = hash('sha256', $GLOBALS['WORLDKNOWLEDGE_HINT']);
+}
 dialecticWorldKnowledgeRecordAudit($db, $trace);

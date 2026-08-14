@@ -26,6 +26,7 @@ ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS region text;
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS valid_from_year integer;
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS valid_to_year integer;
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS editorial_note text;
+ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS retrieval_phrases text NOT NULL DEFAULT '';
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
 ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP;
@@ -146,10 +147,12 @@ SET native_vector =
       setweight(to_tsvector('simple', coalesce(topic, '')), 'A')
    || setweight(to_tsvector('simple', coalesce(topic_desc, '')), 'B')
    || setweight(to_tsvector('simple', coalesce(topic_desc_basic, '')), 'C')
+   || setweight(to_tsvector('simple', coalesce(retrieval_phrases, '')), 'A')
    || setweight(to_tsvector('simple', coalesce(tags, '')), 'B')
    || setweight(to_tsvector('simple', coalesce(category, '')), 'C');
 
-CREATE OR REPLACE VIEW public.worldknowledge_effective AS
+DROP VIEW IF EXISTS public.worldknowledge_effective;
+CREATE VIEW public.worldknowledge_effective AS
 WITH candidates AS (
     SELECT wk.*,
            row_number() OVER (
@@ -169,7 +172,7 @@ WITH candidates AS (
       )
 )
 SELECT entry_id, topic, canonical_topic, topic_desc, native_vector,
-       knowledge_class, topic_desc_basic, knowledge_class_basic,
+       knowledge_class, topic_desc_basic, knowledge_class_basic, retrieval_phrases,
        tags, category, source_kind, catalog_id, catalog_version,
        content_hash, source_url, source_revision, setting, region,
        valid_from_year, valid_to_year, editorial_note, metadata,
@@ -196,10 +199,15 @@ CREATE TABLE IF NOT EXISTS public.worldknowledge_audit (
     forced_signals jsonb NOT NULL DEFAULT '[]'::jsonb,
     access_decisions jsonb NOT NULL DEFAULT '[]'::jsonb,
     selected_articles jsonb NOT NULL DEFAULT '[]'::jsonb,
+    settings jsonb NOT NULL DEFAULT '{}'::jsonb,
+    catalog_checksum character varying(64),
+    prompt_hash character varying(64),
     retrieval_elapsed_ms numeric(12,3) NOT NULL DEFAULT 0,
     elapsed_ms numeric(12,3) NOT NULL DEFAULT 0,
     CONSTRAINT worldknowledge_audit_status_check CHECK (
-        status IN ('disabled', 'ineligible', 'grounded', 'no_match', 'fallback_succeeded', 'fallback_failed', 'denied')
+        status IN ('grounded', 'no_match', 'fallback_succeeded', 'fallback_unresolved', 'fallback_failed',
+                   'fallback_disabled', 'fallback_unconfigured', 'disabled', 'ineligible', 'unavailable',
+                   'not_run', 'legacy')
     )
 );
 
@@ -208,6 +216,24 @@ ALTER TABLE public.worldknowledge_audit
 
 ALTER TABLE public.worldknowledge_audit
     ADD COLUMN IF NOT EXISTS context_tags jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE public.worldknowledge_audit
+    ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE public.worldknowledge_audit
+    ADD COLUMN IF NOT EXISTS catalog_checksum character varying(64);
+
+ALTER TABLE public.worldknowledge_audit
+    ADD COLUMN IF NOT EXISTS prompt_hash character varying(64);
+
+ALTER TABLE public.worldknowledge_audit DROP CONSTRAINT IF EXISTS worldknowledge_audit_status_check;
+UPDATE public.worldknowledge_audit SET status = 'grounded' WHERE status = 'denied';
+ALTER TABLE public.worldknowledge_audit
+    ADD CONSTRAINT worldknowledge_audit_status_check CHECK (
+        status IN ('grounded', 'no_match', 'fallback_succeeded', 'fallback_unresolved', 'fallback_failed',
+                   'fallback_disabled', 'fallback_unconfigured', 'disabled', 'ineligible', 'unavailable',
+                   'not_run', 'legacy')
+    );
 
 CREATE INDEX IF NOT EXISTS worldknowledge_audit_created_idx
     ON public.worldknowledge_audit (created_at DESC);

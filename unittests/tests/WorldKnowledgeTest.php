@@ -31,11 +31,12 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $aliasCount += max(0, count($parts) - 1);
             $this->assertNotEmpty($data['topic_desc']);
             if (trim(strval($data['topic_desc_basic'] ?? '')) === '') {
-                $this->assertMatchesRegularExpression(
-                    '/Access v2 \((?:secret|personal);/i',
-                    strval($data['editorial_note'] ?? '')
-                );
+                $this->assertNotEmpty(trim(strval($data['editorial_note'] ?? '')));
             }
+            $this->assertStringNotContainsString('&', strval($data['knowledge_class'] ?? ''));
+            $this->assertStringNotContainsString('|', strval($data['knowledge_class'] ?? ''));
+            $this->assertStringNotContainsString('&', strval($data['knowledge_class_basic'] ?? ''));
+            $this->assertStringNotContainsString('|', strval($data['knowledge_class_basic'] ?? ''));
             $this->assertGreaterThanOrEqual(4, count(array_filter(array_map('trim', explode(',', $data['tags'])))));
             $this->assertNotEmpty($data['source_url']);
             $this->assertMatchesRegularExpression('/^\d+$/', $data['source_revision']);
@@ -69,6 +70,12 @@ final class WorldKnowledgeTest extends DatabaseTestCase
              WHERE schemaname = 'public'
                AND tablename = 'worldknowledge'
                AND indexname = 'worldknowledge_custom_topic_unique_idx'
+        ");
+        $legacyUniqueIndexes = $testDb->fetchOne("
+            SELECT COUNT(*) AS total
+              FROM pg_indexes
+             WHERE schemaname = 'public'
+               AND indexname IN ('worldknowledge_topic_unique_idx', 'worldknowledge_canonical_topic_unique_idx')
         ");
         $factoryBefore = $testDb->fetchOne("
             SELECT COUNT(*) AS total
@@ -105,6 +112,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $testDb->close();
 
         $this->assertSame(1, intval($uniqueIndex['total'] ?? 0));
+        $this->assertSame(0, intval($legacyUniqueIndexes['total'] ?? -1));
         $this->assertNotFalse($firstImport);
         $this->assertNotFalse($secondImport);
         $this->assertSame(1, intval($imported['total'] ?? 0));
@@ -180,7 +188,8 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $custom['topic_desc_basic'] ?? null
         );
         $this->assertSame('domain:user_authored', $templateTags[0]['worldknowledge_tags'] ?? null);
-        $this->assertStringContainsString('sunny_smiles', $templateTags[1]['worldknowledge_tags'] ?? '');
+        $this->assertStringContainsString('goodsprings', $templateTags[1]['worldknowledge_tags'] ?? '');
+        $this->assertStringContainsString('survivalist', $templateTags[1]['worldknowledge_tags'] ?? '');
         $this->assertStringNotContainsString(':', $templateTags[1]['worldknowledge_tags'] ?? '');
     }
 

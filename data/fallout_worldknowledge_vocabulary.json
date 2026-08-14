@@ -1,13 +1,14 @@
 {
   "format": "dwemer.dialectic-worldknowledge-vocabulary.v1",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "frozen_on": "2026-08-13",
   "canonical_style": "lowercase_snake_case",
   "semantics": {
     "knowledge_tags": "Plain permissions representing knowledge an NPC can plausibly use.",
-    "article_tags": "Natural descriptive phrases used only for retrieval and search.",
+    "article_tags": "Natural descriptive phrases used for search and for ranking an already grounded topic.",
+    "retrieval_phrases": "Small reviewed phrases that may identify one article after topic and alias grounding abstain.",
     "profile_subjects": "Exact plain NPC IDs used only for knowledge specifically about that NPC.",
-    "rule_grammar": "The ampersand joins required permissions and the pipe separates alternative clauses."
+    "rule_grammar": "Comma-separated classes are simple alternatives. A matching exclamation-prefixed class denies first. Empty classes are unrestricted."
   },
   "roles": [
     "traveler", "doctor", "engineer", "explorer", "gunsmith", "historian",

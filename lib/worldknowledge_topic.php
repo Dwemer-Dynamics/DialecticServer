@@ -131,35 +131,25 @@ if (!function_exists('dialecticWorldKnowledgeNormalizeAccessTag')) {
 }
 
 if (!function_exists('dialecticWorldKnowledgeParseAccessRule')) {
-    /** Parse v2 OR-of-AND clauses while retaining comma-separated legacy any-of rules. */
+    /** Parse the flat Oghma any-of classes while collecting negatives separately. */
     function dialecticWorldKnowledgeParseAccessRule($value): array
     {
         $value = trim((string)$value);
-        $isV2 = str_contains($value, '&') || str_contains($value, '|');
-        $rawClauses = $isV2 ? explode('|', $value) : [$value];
-        $clauses = [];
+        $allowed = [];
         $denied = [];
-        foreach ($rawClauses as $rawClause) {
-            $rawTerms = $isV2 ? explode('&', $rawClause) : explode(',', $rawClause);
-            $positive = [];
-            foreach ($rawTerms as $rawTerm) {
-                $tag = dialecticWorldKnowledgeNormalizeAccessTag($rawTerm);
-                if ($tag === '') {
-                    continue;
-                }
-                if (str_starts_with($tag, '!')) {
-                    $denied[] = substr($tag, 1);
-                } else {
-                    $positive[] = $tag;
-                }
+        foreach (preg_split('/\s*[,;|]\s*/u', $value) ?: [] as $rawClass) {
+            $tag = dialecticWorldKnowledgeNormalizeAccessTag($rawClass);
+            if ($tag === '') {
+                continue;
             }
-            if ($positive !== []) {
-                $clauses[] = array_values(array_unique($positive));
+            if (str_starts_with($tag, '!')) {
+                $denied[] = substr($tag, 1);
+            } else {
+                $allowed[] = $tag;
             }
         }
         return [
-            'version' => $isV2 ? 2 : 1,
-            'clauses' => $clauses,
+            'allowed' => array_values(array_unique($allowed)),
             'denied' => array_values(array_unique($denied)),
             'unrestricted' => $value === '',
         ];
@@ -167,28 +157,15 @@ if (!function_exists('dialecticWorldKnowledgeParseAccessRule')) {
 }
 
 if (!function_exists('dialecticWorldKnowledgeNormalizeAccessRule')) {
-    /** Canonicalize a stored rule without changing its legacy any-of or v2 clause semantics. */
+    /** Canonicalize a stored Oghma class list to comma-separated plain IDs. */
     function dialecticWorldKnowledgeNormalizeAccessRule($value): string
     {
-        $value = trim((string)$value);
-        if ($value === '') {
-            return '';
+        $rule = dialecticWorldKnowledgeParseAccessRule($value);
+        $classes = $rule['allowed'];
+        foreach ($rule['denied'] as $denied) {
+            $classes[] = '!' . $denied;
         }
-        $isV2 = str_contains($value, '&') || str_contains($value, '|');
-        $clauses = [];
-        foreach ($isV2 ? explode('|', $value) : [$value] as $rawClause) {
-            $terms = [];
-            foreach ($isV2 ? explode('&', $rawClause) : explode(',', $rawClause) as $rawTerm) {
-                $tag = dialecticWorldKnowledgeNormalizeAccessTag($rawTerm);
-                if ($tag !== '' && !in_array($tag, $terms, true)) {
-                    $terms[] = $tag;
-                }
-            }
-            if ($terms !== []) {
-                $clauses[] = implode($isV2 ? '&' : ',', $terms);
-            }
-        }
-        return implode($isV2 ? '|' : ',', array_values(array_unique($clauses)));
+        return implode(',', array_values(array_unique($classes)));
     }
 }
 

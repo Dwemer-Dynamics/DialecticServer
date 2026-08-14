@@ -1,10 +1,10 @@
 {
   "schema": "dialectic.worldknowledge-catalog.v1",
   "catalog_id": "fallout-3-new-vegas-ttw-official",
-  "catalog_version": "parity-v1.3-2026-08-13",
+  "catalog_version": "parity-v1.5-2026-08-13",
   "display_name": "DIALECTIC Fallout 3, New Vegas, DLC and TTW",
   "csv_file": "fallout_worldknowledge_parity_v1.csv",
-  "checksum_sha256": "c903d0db985b832bb10b29e97eadd932531ea663514e91854673732c24f5813d",
+  "checksum_sha256": "6cb3f05fbd6939f18a4f4a0abef19c6b55c30fbea2da384598177340364b9872",
   "row_count": 1221,
   "source_snapshot": {
     "file": "fallout_worldknowledge_sources.jsonl",
@@ -59,6 +59,6 @@
   },
   "knowledge_vocabulary": {
     "file": "fallout_worldknowledge_vocabulary.json",
-    "checksum_sha256": "040ec65f6519dc442f0e1efb29968331fa41487510e4210606043ef5632f6e02"
+    "checksum_sha256": "743195fb32a81539dd1a7c0753b3a9ce75d8ff7ec2aefa12e0facd77ef921eb5"
   }
 }

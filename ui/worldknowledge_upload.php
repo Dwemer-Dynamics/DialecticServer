@@ -74,62 +74,74 @@ function worldknowledge_entries_url(array $overrides = []) {
 }
 
 /**
- * Render a stored access rule as normalized tag chips joined by the operators the
- * runtime actually applies: AND inside a clause, OR between clauses, and the
- * legacy comma form as any-of. Required tags are shown as one adjacent group
- * rather than repeating a literal AND between every chip; the conjunction is kept
- * for screen readers only. Takes the raw database value and escapes it once.
+ * Render a stored knowledge-class list as one flat set of chips.
  *
- * Chips always read as canonical plain ids, so a legacy namespaced rule stored as
- * faction:ncr renders as ncr. The caller keeps the raw value for the edit form and
- * cell tooltip so legacy custom rules can still be inspected and round-tripped.
+ * Oghma parity classes are a single comma-separated list with no operators: any
+ * matching class grants that tier, and a matching !class denies it first. Each
+ * class therefore gets its own chip and nothing is drawn between them. A denial
+ * is a visibly distinct chip that reads "except raider" so the leading "!" never
+ * has to be decoded by the reader.
+ *
+ * Chips always read as canonical plain ids, so a legacy namespaced value stored
+ * as faction:ncr renders as ncr. The caller keeps the raw value for the edit
+ * form, so legacy custom rows still round-trip unchanged.
  */
 function worldknowledge_render_access_rule($rawRule, $variant = 'advanced') {
     $rawRule = trim((string)$rawRule);
     $rule = dialecticWorldKnowledgeParseAccessRule($rawRule);
     $tagClass = 'rule-tag' . ($variant === 'basic' ? ' rule-tag-basic' : '');
 
-    $groups = [];
-    foreach ($rule['clauses'] as $clause) {
-        $chips = [];
-        foreach ($clause as $tag) {
-            $chips[] = '<span class="' . $tagClass . '">' . htmlspecialchars($tag) . '</span>';
+    $chips = [];
+    foreach ($rule['allowed'] as $class) {
+        $chips[] = '<span class="' . $tagClass . '">' . htmlspecialchars($class) . '</span>';
+    }
+    foreach ($rule['denied'] as $class) {
+        $chips[] = '<span class="rule-tag rule-tag-deny">'
+            . '<span class="rule-deny-word">except</span> ' . htmlspecialchars($class)
+            . '</span>';
+    }
+
+    if (!$chips) {
+        return $rawRule === ''
+            ? '<span class="rule-none">Everyone</span>'
+            : '<span class="rule-none">Everyone</span><small class="rule-note">No usable classes in this list.</small>';
+    }
+
+    return '<span class="rule-classes">' . implode('', $chips) . '</span>';
+}
+
+/**
+ * Canonicalize the optional reviewed retrieval phrases into one comma-separated
+ * lowercase list. Comma, semicolon, and the legacy pipe are all accepted as
+ * separators. Nothing is discarded beyond blanks and exact duplicates: the
+ * runtime already ignores single-word and ambiguous phrases, and silently
+ * dropping an editor's text here would hide that from them.
+ */
+function worldknowledge_normalize_retrieval_phrases($value) {
+    $phrases = [];
+    foreach (preg_split('/\s*[,;|]\s*/u', (string)$value) ?: [] as $phrase) {
+        $phrase = trim((string)$phrase);
+        $phrase = function_exists('mb_strtolower') ? mb_strtolower($phrase, 'UTF-8') : strtolower($phrase);
+        $phrase = trim(preg_replace('/\s+/u', ' ', $phrase) ?? $phrase);
+        if ($phrase !== '') {
+            $phrases[$phrase] = true;
         }
-        if ($rule['version'] === 2) {
-            // v2 clauses require every tag, so the chips are banded together and
-            // "and" is announced but not drawn between each pair.
-            $clauseClass = 'rule-clause' . (count($chips) > 1 ? ' rule-clause-all' : '');
-            $joiner = '<span class="visually-hidden"> and </span>';
-        } else {
-            // Legacy comma rules match any single tag, so the alternation stays visible.
-            $clauseClass = 'rule-clause';
-            $joiner = '<span class="rule-op">or</span>';
-        }
-        $groups[] = '<span class="' . $clauseClass . '">' . implode($joiner, $chips) . '</span>';
+    }
+    return implode(',', array_keys($phrases));
+}
+
+/** Render stored retrieval phrases as chips; blank reads as an explicit "None". */
+function worldknowledge_render_retrieval_phrases($rawPhrases) {
+    $normalized = worldknowledge_normalize_retrieval_phrases($rawPhrases);
+    if ($normalized === '') {
+        return '<span class="scope-empty">None</span>';
     }
 
-    if ($groups) {
-        $html = implode('<span class="rule-op rule-op-or">or</span>', $groups);
-    } elseif ($rawRule !== '' && !$rule['denied']) {
-        $html = '<span class="rule-note">Invalid rule</span>';
-    } else {
-        $html = '<span class="rule-none">Everyone</span>';
+    $chips = [];
+    foreach (explode(',', $normalized) as $phrase) {
+        $chips[] = '<span class="phrase-tag">' . htmlspecialchars($phrase) . '</span>';
     }
-
-    if ($rule['denied']) {
-        $denyChips = [];
-        foreach ($rule['denied'] as $tag) {
-            $denyChips[] = '<span class="rule-tag rule-tag-deny">' . htmlspecialchars($tag) . '</span>';
-        }
-        $html .= '<span class="rule-op">except</span>'
-            . implode('<span class="rule-op">or</span>', $denyChips);
-    }
-
-    if ($rawRule !== '' && !$rule['clauses'] && !$rule['denied']) {
-        $html .= '<small class="rule-note">No usable tags in this rule.</small>';
-    }
-
-    return $html;
+    return '<span class="rule-classes">' . implode('', $chips) . '</span>';
 }
 
 // Connect to the database
@@ -182,14 +194,15 @@ if ($installedCatalogResult) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual'])) {
     // Store article text as entered and access permissions in canonical plain form.
     // Encoding here wrote &amp;, &#039; and friends into PostgreSQL, which
-    // silently broke access rules such as doctor&mojave or !raider and
-    // put entities in article text. The parameterized query below keeps the
-    // write safe, and every render escapes again at its own output boundary.
+    // silently broke knowledge classes and put entities in article text.
+    // The parameterized query keeps the write safe, and every render escapes
+    // again at its own output boundary.
     $topic                = worldknowledge_normalize_topic_key($_POST['topic'] ?? '');
     $topic_desc           = (string)($_POST['topic_desc']            ?? '');
     $knowledge_class      = dialecticWorldKnowledgeNormalizeAccessRule($_POST['knowledge_class'] ?? '');
     $topic_desc_basic     = (string)($_POST['topic_desc_basic']      ?? '');
     $knowledge_class_basic= dialecticWorldKnowledgeNormalizeAccessRule($_POST['knowledge_class_basic'] ?? '');
+    $retrieval_phrases    = worldknowledge_normalize_retrieval_phrases($_POST['retrieval_phrases'] ?? '');
     $tags                 = (string)($_POST['tags']                  ?? '');
     $category             = (string)($_POST['category']              ?? '');
     $canonicalTopic       = dialecticWorldKnowledgeCanonicalTopic($topic);
@@ -197,18 +210,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
     if (!empty($topic) && worldknowledge_has_description($topic_desc, $topic_desc_basic)) {
         $query = "
             INSERT INTO $schema.worldknowledge (
-                topic, 
-                topic_desc, 
-                knowledge_class, 
-                topic_desc_basic, 
-                knowledge_class_basic, 
-                tags, 
+                topic,
+                topic_desc,
+                knowledge_class,
+                topic_desc_basic,
+                knowledge_class_basic,
+                retrieval_phrases,
+                tags,
                 category,
                 canonical_topic,
                 source_kind,
                 is_active
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'custom', TRUE)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'custom', TRUE)
             ON CONFLICT (canonical_topic) WHERE source_kind='custom' AND is_active
             DO UPDATE SET
                 topic                = EXCLUDED.topic,
@@ -216,6 +230,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
                 knowledge_class      = EXCLUDED.knowledge_class,
                 topic_desc_basic     = EXCLUDED.topic_desc_basic,
                 knowledge_class_basic= EXCLUDED.knowledge_class_basic,
+                retrieval_phrases    = EXCLUDED.retrieval_phrases,
                 tags                 = EXCLUDED.tags,
                 category             = EXCLUDED.category,
                 updated_at           = CURRENT_TIMESTAMP
@@ -226,6 +241,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
             $knowledge_class,
             $topic_desc_basic,
             $knowledge_class_basic,
+            $retrieval_phrases,
             $tags,
             $category,
             $canonicalTopic
@@ -241,6 +257,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
                       setweight(to_tsvector(coalesce(topic, '')), 'A')
                     || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
                     || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
+                    || setweight(to_tsvector(coalesce(retrieval_phrases, '')), 'A')
+                    || setweight(to_tsvector(coalesce(tags, '')), 'B')
+                    || setweight(to_tsvector(coalesce(category, '')), 'C')
                 WHERE canonical_topic = $1 AND source_kind = 'custom'
             ";
             $update_result = pg_query_params($conn, $update_query, [$canonicalTopic]);
@@ -323,6 +342,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                     $knowledge_class      = dialecticWorldKnowledgeNormalizeAccessRule(worldknowledge_csv_value($data, $headerMap, 'knowledge_class', 2));
                     $topic_desc_basic     = trim(worldknowledge_csv_value($data, $headerMap, 'topic_desc_basic', 3));
                     $knowledge_class_basic= dialecticWorldKnowledgeNormalizeAccessRule(worldknowledge_csv_value($data, $headerMap, 'knowledge_class_basic', 4));
+                    // retrieval_phrases has no legacy positional slot, so it is
+                    // read by name only and imports blank from older files.
+                    $retrieval_phrases    = worldknowledge_normalize_retrieval_phrases(worldknowledge_csv_value($data, $headerMap, 'retrieval_phrases'));
                     $tags                 = trim(worldknowledge_csv_value($data, $headerMap, 'tags', 5));
                     $category             = trim(worldknowledge_csv_value($data, $headerMap, 'category', 6));
                     $canonicalTopic       = dialecticWorldKnowledgeCanonicalTopic($topic);
@@ -335,13 +357,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                                 knowledge_class,
                                 topic_desc_basic,
                                 knowledge_class_basic,
+                                retrieval_phrases,
                                 tags,
                                 category,
                                 canonical_topic,
                                 source_kind,
                                 is_active
                             )
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'custom', TRUE)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'custom', TRUE)
                             ON CONFLICT (canonical_topic) WHERE source_kind='custom' AND is_active
                             DO UPDATE SET
                                 topic                = EXCLUDED.topic,
@@ -349,6 +372,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                                 knowledge_class      = EXCLUDED.knowledge_class,
                                 topic_desc_basic     = EXCLUDED.topic_desc_basic,
                                 knowledge_class_basic= EXCLUDED.knowledge_class_basic,
+                                retrieval_phrases    = EXCLUDED.retrieval_phrases,
                                 tags                 = EXCLUDED.tags,
                                 category             = EXCLUDED.category,
                                 updated_at           = CURRENT_TIMESTAMP
@@ -359,6 +383,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                             $knowledge_class,
                             $topic_desc_basic,
                             $knowledge_class_basic,
+                            $retrieval_phrases,
                             $tags,
                             $category,
                             $canonicalTopic
@@ -373,6 +398,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
                                       setweight(to_tsvector(coalesce(topic, '')), 'A')
                                     || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
                                     || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
+                                    || setweight(to_tsvector(coalesce(retrieval_phrases, '')), 'A')
+                                    || setweight(to_tsvector(coalesce(tags, '')), 'B')
+                                    || setweight(to_tsvector(coalesce(category, '')), 'C')
                                 WHERE canonical_topic = $1 AND source_kind = 'custom'
                             ";
                             pg_query_params($conn, $update_query, [$canonicalTopic]);
@@ -423,6 +451,49 @@ if (isset($_GET['action']) && $_GET['action'] === 'download_example') {
 }
 
 /********************************************************************
+ *  3.5) EXPORT CUSTOM ENTRIES AS CSV
+ ********************************************************************/
+if (isset($_GET['action']) && $_GET['action'] === 'export_custom') {
+    // Same column order the importer reads, including retrieval_phrases, so an
+    // export can be edited and uploaded straight back. Factory rows are owned by
+    // the catalog and are deliberately not exported here.
+    $exportColumns = [
+        'topic', 'topic_desc', 'knowledge_class', 'topic_desc_basic',
+        'knowledge_class_basic', 'retrieval_phrases', 'tags', 'category',
+    ];
+    $exportResult = @pg_query(
+        $conn,
+        "SELECT " . implode(', ', $exportColumns) . "
+           FROM {$schema}.worldknowledge
+          WHERE source_kind = 'custom' AND is_active
+          ORDER BY canonical_topic"
+    );
+
+    if ($exportResult) {
+        header('Content-Description: File Transfer');
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="worldknowledge_custom_export.csv"');
+        header('Expires: 0');
+        header('Cache-Control: must-revalidate');
+        header('Pragma: public');
+        if (ob_get_length()) ob_end_clean();
+        $output = fopen('php://output', 'w');
+        fputcsv($output, $exportColumns);
+        while ($exportRow = pg_fetch_assoc($exportResult)) {
+            $line = [];
+            foreach ($exportColumns as $column) {
+                $line[] = (string)($exportRow[$column] ?? '');
+            }
+            fputcsv($output, $line);
+        }
+        fclose($output);
+        exit;
+    }
+
+    $message .= '<p>Could not export custom entries: ' . htmlspecialchars(pg_last_error($conn)) . '</p>';
+}
+
+/********************************************************************
  *  4) DELETE ALL
  ********************************************************************/
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_all') {
@@ -470,6 +541,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $knowledge_class_new = dialecticWorldKnowledgeNormalizeAccessRule(htmlspecialchars_decode($_POST['knowledge_class_new'] ?? ''));
     $topic_desc_basic_new = htmlspecialchars_decode($_POST['topic_desc_basic_new'] ?? '');
     $knowledge_class_basic_new = dialecticWorldKnowledgeNormalizeAccessRule(htmlspecialchars_decode($_POST['knowledge_class_basic_new'] ?? ''));
+    $retrieval_phrases_new = worldknowledge_normalize_retrieval_phrases(htmlspecialchars_decode($_POST['retrieval_phrases_new'] ?? ''));
     $tags_new            = htmlspecialchars_decode($_POST['tags_new'] ?? '');
     $category_new        = htmlspecialchars_decode($_POST['category_new'] ?? '');
     $canonical_topic_new = dialecticWorldKnowledgeCanonicalTopic($topic_new);
@@ -484,11 +556,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 knowledge_class = $3,
                 topic_desc_basic = $4,
                 knowledge_class_basic = $5,
-                tags = $6,
-                category = $7,
-                canonical_topic = $8,
+                retrieval_phrases = $6,
+                tags = $7,
+                category = $8,
+                canonical_topic = $9,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE topic = $9 AND source_kind = 'custom'
+            WHERE topic = $10 AND source_kind = 'custom'
         ";
 
         $update_result = pg_query_params($conn, $update_sql, [
@@ -497,6 +570,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $knowledge_class_new,
             $topic_desc_basic_new,
             $knowledge_class_basic_new,
+            $retrieval_phrases_new,
             $tags_new,
             $category_new,
             $canonical_topic_new,
@@ -513,6 +587,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                       setweight(to_tsvector(coalesce(topic, '')), 'A')
                     || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
                     || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
+                    || setweight(to_tsvector(coalesce(retrieval_phrases, '')), 'A')
+                    || setweight(to_tsvector(coalesce(tags, '')), 'B')
+                    || setweight(to_tsvector(coalesce(category, '')), 'C')
                 WHERE canonical_topic = $1 AND source_kind = 'custom'
             ";
             pg_query_params($conn, $vector_sql, [$canonical_topic_new]);
@@ -1034,22 +1111,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     /* Column widths come from <colgroup> because the two-row header means
        nth-child rules no longer line up with a single cell per column.
-       min-width keeps all ten columns readable and lets .table-container
+       min-width keeps all eleven columns readable and lets .table-container
        scroll horizontally instead of crushing them. */
     .table-container table {
-        min-width: 1180px;
+        min-width: 1300px;
     }
 
-    .wk-col-topic      { width: 10%; }
-    .wk-col-adv-desc   { width: 20%; }
-    .wk-col-adv-rule   { width: 11%; }
-    .wk-col-basic-desc { width: 17%; }
-    .wk-col-basic-rule { width: 11%; }
+    .wk-col-topic      { width: 9%; }
+    .wk-col-adv-desc   { width: 18%; }
+    .wk-col-adv-rule   { width: 10%; }
+    .wk-col-basic-desc { width: 15%; }
+    .wk-col-basic-rule { width: 10%; }
+    .wk-col-phrases    { width: 9%; }
     .wk-col-tags       { width: 6%; }
     .wk-col-category   { width: 6%; }
-    .wk-col-source     { width: 7%; }
-    .wk-col-region     { width: 7%; }
-    .wk-col-action     { width: 7%; }
+    .wk-col-source     { width: 6%; }
+    .wk-col-region     { width: 6%; }
+    .wk-col-action     { width: 5%; }
 
     .entries-pager {
         display: flex;
@@ -1156,23 +1234,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         background: rgba(255, 182, 65, 0.05);
     }
 
-    /* Access rule chips */
-    .rule-clause {
+    /* Knowledge-class chips. Classes are one flat any-of list, so the chips just
+       wrap next to each other with no operator drawn between them. */
+    .rule-classes {
         display: inline-flex;
         flex-wrap: wrap;
         align-items: center;
+        gap: 2px;
         vertical-align: middle;
-    }
-
-    /* Tags that must all match are banded into a single unit instead of being
-       separated by a repeated AND label. The band survives wrapping, which the
-       narrow rule columns need. */
-    .rule-clause-all {
-        gap: 3px;
-        padding: 1px 3px;
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        border-radius: 6px;
     }
 
     .rule-tag {
@@ -1187,38 +1256,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         font-weight: 500;
     }
 
-    .rule-clause-all .rule-tag {
-        margin: 1px 0;
-    }
-
-    /* Basic rules use the cool accent so the two rule columns never read alike. */
+    /* Basic classes use the cool accent so the two class columns never read alike. */
     .rule-tag-basic {
         background: rgba(93, 145, 189, 0.18);
         border-color: rgba(93, 145, 189, 0.45);
         color: #a8cdea;
     }
 
+    /* A denial is one chip that reads "except raider": red, dashed, and never
+       mistakable for the positive chips beside it. */
     .rule-tag-deny {
         background: rgba(255, 100, 100, 0.15);
-        border-color: rgba(255, 100, 100, 0.4);
+        border-color: rgba(255, 100, 100, 0.55);
+        border-style: dashed;
         color: #ff9a9a;
     }
 
-    .rule-op {
-        display: inline-block;
-        margin: 0 2px;
-        color: #c4c4c4;
-        font-size: 0.78em;
-        font-weight: bold;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+    .rule-deny-word {
+        font-style: italic;
+        text-transform: lowercase;
+        opacity: 0.9;
     }
 
-    /* OR is now the only operator drawn between clauses, so it gets the room
-       the removed AND labels used to take up. */
-    .rule-op-or {
-        margin: 0 5px;
-        color: rgb(255, 182, 65);
+    /* Reviewed retrieval phrases are neither classes nor tags, so they get their
+       own neutral chip. */
+    .phrase-tag {
+        display: inline-block;
+        background: rgba(129, 199, 132, 0.14);
+        border: 1px solid rgba(129, 199, 132, 0.38);
+        color: #a5d6a7;
+        padding: 2px 7px;
+        margin: 2px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        font-weight: 500;
     }
 
     .rule-none {
@@ -1349,7 +1420,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
 
         .table-container table {
-            min-width: 1040px;
+            min-width: 1160px;
         }
     }
 
@@ -1512,12 +1583,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             <!-- Regular WorldKnowledge Content -->
             <div id="worldknowledge-header-content">
                 <p><b>World Knowledge</b> is DIALECTIC's Fallout encyclopedia for grounded NPC roleplay.</p>
-                <p>Deterministic topic, alias, speech, and guarded tag matching select up to three relevant articles. Custom articles override factory articles with the same canonical topic.</p>
+                <p>Deterministic topic, alias, and speech matching selects the relevant articles, with reviewed retrieval phrases used only when that matching abstains. Custom articles override factory articles with the same canonical topic.</p>
                 
                 <h3><strong>Ensure all topic titles are lowercase and spaces are replaced with underscores (_).</strong></h3>
                 <h4>Example: "Fishy Stick" becomes "fishy_stick"</h4>
             <p>Knowledge classes control which uploaded Fallout world knowledge entries a character can access.</p>
-                
+
                 <div class="logic-section">
                     <h3 class="logic-title">&#x1F50D; Article Search Logic</h3>
                     <div class="logic-steps">
@@ -1525,25 +1596,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             <div class="step-number">1</div>
                             <div class="step-content">
                                 <strong>Grounded Retrieval</strong>
-                                <p>Canonical topics and aliases are checked first, followed by compact and guarded speech matches, then corroborated semantic tags.</p>
+                                <p>Canonical topics and aliases are checked first, followed by compact and guarded speech matches.</p>
                             </div>
                         </div>
                         <div class="logic-step">
                             <div class="step-number">2</div>
                             <div class="step-content">
-                                <strong>Advanced Access Check</strong>
-                                <p><code>knowledge_class</code> controls expert or involved access. Use <code>&amp;</code> for AND, <code>|</code> for OR, and a leading <code>!</code> to deny a tag. Legacy comma-separated rules still match on any one tag.</p>
+                                <strong>Retrieval Phrases</strong>
+                                <p><code>retrieval_phrases</code> are optional reviewed multiword phrases used only when topic and alias matching abstains. Ordinary <code>tags</code> never acquire a topic; they only support ranking and relationships once one is identified.</p>
                             </div>
                         </div>
                         <div class="logic-step">
                             <div class="step-number">3</div>
                             <div class="step-content">
-                                <strong>Basic Access Check</strong>
-                                <p><code>knowledge_class_basic</code> controls average-person access in the appropriate region or community, using the same rule syntax.</p>
+                                <strong>Advanced Access Check</strong>
+                                <p><code>knowledge_class</code> controls expert or involved access. Write one comma-separated list of classes: any matching class grants that tier. A matching <code>!class</code> denies it first, and a blank list is unrestricted.</p>
                             </div>
                         </div>
                         <div class="logic-step">
                             <div class="step-number">4</div>
+                            <div class="step-content">
+                                <strong>Basic Access Check</strong>
+                                <p><code>knowledge_class_basic</code> controls average-person access in the appropriate region or community, using the same flat class list.</p>
+                            </div>
+                        </div>
+                        <div class="logic-step">
+                            <div class="step-number">5</div>
                             <div class="step-content">
                                 <strong>Bounded Fallback</strong>
                                 <p>Only explicit unmatched lore requests may use one configured connector fallback, and suggestions must resolve back to this catalog.</p>
@@ -1576,10 +1654,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <div class="button-group">
                         <input type="submit" name="submit_csv" value="Upload CSV" class="action-button upload-csv">
                         <a href="?action=download_example" class="action-button download-csv">Download Example CSV</a>
+                        <a href="?action=export_custom" class="action-button download-csv">Export Custom Entries</a>
                     </div>
                 </form>
-                
-                <p style="margin-top: 15px;">Uploads are saved as custom articles. A custom canonical topic safely overrides the active factory article without modifying factory data.</p>
+
+                <p style="margin-top: 15px;">Columns are matched by header name:
+                    <code>topic</code>, <code>topic_desc</code>, <code>knowledge_class</code>,
+                    <code>topic_desc_basic</code>, <code>knowledge_class_basic</code>,
+                    <code>retrieval_phrases</code>, <code>tags</code>, <code>category</code>.
+                    Older files without a <code>retrieval_phrases</code> column import it as blank.
+                    Export writes the same columns back, so an export can be edited and uploaded again.</p>
+                <p>Uploads are saved as custom articles. A custom canonical topic safely overrides the active factory article without modifying factory data.</p>
             </div>
 
             <div class="content-section">
@@ -1677,8 +1762,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             <div class="action-container">
                 <button onclick="openNewEntryModal()" class="action-button add-new">Add New Entry</button>
                 <div class="search-container">
-                    <label for="searchBox" class="visually-hidden">Search World Knowledge topics and tags</label>
-                    <input type="text" id="searchBox" value="<?php echo htmlspecialchars($searchTerm, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Search topics and tags..." style="flex-grow: 1; padding: 8px; border-radius: 4px; border: 1px solid #555555; background-color: #4a4a4a; color: #f8f9fa;">
+                    <label for="searchBox" class="visually-hidden">Search World Knowledge topics, tags, and retrieval phrases</label>
+                    <input type="text" id="searchBox" value="<?php echo htmlspecialchars($searchTerm, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Search topics, tags, phrases..." style="flex-grow: 1; padding: 8px; border-radius: 4px; border: 1px solid #555555; background-color: #4a4a4a; color: #f8f9fa;">
                     <button onclick="applySearch()" class="action-button edit">Search</button>
                 </div>
             </div>
@@ -1723,7 +1808,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             }
             if ($searchTerm) {
                 $params[] = '%' . $searchTerm . '%';
-                $conditions[] = '(topic ILIKE $' . count($params) . ' OR tags ILIKE $' . count($params) . ')';
+                $conditions[] = '(topic ILIKE $' . count($params)
+                    . ' OR tags ILIKE $' . count($params)
+                    . ' OR retrieval_phrases ILIKE $' . count($params) . ')';
             }
             $whereSql = $conditions ? ' WHERE ' . implode(' AND ', $conditions) : '';
             $countResult = pg_query_params(
@@ -1739,8 +1826,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $rangeEnd = min($offset + $perPage, $totalEntries);
 
             $query = "SELECT topic, topic_desc, knowledge_class, topic_desc_basic,
-                             knowledge_class_basic, tags, category, source_kind, catalog_id, catalog_version,
-                             region, editorial_note
+                             knowledge_class_basic, retrieval_phrases, tags, category, source_kind,
+                             catalog_id, catalog_version, region, editorial_note
                         FROM $schema.worldknowledge_effective"
                 . $whereSql
                 . " ORDER BY topic $order LIMIT " . intval($perPage) . " OFFSET " . intval($offset);
@@ -1786,18 +1873,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <p class="access-legend-item access-legend-advanced">
                     <b>Advanced knowledge</b>
                     The expert or personally-involved version of the article. An NPC only receives it
-                    when their tags satisfy the advanced access rule.
+                    when one of their knowledge classes appears in the advanced list.
                 </p>
                 <p class="access-legend-item access-legend-basic">
                     <b>Basic knowledge</b>
-                    What an ordinary person in the right place would know. An empty rule means
-                    <em>Everyone</em>.
+                    What an ordinary person in the right place would know. A blank list is
+                    unrestricted and reads as <em>Everyone</em>.
                 </p>
                 <p class="access-legend-item">
-                    <b>Reading a rule</b>
-                    Tags shown boxed together are all required, <code>or</code> accepts any one
-                    group, and <code>except</code> denies a tag outright. Hover a rule to see how
-                    it is stored.
+                    <b>Reading knowledge classes</b>
+                    Classes are one comma-separated list. Any matching class grants that tier.
+                    A chip reading <code>except raider</code> is a <code>!class</code> denial and
+                    is applied first. A blank list is unrestricted.
+                </p>
+                <p class="access-legend-item">
+                    <b>Retrieval phrases</b>
+                    Optional reviewed multiword phrases, used only when topic and alias matching
+                    abstains. Ordinary tags support ranking and relationships instead; they never
+                    acquire a topic on their own.
                 </p>
             </div>
             <?php
@@ -1810,6 +1903,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <col class="wk-col-adv-rule">
                     <col class="wk-col-basic-desc">
                     <col class="wk-col-basic-rule">
+                    <col class="wk-col-phrases">
                     <col class="wk-col-tags">
                     <col class="wk-col-category">
                     <col class="wk-col-source">
@@ -1817,13 +1911,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <col class="wk-col-action">
                   </colgroup>';
             // Two header rows: the Advanced and Basic groups each own an
-            // article + access rule pair, so the pairing is labelled once.
+            // article + knowledge class pair, so the pairing is labelled once.
             echo '<thead>
                   <tr>
                     <th scope="col" rowspan="2">Topic</th>
                     <th scope="colgroup" colspan="2" class="wk-group wk-group-advanced wk-divide">Advanced knowledge</th>
                     <th scope="colgroup" colspan="2" class="wk-group wk-group-basic wk-divide">Basic knowledge</th>
-                    <th scope="col" rowspan="2" class="wk-divide">Tags</th>
+                    <th scope="col" rowspan="2" class="wk-divide">Retrieval phrases</th>
+                    <th scope="col" rowspan="2">Tags</th>
                     <th scope="col" rowspan="2">Category</th>
                     <th scope="col" rowspan="2">Source</th>
                     <th scope="col" rowspan="2">Region &amp; Notes</th>
@@ -1831,9 +1926,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                   </tr>
                   <tr>
                     <th scope="col" class="wk-sub wk-divide">Article</th>
-                    <th scope="col" class="wk-sub">Access rule</th>
+                    <th scope="col" class="wk-sub">Knowledge classes</th>
                     <th scope="col" class="wk-sub wk-divide">Article</th>
-                    <th scope="col" class="wk-sub">Access rule</th>
+                    <th scope="col" class="wk-sub">Knowledge classes</th>
                   </tr>
                   </thead>';
             echo '<tbody>';
@@ -1846,34 +1941,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $knowledge_class      = htmlspecialchars($row['knowledge_class']      ?? '');
                     $topic_desc_basic     = htmlspecialchars($row['topic_desc_basic']     ?? '');
                     $knowledge_class_basic= htmlspecialchars($row['knowledge_class_basic']?? '');
+                    $retrieval_phrases    = htmlspecialchars($row['retrieval_phrases']    ?? '');
                     $tags                 = htmlspecialchars($row['tags']                 ?? '');
                     $category             = htmlspecialchars($row['category']             ?? '');
                     $sourceKind           = strtolower(trim((string)($row['source_kind'] ?? 'custom')));
                     $catalogLabel         = trim((string)($row['catalog_id'] ?? '') . '/' . (string)($row['catalog_version'] ?? ''), '/');
                     $region               = htmlspecialchars($row['region'] ?? '');
                     $editorialNote        = htmlspecialchars($row['editorial_note'] ?? '');
-                    // Raw (unescaped) rules for chip rendering; the escaped copies above feed the edit modal.
+                    // Raw (unescaped) values for chip rendering; the escaped copies above feed the edit modal.
                     $knowledgeClassRaw    = (string)($row['knowledge_class']       ?? '');
                     $knowledgeClassBasicRaw = (string)($row['knowledge_class_basic'] ?? '');
+                    $retrievalPhrasesRaw  = (string)($row['retrieval_phrases']     ?? '');
 
                     // Normal row display
                     echo '<tr>';
                     echo '<th scope="row">' . $topic . '</th>';
                     echo '<td class="wk-divide">' . nl2br($topic_desc) . '</td>';
 
-                    // Advanced access rule, shown as grouped required tags with OR between alternatives.
-                    echo '<td' . ($knowledgeClassRaw !== '' ? ' title="Stored rule: ' . htmlspecialchars($knowledgeClassRaw, ENT_QUOTES, 'UTF-8') . '"' : '') . '>';
+                    // Advanced knowledge classes, one flat any-of list of chips.
+                    echo '<td>';
                     echo worldknowledge_render_access_rule($knowledgeClassRaw, 'advanced');
                     echo '</td>';
 
                     echo '<td class="wk-divide">' . nl2br($topic_desc_basic) . '</td>';
 
-                    // Basic access rule, shown as grouped required tags with OR between alternatives.
-                    echo '<td' . ($knowledgeClassBasicRaw !== '' ? ' title="Stored rule: ' . htmlspecialchars($knowledgeClassBasicRaw, ENT_QUOTES, 'UTF-8') . '"' : '') . '>';
+                    // Basic knowledge classes, one flat any-of list of chips.
+                    echo '<td>';
                     echo worldknowledge_render_access_rule($knowledgeClassBasicRaw, 'basic');
                     echo '</td>';
 
-                    echo '<td class="wk-divide">' . nl2br($tags) . '</td>';
+                    echo '<td class="wk-divide">' . worldknowledge_render_retrieval_phrases($retrievalPhrasesRaw) . '</td>';
+                    echo '<td>' . nl2br($tags) . '</td>';
                     echo '<td>' . nl2br($category) . '</td>';
                     echo '<td><strong>' . htmlspecialchars(ucfirst($sourceKind)) . '</strong>'
                         . ($catalogLabel !== '' ? '<br><small>' . htmlspecialchars($catalogLabel) . '</small>' : '') . '</td>';
@@ -1892,6 +1990,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                 'knowledge_class' => $knowledge_class,
                                 'topic_desc_basic' => $topic_desc_basic,
                                 'knowledge_class_basic' => $knowledge_class_basic,
+                                'retrieval_phrases' => $retrieval_phrases,
                                 'tags' => $tags,
                                 'category' => $category
                             ]), ENT_QUOTES, 'UTF-8') .
@@ -1947,8 +2046,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <small>The detailed, insider account of the subject.</small>
                     <textarea name="topic_desc_new" id="edit_topic_desc" rows="8"></textarea>
 
-                    <label for="edit_knowledge_class">Access rule:</label>
-                    <small>Tags are plain lowercase ids. Use <code>&amp;</code> for required tags and <code>|</code> for alternatives, for example <code>doctor&amp;medicine|doc_mitchell</code>. Prefix a tag with <code>!</code> to deny it. Legacy comma-separated rules remain supported. Leave empty to let every NPC receive it.</small>
+                    <label for="edit_knowledge_class">Knowledge classes:</label>
+                    <small>One comma-separated list of plain lowercase classes, for example <code>doctor,medicine,doc_mitchell</code>. Any matching class grants advanced knowledge. A matching <code>!class</code> such as <code>!raider</code> denies it first. Leave blank to let every NPC receive it.</small>
                     <input type="text" name="knowledge_class_new" id="edit_knowledge_class">
                 </fieldset>
 
@@ -1960,13 +2059,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <small>What an ordinary person in the right place would know about the subject.</small>
                     <textarea name="topic_desc_basic_new" id="edit_topic_desc_basic" rows="8"></textarea>
 
-                    <label for="edit_knowledge_class_basic">Access rule:</label>
-                    <small>Same syntax as above. Limit average-person knowledge to the appropriate audience, for example <code>common&amp;mojave</code>. Leave empty only when every NPC should know it.</small>
+                    <label for="edit_knowledge_class_basic">Knowledge classes:</label>
+                    <small>Same flat list. Limit average-person knowledge to the appropriate audience, for example <code>common,mojave</code>. Leave blank only when every NPC should know it.</small>
                     <input type="text" name="knowledge_class_basic_new" id="edit_knowledge_class_basic">
                 </fieldset>
 
+                <label for="edit_retrieval_phrases">Retrieval phrases:</label>
+                <small>Optional reviewed multiword phrases, comma-separated. They are used only when topic and alias matching abstains, so each phrase needs at least two words and must belong to this article alone. Leave blank for most entries.</small>
+                <input type="text" name="retrieval_phrases_new" id="edit_retrieval_phrases">
+
                 <label for="edit_tags">Tags:</label>
-                <small>Lowercase multiword retrieval phrases. Shared tags require corroboration.</small>
+                <small>Lowercase descriptive tags that support ranking and relationships after a topic is identified. Tags never acquire a topic on their own.</small>
                 <input type="text" name="tags_new" id="edit_tags">
 
                 <label for="edit_category">Category:</label>
@@ -2004,8 +2107,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <small>The detailed, insider account of the subject.</small>
                     <textarea name="topic_desc" id="topic_desc" rows="5"></textarea>
 
-                    <label for="knowledge_class">Access rule:</label>
-                    <small>Tags are plain lowercase ids. Use <code>&amp;</code> for required tags and <code>|</code> for alternatives, for example <code>doctor&amp;medicine|doc_mitchell</code>. Prefix a tag with <code>!</code> to deny it. Legacy comma-separated rules remain supported. Leave empty to let every NPC receive it.</small>
+                    <label for="knowledge_class">Knowledge classes:</label>
+                    <small>One comma-separated list of plain lowercase classes, for example <code>doctor,medicine,doc_mitchell</code>. Any matching class grants advanced knowledge. A matching <code>!class</code> such as <code>!raider</code> denies it first. Leave blank to let every NPC receive it.</small>
                     <input type="text" name="knowledge_class" id="knowledge_class">
                 </fieldset>
 
@@ -2017,13 +2120,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <small>What an ordinary person in the right place would know about the subject.</small>
                     <textarea name="topic_desc_basic" id="topic_desc_basic" rows="5"></textarea>
 
-                    <label for="knowledge_class_basic">Access rule:</label>
-                    <small>Same syntax as above. Limit average-person knowledge to the appropriate audience, for example <code>common&amp;capital_wasteland</code>. Leave empty only when every NPC should know it.</small>
+                    <label for="knowledge_class_basic">Knowledge classes:</label>
+                    <small>Same flat list. Limit average-person knowledge to the appropriate audience, for example <code>common,capital_wasteland</code>. Leave blank only when every NPC should know it.</small>
                     <input type="text" name="knowledge_class_basic" id="knowledge_class_basic">
                 </fieldset>
 
+                <label for="retrieval_phrases">Retrieval phrases:</label>
+                <small>Optional reviewed multiword phrases, comma-separated. They are used only when topic and alias matching abstains, so each phrase needs at least two words and must belong to this article alone. Leave blank for most entries.</small>
+                <input type="text" name="retrieval_phrases" id="retrieval_phrases">
+
                 <label for="tags">Tags:</label>
-                <small>Lowercase multiword retrieval phrases. Shared tags require corroboration.</small>
+                <small>Lowercase descriptive tags that support ranking and relationships after a topic is identified. Tags never acquire a topic on their own.</small>
                 <input type="text" name="tags" id="tags">
 
                 <label for="category">Category:</label>
@@ -2175,6 +2282,7 @@ function openEditModal(data) {
         document.getElementById("edit_knowledge_class").value = decodeHTML(data.knowledge_class);
         document.getElementById("edit_topic_desc_basic").value = decodeHTML(data.topic_desc_basic);
         document.getElementById("edit_knowledge_class_basic").value = decodeHTML(data.knowledge_class_basic);
+        document.getElementById("edit_retrieval_phrases").value = decodeHTML(data.retrieval_phrases || '');
         document.getElementById("edit_tags").value = decodeHTML(data.tags);
         document.getElementById("edit_category").value = decodeHTML(data.category);
 

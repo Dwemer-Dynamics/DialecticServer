@@ -254,7 +254,7 @@ if (!function_exists('dialecticWorldKnowledgeClassAllows')) {
     function dialecticWorldKnowledgeClassAllows($classes, array $knowledgeTags): bool
     {
         $decision = dialecticWorldKnowledgeClassDecision((string)$classes, $knowledgeTags);
-        return !$decision['denied'] && $decision['allowed'];
+        return $decision['allowed'];
     }
 }
 

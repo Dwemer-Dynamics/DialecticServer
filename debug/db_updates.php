@@ -4491,7 +4491,7 @@ if ($checkVersion('worldknowledge_parity') < 20260813001) {
 }
 
 if ($checkVersion('worldknowledge_access') < 20260813001) {
-    Logger::debug('Applying worldknowledge_access 20260813001 - install access-v2 catalog and NPC context tags');
+    Logger::debug('Applying worldknowledge_access 20260813001 - install tiered catalog and NPC context tags');
     $migrationOk = false;
     $transactionOpen = false;
     try {
@@ -4554,6 +4554,70 @@ if ($checkVersion('worldknowledge_canonical_tags') < 20260813003) {
             $db->execQuery('ROLLBACK');
         }
         Logger::error('Error applying World Knowledge canonical tags: ' . $e->getMessage());
+    }
+}
+
+if ($checkVersion('worldknowledge_oghma_parity') < 20260813006) {
+    Logger::debug('Applying worldknowledge_oghma_parity 20260813006 - repair and install flat Oghma catalog');
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge Oghma parity migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '' || !$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge Oghma parity schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge Oghma parity schema');
+        }
+        $transactionOpen = false;
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR, true);
+        $invalidCatalogRows = $db->fetchAll(
+            "SELECT catalog.catalog_id, catalog.catalog_version"
+            . " FROM public.worldknowledge_catalogs AS catalog"
+            . " WHERE NOT catalog.is_active AND (SELECT count(*) FROM public.worldknowledge AS article"
+            . " WHERE article.source_kind='factory' AND article.catalog_id=catalog.catalog_id"
+            . " AND article.catalog_version=catalog.catalog_version) <> catalog.row_count"
+        );
+        $removedIncompleteCatalogs = 0;
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin incomplete World Knowledge catalog cleanup');
+        }
+        $transactionOpen = true;
+        foreach ((array)$invalidCatalogRows as $invalidCatalog) {
+            $catalogId = strval($invalidCatalog['catalog_id'] ?? '');
+            $catalogVersion = strval($invalidCatalog['catalog_version'] ?? '');
+            if ($catalogId === '' || $catalogVersion === '') {
+                continue;
+            }
+            if (!$db->execQuery(
+                "DELETE FROM public.worldknowledge WHERE source_kind='factory' AND catalog_id="
+                . $db->escapeLiteral($catalogId) . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion)
+            ) || !$db->execQuery(
+                'DELETE FROM public.worldknowledge_catalogs WHERE NOT is_active AND catalog_id='
+                . $db->escapeLiteral($catalogId) . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion)
+            )) {
+                throw new RuntimeException("Unable to remove incomplete World Knowledge catalog {$catalogId}/{$catalogVersion}");
+            }
+            $removedIncompleteCatalogs++;
+        }
+        $updateVersion('worldknowledge_oghma_parity', 20260813006);
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit incomplete World Knowledge catalog cleanup');
+        }
+        $transactionOpen = false;
+        Logger::info("Applied patch worldknowledge_oghma_parity 20260813006; removed {$removedIncompleteCatalogs} incomplete inactive factory catalogs");
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge Oghma parity: ' . $e->getMessage());
     }
 }
 

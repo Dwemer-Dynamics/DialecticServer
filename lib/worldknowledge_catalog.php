@@ -10,6 +10,7 @@ const DIALECTIC_WORLDKNOWLEDGE_CATALOG_FIELDS = [
     'knowledge_class',
     'topic_desc_basic',
     'knowledge_class_basic',
+    'retrieval_phrases',
     'tags',
     'category',
     'setting',
@@ -129,7 +130,7 @@ function dialecticWorldKnowledgeValidateFactoryRow(array $row, array $seenTopics
         throw new RuntimeException("World Knowledge catalog contains duplicate topic {$canonical}");
     }
     $basicText = trim(strval($row['topic_desc_basic'] ?? ''));
-    $allowsOmittedBasic = preg_match('/Access v2 \((?:secret|personal);/i', strval($row['editorial_note'] ?? '')) === 1;
+    $allowsOmittedBasic = trim(strval($row['editorial_note'] ?? '')) !== '';
     if ($basicText === '' && !$allowsOmittedBasic) {
         throw new RuntimeException("World Knowledge catalog is missing basic text for {$canonical}");
     }
@@ -176,10 +177,27 @@ function dialecticWorldKnowledgeValidateFactoryRow(array $row, array $seenTopics
             throw new RuntimeException("World Knowledge catalog contains an invalid tag for {$canonical}");
         }
     }
+    $retrievalPhrases = array_values(array_unique(array_filter(array_map(
+        static fn(string $value): string => strtolower(trim($value)),
+        preg_split('/[,;|]+/', strval($row['retrieval_phrases'] ?? '')) ?: []
+    ))));
+    foreach ($retrievalPhrases as $phrase) {
+        $words = preg_split('/\s+/u', $phrase) ?: [];
+        if (count($words) < 2 || count($words) > 5
+            || !preg_match('/^[\p{L}\p{N}][\p{L}\p{N} .\'-]*$/u', $phrase)) {
+            throw new RuntimeException("World Knowledge catalog contains an invalid retrieval phrase for {$canonical}");
+        }
+    }
     foreach (['knowledge_class', 'knowledge_class_basic'] as $field) {
-        $rawClasses = preg_split('/[&|]/', strval($row[$field] ?? '')) ?: [];
+        if (str_contains(strval($row[$field] ?? ''), '&') || str_contains(strval($row[$field] ?? ''), '|')) {
+            throw new RuntimeException("World Knowledge catalog contains a compound access rule for {$canonical}");
+        }
+        $rawClasses = preg_split('/[,;]+/', strval($row[$field] ?? '')) ?: [];
         foreach ($rawClasses as $class) {
             $class = trim($class);
+            if ($class === '') {
+                continue;
+            }
             if (!preg_match('/^!?[a-z0-9][a-z0-9_]{0,100}$/', $class)
                 || dialecticWorldKnowledgeNormalizeAccessTag($class) !== $class) {
                 throw new RuntimeException("World Knowledge catalog contains unsupported access tag {$class} for {$canonical}");
@@ -283,11 +301,11 @@ function dialecticWorldKnowledgeInstallNpcAccessTags(object $db, string $rootPat
     }
     $valuesSql = [];
     try {
-        if (fgetcsv($handle, 0, ',', '"', '\\') !== ['npc_name', 'worldknowledge_tags']) {
+        if (fgetcsv($handle, 0, ',', '"', '\\') !== ['npc_name', 'worldknowledge_tags', 'prior_seed_sha256']) {
             throw new RuntimeException('Fallout NPC World Knowledge tag header is invalid');
         }
         while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
-            if (count($row) !== 2) {
+            if (count($row) !== 3) {
                 throw new RuntimeException('Fallout NPC World Knowledge tag row is malformed');
             }
             $npcName = trim(strval($row[0]));
@@ -305,8 +323,13 @@ function dialecticWorldKnowledgeInstallNpcAccessTags(object $db, string $rootPat
                     throw new RuntimeException("Fallout NPC template {$npcName} contains unsupported access tag {$tag}");
                 }
             }
+            $priorSeedHash = strtolower(trim(strval($row[2])));
+            if ($priorSeedHash !== '' && !preg_match('/^[a-f0-9]{64}$/', $priorSeedHash)) {
+                throw new RuntimeException("Fallout NPC template {$npcName} contains an invalid prior seed hash");
+            }
             $valuesSql[] = '(' . $db->escapeLiteral($npcName) . ','
-                . $db->escapeLiteral(implode(',', $tags)) . ')';
+                . $db->escapeLiteral(implode(',', $tags)) . ','
+                . ($priorSeedHash === '' ? 'NULL' : $db->escapeLiteral($priorSeedHash)) . ')';
         }
     } finally {
         fclose($handle);
@@ -314,9 +337,10 @@ function dialecticWorldKnowledgeInstallNpcAccessTags(object $db, string $rootPat
     if ($valuesSql === []) {
         return 0;
     }
-    $seedSql = 'WITH seed(npc_name,tags) AS (VALUES ' . implode(',', $valuesSql) . ')';
+    $seedSql = 'WITH seed(npc_name,tags,prior_seed_sha256) AS (VALUES ' . implode(',', $valuesSql) . ')';
     $existingRows = $db->fetchAll(
-        $seedSql . ' SELECT template.npc_name, template.worldknowledge_tags, seed.tags AS seed_tags'
+        $seedSql . ' SELECT template.npc_name, template.worldknowledge_tags, seed.tags AS seed_tags,'
+        . ' seed.prior_seed_sha256'
         . ' FROM public.bio_templates AS template JOIN seed ON template.npc_name=seed.npc_name'
     );
     if (!is_array($existingRows)) {
@@ -335,7 +359,12 @@ function dialecticWorldKnowledgeInstallNpcAccessTags(object $db, string $rootPat
         }
         sort($currentTags);
         sort($seedTags);
-        if ($currentRaw !== '' && $currentTags !== $seedTags) {
+        $priorSeedHash = trim(strval($existingRow['prior_seed_sha256'] ?? ''));
+        $matchesPriorSeed = $priorSeedHash !== '' && (
+            hash_equals($priorSeedHash, hash('sha256', $currentRaw))
+            || hash_equals($priorSeedHash, hash('sha256', implode(',', $currentTags)))
+        );
+        if ($currentRaw !== '' && $currentTags !== $seedTags && !$matchesPriorSeed) {
             continue;
         }
         $updatesSql[] = '(' . $db->escapeLiteral(strval($existingRow['npc_name'] ?? '')) . ','
@@ -361,6 +390,11 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
     if (!method_exists($db, 'execQuery') || !method_exists($db, 'fetchOne')
         || !method_exists($db, 'fetchAll') || !method_exists($db, 'escapeLiteral')) {
         throw new InvalidArgumentException('World Knowledge catalog installation requires the PostgreSQL database adapter');
+    }
+    foreach (['worldknowledge_topic_unique_idx', 'worldknowledge_canonical_topic_unique_idx'] as $legacyIndex) {
+        if (!$db->execQuery('DROP INDEX IF EXISTS public.' . $legacyIndex)) {
+            throw new RuntimeException("Unable to remove obsolete World Knowledge index {$legacyIndex}");
+        }
     }
     $catalog = dialecticWorldKnowledgeLoadFactoryCatalog($rootPath);
     $manifest = $catalog['manifest'];
@@ -442,6 +476,7 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
                 dialecticWorldKnowledgeSqlNullable($db, $row['knowledge_class']),
                 $db->escapeLiteral($row['topic_desc_basic']),
                 dialecticWorldKnowledgeSqlNullable($db, $row['knowledge_class_basic']),
+                $db->escapeLiteral($row['retrieval_phrases']),
                 $db->escapeLiteral($row['tags']),
                 $db->escapeLiteral($row['category']),
                 $db->escapeLiteral('factory'),
@@ -457,13 +492,14 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
                 dialecticWorldKnowledgeSqlNullable($db, $row['editorial_note']),
             ];
             $insertSql = 'INSERT INTO public.worldknowledge ('
-                . 'topic,canonical_topic,topic_desc,knowledge_class,topic_desc_basic,knowledge_class_basic,'
+                . 'topic,canonical_topic,topic_desc,knowledge_class,topic_desc_basic,knowledge_class_basic,retrieval_phrases,'
                 . 'tags,category,source_kind,catalog_id,catalog_version,content_hash,source_url,source_revision,'
                 . 'setting,region,valid_from_year,valid_to_year,editorial_note,native_vector'
                 . ') VALUES (' . implode(',', $values) . ','
                 . "setweight(to_tsvector('simple',coalesce(" . $db->escapeLiteral($row['topic']) . ",'')),'A')"
                 . "||setweight(to_tsvector('simple',coalesce(" . dialecticWorldKnowledgeSqlNullable($db, $row['topic_desc']) . ",'')),'B')"
                 . "||setweight(to_tsvector('simple',coalesce(" . $db->escapeLiteral($row['topic_desc_basic']) . ",'')),'C')"
+                . "||setweight(to_tsvector('simple',coalesce(" . $db->escapeLiteral($row['retrieval_phrases']) . ",'')),'A')"
                 . "||setweight(to_tsvector('simple',coalesce(" . $db->escapeLiteral($row['tags']) . ",'')),'B')"
                 . "||setweight(to_tsvector('simple',coalesce(" . $db->escapeLiteral($row['category']) . ",'')),'C'))";
             if (!$db->execQuery($insertSql)) {

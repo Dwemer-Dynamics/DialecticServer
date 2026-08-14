@@ -80,29 +80,25 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         $this->assertSame('advanced', dialecticWorldKnowledgeAccessDecision($row, ['enclave'])['level']);
         $this->assertSame('basic', dialecticWorldKnowledgeAccessDecision($row, ['common'])['level']);
         $this->assertSame('denied', dialecticWorldKnowledgeAccessDecision($row, ['wastelander'])['level']);
-        $this->assertSame('denied', dialecticWorldKnowledgeAccessDecision($row, ['knowall'])['level']);
-        $this->assertSame('denied', dialecticWorldKnowledgeAccessDecision($row, ['knowall', 'raider'])['level']);
-
-        unset($row['source_kind']);
         $this->assertSame('advanced', dialecticWorldKnowledgeAccessDecision($row, ['knowall'])['level']);
+        $this->assertSame('advanced', dialecticWorldKnowledgeAccessDecision($row, ['knowall', 'raider'])['level']);
     }
 
-    public function testAccessRulesRequireEveryTagWithinAClause(): void
+    public function testAccessRulesGrantOnAnyFlatClass(): void
     {
         $row = [
             'topic' => 'alien',
             'topic_desc' => 'Confirmed technical details.',
-            'knowledge_class' => 'scientist&xenotechnology|lone_wanderer',
+            'knowledge_class' => 'scientist,xenotechnology,lone_wanderer',
             'topic_desc_basic' => 'Some wastelanders tell stories about strange lights.',
-            'knowledge_class_basic' => 'common&capital_wasteland',
+            'knowledge_class_basic' => 'capital_wasteland',
         ];
 
         $this->assertSame('denied', dialecticWorldKnowledgeAccessDecision($row, ['common'])['level']);
-        $this->assertSame('basic', dialecticWorldKnowledgeAccessDecision($row, ['common', 'region:capital_wasteland'])['level']);
-        $this->assertSame('basic', dialecticWorldKnowledgeAccessDecision($row, ['role:scientist', 'common', 'region:capital_wasteland'])['level']);
-        $advanced = dialecticWorldKnowledgeAccessDecision($row, ['role:scientist', 'domain:xenotechnology']);
+        $this->assertSame('basic', dialecticWorldKnowledgeAccessDecision($row, ['region:capital_wasteland'])['level']);
+        $advanced = dialecticWorldKnowledgeAccessDecision($row, ['role:scientist']);
         $this->assertSame('advanced', $advanced['level']);
-        $this->assertSame(['scientist', 'xenotechnology'], $advanced['matched_clause']);
+        $this->assertSame(['scientist'], $advanced['matched']);
         $this->assertSame('advanced', dialecticWorldKnowledgeAccessDecision($row, ['person:lone_wanderer'])['level']);
     }
 
@@ -116,8 +112,8 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         $this->assertSame('the_vault_dweller', dialecticWorldKnowledgeNormalizeAccessTag('person:vault_dweller'));
         $this->assertSame('vault_dweller', dialecticWorldKnowledgeNormalizeAccessTag('role:vault_dweller'));
         $this->assertSame(
-            'scientist&xenotechnology|lone_wanderer',
-            dialecticWorldKnowledgeNormalizeAccessRule('role:scientist&domain:xenotechnology|person:lone_wanderer')
+            'scientist,xenotechnology,lone_wanderer',
+            dialecticWorldKnowledgeNormalizeAccessRule('role:scientist,domain:xenotechnology,person:lone_wanderer')
         );
         $courierArticle = [
             'topic' => 'courier',
@@ -136,16 +132,12 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         );
     }
 
-    public function testMalformedNonemptyRuleFailsClosedWithoutBreakingNegativeOnlyRules(): void
+    public function testNegativeRulesDenyBeforePositiveClasses(): void
     {
-        $invalid = dialecticWorldKnowledgeClassDecision('&&', ['common']);
-        $this->assertFalse($invalid['allowed']);
-        $this->assertFalse($invalid['denied']);
-        $this->assertSame('invalid_rule', $invalid['reason']);
-
-        $negativeOnly = dialecticWorldKnowledgeClassDecision('!raider', ['common']);
-        $this->assertTrue($negativeOnly['allowed']);
-        $this->assertSame('negative_only', $negativeOnly['reason']);
+        $denied = dialecticWorldKnowledgeClassDecision('common,!raider', ['common', 'raider']);
+        $this->assertFalse($denied['allowed']);
+        $this->assertSame('negative_class', $denied['reason']);
+        $this->assertFalse(dialecticWorldKnowledgeClassDecision('!raider', ['common'])['allowed']);
         $this->assertTrue(dialecticWorldKnowledgeClassDecision('', ['common'])['allowed']);
     }
 
@@ -154,16 +146,16 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         $amata = [
             'topic' => 'amata',
             'topic_desc' => 'Private details known to close associates.',
-            'knowledge_class' => 'amata|lone_wanderer|alphonse_almodovar|james',
+            'knowledge_class' => 'amata,lone_wanderer,alphonse_almodovar,james',
             'topic_desc_basic' => 'Amata is the Overseer\'s daughter in Vault 101.',
-            'knowledge_class_basic' => 'vault_101|amata|lone_wanderer',
+            'knowledge_class_basic' => 'vault_101,amata,lone_wanderer',
         ];
         $goodsprings = [
             'topic' => 'goodsprings',
             'topic_desc' => 'Detailed local history.',
-            'knowledge_class' => 'goodsprings|historian&mojave',
+            'knowledge_class' => 'goodsprings,historian',
             'topic_desc_basic' => 'Goodsprings is a small Mojave settlement.',
-            'knowledge_class_basic' => 'common&mojave|traveler',
+            'knowledge_class_basic' => 'mojave,traveler',
         ];
 
         $this->assertSame('denied', dialecticWorldKnowledgeAccessDecision($amata, ['common', 'region:capital_wasteland'])['level']);
@@ -174,14 +166,14 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         $this->assertSame('advanced', dialecticWorldKnowledgeAccessDecision($goodsprings, ['role:historian', 'region:mojave'])['level']);
     }
 
-    public function testFactorySecretCannotLeakThroughCommonRegionOrKnowall(): void
+    public function testRestrictedFactoryArticleUsesFlatClassesAndKnowallOverride(): void
     {
         $row = [
             'topic' => 'restricted_enclave_archive',
             'source_kind' => 'factory',
             'catalog_id' => 'fallout-3-new-vegas-ttw-official',
             'topic_desc' => 'Restricted operational details known only to the archive custodian and authorized Enclave researchers.',
-            'knowledge_class' => 'archive_custodian|enclave&researcher&prewar_archives',
+            'knowledge_class' => 'archive_custodian,enclave,researcher,prewar_archives',
             'topic_desc_basic' => '',
             'knowledge_class_basic' => 'archive_custodian',
         ];
@@ -189,8 +181,6 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         foreach ([
             ['common'],
             ['common', 'region:capital_wasteland'],
-            ['knowall'],
-            ['faction:enclave', 'role:researcher'],
         ] as $unauthorizedTags) {
             $decision = dialecticWorldKnowledgeAccessDecision($row, $unauthorizedTags);
             $this->assertSame('denied', $decision['level']);
@@ -201,13 +191,8 @@ final class WorldKnowledgeForcedContextTest extends TestCase
             'advanced',
             dialecticWorldKnowledgeAccessDecision($row, ['person:archive_custodian'])['level']
         );
-        $this->assertSame(
-            'advanced',
-            dialecticWorldKnowledgeAccessDecision(
-                $row,
-                ['faction:enclave', 'role:researcher', 'domain:prewar_archives']
-            )['level']
-        );
+        $this->assertSame('advanced', dialecticWorldKnowledgeAccessDecision($row, ['faction:enclave'])['level']);
+        $this->assertSame('advanced', dialecticWorldKnowledgeAccessDecision($row, ['knowall'])['level']);
     }
 
     public function testFactoryTemplateTagsAugmentExistingProfilesWithoutReplacingUserTags(): void
@@ -277,7 +262,7 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         );
 
         $this->assertSame(1, $added);
-        $this->assertStringContainsString('<article topic="mojave_wasteland" level="basic"', $GLOBALS['WORLDKNOWLEDGE_HINT']);
+        $this->assertStringContainsString('<article topic="mojave_wasteland" source="worldspace" access="basic">', $GLOBALS['WORLDKNOWLEDGE_HINT']);
         $this->assertStringNotContainsString('mojave_wasteland,Mojave', $GLOBALS['WORLDKNOWLEDGE_HINT']);
     }
 
@@ -335,13 +320,13 @@ final class WorldKnowledgeForcedContextTest extends TestCase
 
         $xml = dialecticWorldKnowledgeRenderArticleXml($row, $decision, 'conversation');
 
-        $this->assertStringContainsString('topic="enclave_secrets" level="denied"', $xml);
+        $this->assertStringContainsString('topic="enclave_secrets" source="conversation" access="denied"', $xml);
         $this->assertStringContainsString('reason="missing_required_class"', $xml);
         $this->assertStringNotContainsString('Restricted Enclave data', $xml);
-        $this->assertStringEndsWith(' />', $xml);
+        $this->assertStringEndsWith('</article>', $xml);
     }
 
-    public function testStructuredAuditIncludesContextTagsAndMatchedClauseEvidence(): void
+    public function testStructuredAuditIncludesContextTagsAndMatchedClassEvidence(): void
     {
         $db = new class {
             public string $query = '';
@@ -364,23 +349,22 @@ final class WorldKnowledgeForcedContextTest extends TestCase
             'access_decisions' => [[
                 'topic' => 'big_mt',
                 'level' => 'advanced',
-                'matched_clause' => ['scientist', 'robotics'],
-                'rule_version' => 2,
+                'matched' => ['scientist'],
             ]],
         ]);
 
         $this->assertStringContainsString('tag_decisions,context_tags,fallback', $db->query);
         $this->assertStringContainsString('"mojave"', $db->query);
-        $this->assertStringContainsString('"matched_clause":["scientist","robotics"]', $db->query);
-        $this->assertStringContainsString('"rule_version":2', $db->query);
+        $this->assertStringContainsString('"matched":["scientist"]', $db->query);
+        $this->assertStringNotContainsString('matched_clause', $db->query);
     }
 
     public function testFrozenDeterministicRetrievalCases(): void
     {
         $retriever = new DialecticWorldKnowledgeRetriever([
             ['topic' => 'new_california_republic,NCR', 'canonical_topic' => 'new_california_republic', 'category' => 'faction', 'tags' => 'representative democracy,california republic army'],
-            ['topic' => 'caesars_legion,Caesar Legion', 'canonical_topic' => 'caesars_legion', 'category' => 'faction', 'tags' => 'slave army,roman war culture'],
-            ['topic' => 'brotherhood_of_steel,Brotherhood', 'canonical_topic' => 'brotherhood_of_steel', 'category' => 'faction', 'tags' => 'power armor,technology hoarding'],
+            ['topic' => 'caesars_legion,Caesar Legion', 'canonical_topic' => 'caesars_legion', 'category' => 'faction', 'retrieval_phrases' => 'slave army,roman war culture', 'tags' => 'military hierarchy,enslaved labor'],
+            ['topic' => 'brotherhood_of_steel,Brotherhood', 'canonical_topic' => 'brotherhood_of_steel', 'category' => 'faction', 'retrieval_phrases' => 'technology hoarding', 'tags' => 'power armor,technology control'],
             ['topic' => 'enclave', 'canonical_topic' => 'enclave', 'category' => 'faction', 'tags' => 'power armor,pre war government'],
         ]);
 
@@ -392,6 +376,7 @@ final class WorldKnowledgeForcedContextTest extends TestCase
             ['Tell me about the slave army and roman war culture.', ['caesars_legion']],
             ['Followers: I followed the road west.', []],
             ['I found power armor on the road.', []],
+            ['Tell me about representative democracy.', []],
             ['Tell me about power armor and technology hoarding.', ['brotherhood_of_steel']],
             ['Compare NCR and Caesar Legion.', ['new_california_republic', 'caesars_legion']],
         ];
