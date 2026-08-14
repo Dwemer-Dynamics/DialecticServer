@@ -195,8 +195,8 @@ def tier_exclusive_rules(
     return ",".join(advanced), ",".join(basic)
 
 
-def canonical_npc_tags(value: object, allowed: set[str]) -> str:
-    tags = ["common"]
+def canonical_npc_tags(value: object, allowed: set[str], identity: str = "") -> str:
+    tags = [identity] if identity else []
     for raw_tag in str(value).split(","):
         tag = canonical_tag(raw_tag)
         if tag and tag in allowed and tag not in tags:
@@ -416,7 +416,8 @@ def rewrite_npc_tags(path: Path, *, check: bool, allowed: set[str]) -> tuple[int
     changed = 0
     for row in rows:
         original = row["worldknowledge_tags"]
-        canonical = canonical_npc_tags(original, allowed)
+        identity = canonical_tag(row["npc_name"].split("__", 1)[0])
+        canonical = canonical_npc_tags(original, allowed, identity)
         if canonical != row["worldknowledge_tags"]:
             row["worldknowledge_tags"] = canonical
             changed += 1

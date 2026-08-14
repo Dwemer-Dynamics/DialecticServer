@@ -170,7 +170,7 @@ def build_tags(row: list[str | None]) -> list[str]:
     npc_name = str(row[0] or "")
     identity = normalize(npc_name.split("__", 1)[0])
     identity = {"powder_ganger": "powder_gangers"}.get(identity, identity)
-    tags = {"common", identity}
+    tags = {identity}
     core, bio, appearance, occupation, skills, race = (
         str(row[2] or ""), str(row[3] or ""), str(row[4] or ""),
         str(row[7] or ""), str(row[8] or ""), str(row[13] or ""),

@@ -107,7 +107,7 @@ function dialecticWorldKnowledgeFetchEffectiveCatalog(object $db): array
 
 function dialecticWorldKnowledgeKnowledgeTags(): array
 {
-    $tags = ['common'];
+    $tags = [];
     foreach (explode(',', strval($GLOBALS['WORLDKNOWLEDGE'] ?? '')) as $value) {
         $tags[] = $value;
     }
@@ -247,7 +247,7 @@ function dialecticWorldKnowledgeAccessDecision(array $row, array $knowledgeTags)
         ];
     }
 
-    $basic = dialecticWorldKnowledgeClassDecision(strval($row['knowledge_class_basic'] ?? ''), $normalizedTags);
+    $basic = dialecticWorldKnowledgeClassDecision(strval($row['knowledge_class_basic'] ?? ''), $normalizedTags, true);
     if ($basic['allowed'] && trim(strval($row['topic_desc_basic'] ?? '')) !== '') {
         return [
             'topic' => $topic,
@@ -269,7 +269,7 @@ function dialecticWorldKnowledgeAccessDecision(array $row, array $knowledgeTags)
     ];
 }
 
-function dialecticWorldKnowledgeClassDecision(string $classes, array $knowledgeTags): array
+function dialecticWorldKnowledgeClassDecision(string $classes, array $knowledgeTags, bool $allowCommon = false): array
 {
     $rule = dialecticWorldKnowledgeParseAccessRule($classes);
     $knowledgeTags = array_values(array_unique(array_filter(array_map(
@@ -282,6 +282,9 @@ function dialecticWorldKnowledgeClassDecision(string $classes, array $knowledgeT
     $negativeMatches = array_values(array_intersect($rule['denied'], $knowledgeTags));
     if ($negativeMatches !== []) {
         return ['allowed' => false, 'reason' => 'negative_class', 'matched' => $negativeMatches];
+    }
+    if ($allowCommon && in_array('common', $rule['allowed'], true)) {
+        return ['allowed' => true, 'reason' => 'common', 'matched' => ['common']];
     }
     $positiveMatches = array_values(array_intersect($rule['allowed'], $knowledgeTags));
     return [

@@ -352,7 +352,7 @@ $WORLDKNOWLEDGE_INFINIUM=true;
 $LOCATION_WORLDKNOWLEDGE=true; // Force matching current location and worldspace lore into prompts.
 $RACE_WORLDKNOWLEDGE=true; // Force matching NPC race or species lore into prompts.
 $FACTION_WORLDKNOWLEDGE=true; // Force matching active NPC faction lore into prompts.
-$WORLDKNOWLEDGE_EXTRACTOR_FALLBACK=true; // Allow one connector fallback for explicit unmatched lore requests when custom extraction is enabled.
+$WORLDKNOWLEDGE_EXTRACTOR_FALLBACK=false; // Optionally allow one connector fallback for explicit unmatched lore requests when custom extraction is enabled.
 $WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS=1500; //Bound the optional extractor fallback between 250 and 3000 milliseconds.
 
 $FEATURES["MISC"]["LIFE_LINK_PLUGIN"]=false; // WIP. Use life link plugin for dynamic profiles

@@ -33,7 +33,7 @@
     "mothership_zeta", "point_lookout", "sierra_madre", "the_pitt", "zion"
   ],
   "reserved": ["blocked", "common", "knowall"],
-  "article_access_markers": ["blocked"],
+  "article_access_markers": ["blocked", "common"],
   "legacy_namespaces": [
     "person", "region", "community", "place", "faction", "role", "domain", "race"
   ],
@@ -74,7 +74,7 @@
     "zion_canyon": "zion"
   },
   "biography_rules": {
-    "always_add": ["common"],
+    "always_add": [],
     "person": "Use the exact NPC ID for self or personal knowledge.",
     "location": "Use current or former stable familiarity, not transient quest destinations.",
     "occupation": "Grant only practiced knowledge-bearing roles.",

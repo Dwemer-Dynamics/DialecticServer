@@ -359,17 +359,27 @@ function dialecticWorldKnowledgeInstallNpcAccessTags(object $db, string $rootPat
             'dialecticWorldKnowledgeNormalizeAccessTag',
             explode(',', $currentRaw)
         ))));
-        if ($currentRaw !== '' && !in_array('common', $currentTags, true)) {
-            $currentTags[] = 'common';
-        }
         sort($currentTags);
         sort($seedTags);
+        $legacySeedTags = $seedTags;
+        $legacySeedTags[] = 'common';
+        $legacySeedTags = array_values(array_unique($legacySeedTags));
+        sort($legacySeedTags);
+        $identityTag = dialecticWorldKnowledgeNormalizeAccessTag(strval($existingRow['npc_name'] ?? ''));
+        $legacyFilteredSeedTags = array_values(array_diff($legacySeedTags, [$identityTag]));
+        sort($legacyFilteredSeedTags);
+        $legacyCurrentTags = $currentTags;
+        $legacyCurrentTags[] = 'common';
+        $legacyCurrentTags = array_values(array_unique($legacyCurrentTags));
+        sort($legacyCurrentTags);
         $priorSeedHash = trim(strval($existingRow['prior_seed_sha256'] ?? ''));
         $matchesPriorSeed = $priorSeedHash !== '' && (
             hash_equals($priorSeedHash, hash('sha256', $currentRaw))
             || hash_equals($priorSeedHash, hash('sha256', implode(',', $currentTags)))
+            || hash_equals($priorSeedHash, hash('sha256', implode(',', $legacyCurrentTags)))
         );
-        if ($currentRaw !== '' && $currentTags !== $seedTags && !$matchesPriorSeed) {
+        $matchesLegacyCommonSeed = $currentTags === $legacySeedTags || $currentTags === $legacyFilteredSeedTags;
+        if ($currentRaw !== '' && $currentTags !== $seedTags && !$matchesPriorSeed && !$matchesLegacyCommonSeed) {
             continue;
         }
         $updatesSql[] = '(' . $db->escapeLiteral(strval($existingRow['npc_name'] ?? '')) . ','

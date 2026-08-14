@@ -7,12 +7,12 @@ require_once __DIR__ . '/../../lib/worldknowledge_forced_context.php';
 
 final class WorldKnowledgeForcedContextTest extends TestCase
 {
-    public function testForcedContextAndFallbackSettingsAreManagedAndEnabledByDefault(): void
+    public function testForcedContextDefaultsEnabledWhileConnectorFallbackIsOptIn(): void
     {
         foreach (['LOCATION_WORLDKNOWLEDGE', 'RACE_WORLDKNOWLEDGE', 'FACTION_WORLDKNOWLEDGE', 'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK'] as $setting) {
             $this->assertContains($setting, dialecticGetManagedGeneralSettingIds());
             $definition = dialecticGetSchemaDefinition($setting);
-            $this->assertTrue($definition['default'] ?? false);
+            $this->assertSame($setting !== 'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK', $definition['default'] ?? false);
             $this->assertSame('global', $definition['scope'] ?? null);
             $this->assertSame('World Knowledge', dialecticGetOverrideableGeneralSettingCategory($setting));
         }
@@ -79,8 +79,10 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         ];
 
         $this->assertSame('advanced', dialecticWorldKnowledgeAccessDecision($row, ['enclave'])['level']);
-        $this->assertSame('basic', dialecticWorldKnowledgeAccessDecision($row, ['common'])['level']);
-        $this->assertSame('denied', dialecticWorldKnowledgeAccessDecision($row, ['wastelander'])['level']);
+        $basic = dialecticWorldKnowledgeAccessDecision($row, []);
+        $this->assertSame('basic', $basic['level']);
+        $this->assertSame('common', $basic['reason']);
+        $this->assertSame('basic', dialecticWorldKnowledgeAccessDecision($row, ['wastelander'])['level']);
         $this->assertSame('advanced', dialecticWorldKnowledgeAccessDecision($row, ['knowall'])['level']);
         $this->assertSame('advanced', dialecticWorldKnowledgeAccessDecision($row, ['knowall', 'raider'])['level']);
     }
@@ -140,6 +142,20 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         $this->assertSame('negative_class', $denied['reason']);
         $this->assertFalse(dialecticWorldKnowledgeClassDecision('!raider', ['common'])['allowed']);
         $this->assertTrue(dialecticWorldKnowledgeClassDecision('', ['common'])['allowed']);
+    }
+
+    public function testCommonIsPublicOnlyForBasicArticles(): void
+    {
+        $row = [
+            'topic' => 'public_archive',
+            'topic_desc' => 'Advanced details must not be public.',
+            'knowledge_class' => 'common',
+            'topic_desc_basic' => 'Public basic details.',
+            'knowledge_class_basic' => 'common,!raider',
+        ];
+
+        $this->assertSame('basic', dialecticWorldKnowledgeAccessDecision($row, [])['level']);
+        $this->assertSame('denied', dialecticWorldKnowledgeAccessDecision($row, ['raider'])['level']);
     }
 
     public function testPersonAndRegionalRulesDoNotLeakAcrossTheTtwMap(): void
@@ -220,6 +236,7 @@ final class WorldKnowledgeForcedContextTest extends TestCase
             $this->assertContains('goodsprings', $tags);
             $this->assertContains('mojave', $tags);
             $this->assertContains('doc_mitchell', $tags);
+            $this->assertNotContains('common', $tags);
         } finally {
             $GLOBALS['db'] = $previousDb;
         }
