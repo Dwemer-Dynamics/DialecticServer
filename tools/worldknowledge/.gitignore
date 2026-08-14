@@ -1,0 +1,7 @@
+cache/
+output/
+__pycache__/
+*.py[cod]
+*.local.csv
+*.local.json
+*.local.jsonl

@@ -4,7 +4,7 @@ DIALECTIC owns a native Fallout World Knowledge implementation. It shares a beha
 
 ## Shipped Fallout catalog
 
-The reviewed parity catalog contains 1,221 source-backed articles covering Fallout 3, Fallout: New Vegas, their official DLC, and Tale of Two Wastelands. Every article includes both basic and advanced text, and the catalog provides 7,401 semantic tag assignments across 19 categories. Coverage includes people, locations, factions, organizations, history, events, cultures, creatures, robots, flora, food and drink, medicine, weapons, armor, items, artifacts, technology, vaults, and broader concepts.
+The reviewed parity catalog contains 1,221 source-backed articles covering Fallout 3, Fallout: New Vegas, their official DLC, and Tale of Two Wastelands. Every article includes reviewed advanced text. Publicly knowable articles also include a separate basic summary, while genuinely secret or personal subjects intentionally omit it. Coverage includes people, locations, factions, organizations, history, events, cultures, creatures, robots, flora, food and drink, medicine, weapons, armor, items, artifacts, technology, vaults, and broader concepts.
 
 The 779-article scope expansion was generated with GLM from pinned Fallout Wiki source revisions, then passed deterministic source, chronology, duplicate, alias, article-policy, and tag validation. Invalid or weak generations were excluded instead of being published. The immutable manifest records the exact catalog and source checksums, generation budget, model, category counts, and editorial approval.
 
@@ -28,7 +28,7 @@ Retrieval returns one to three canonical topics in conversational mention order.
 Every factory article has:
 
 - canonical topic and reviewed spoken aliases;
-- basic article text;
+- basic article text, unless the subject is intentionally protected;
 - advanced article text, or an explicit editorial reason for remaining basic-only;
 - independent basic and advanced knowledge classes;
 - semantic tags and category;
@@ -36,7 +36,11 @@ Every factory article has:
 - source URL and source revision;
 - catalog version and deterministic content hash.
 
-Semantic tags describe an article. Knowledge classes authorize an NPC to receive its basic or advanced content. `knowall` overrides positive restrictions; a matching `!class` remains a denial.
+Semantic tags describe an article. Knowledge classes authorize an NPC to receive its basic or advanced content. Access-v2 rules are OR-of-AND expressions: `&` joins tags that must all match, and `|` joins alternative audiences. Legacy comma-separated custom rules retain their any-of behavior.
+
+Factory access-v2 articles always use their reviewed rules. The legacy `knowall` compatibility tag applies only to custom articles and cannot expose protected factory knowledge. A matching `!class` remains a denial.
+
+NPC context tags use controlled `person:`, `community:`, `place:`, `faction:`, `role:`, `domain:`, `race:`, and `region:` namespaces. Template-derived tags fill only blank factory-template fields; user-created profiles and existing tag values are preserved. Capital Wasteland and Mojave public knowledge is separated unless a reviewed rule explicitly grants both regions.
 
 ## Catalog lifecycle
 
@@ -44,7 +48,7 @@ Factory catalogs are immutable, versioned, checksum-verified sets. Activation an
 
 ## Trace contract
 
-Every eligible pass records the algorithm version, request type, normalized input, grounded matches, rejected candidates, tag decisions, fallback eligibility and outcome, forced signals, access decisions, selected prompt articles, elapsed time, and catalog version.
+Every eligible pass records the algorithm version, request type, normalized input, grounded matches, rejected candidates, tag decisions, fallback eligibility and outcome, forced signals, controlled context tags, access decisions, selected prompt articles, elapsed time, and catalog version.
 
 Stable top-level statuses are:
 

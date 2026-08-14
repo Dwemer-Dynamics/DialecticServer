@@ -366,7 +366,14 @@ def write_json_atomic(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(path)
+    for attempt in range(6):
+        try:
+            temporary.replace(path)
+            return
+        except PermissionError:
+            if attempt == 5:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def timestamp() -> str:
@@ -626,15 +633,20 @@ def validate_output(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
         comparable_aliases = [comparable_topic(value) for value in aliases]
         if len(comparable_aliases) != len(set(comparable_aliases)):
             issues.append({"topic": topic, "issue": "duplicate_alias"})
-        if not row["topic_desc"] or not row["topic_desc_basic"]:
+        omitted_basic = not row["topic_desc_basic"] and re.search(
+            r"Access v2 \((?:secret|personal);", row["editorial_note"], flags=re.IGNORECASE
+        )
+        if not row["topic_desc"] or (not row["topic_desc_basic"] and not omitted_basic):
             issues.append({"topic": topic, "issue": "missing_article_text"})
         advanced_words = len(row["topic_desc"].split())
         basic_words = len(row["topic_desc_basic"].split())
         if not 70 <= advanced_words <= 280:
             issues.append({"topic": topic, "issue": "advanced_article_length", "words": advanced_words})
-        if not 20 <= basic_words <= 220:
+        if row["topic_desc_basic"] and not 20 <= basic_words <= 220:
             issues.append({"topic": topic, "issue": "basic_article_length", "words": basic_words})
         for field in ("topic_desc", "topic_desc_basic"):
+            if not row[field]:
+                continue
             policy_issue = article_policy_issue(row[field])
             if policy_issue:
                 issues.append({"topic": topic, "issue": "article_policy", "field": field, "detail": policy_issue})
@@ -648,12 +660,16 @@ def validate_output(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
         ):
             issues.append({"topic": topic, "issue": "invalid_tags"})
         classes = [
-            value.strip().lower()
+            value.strip().lower().lstrip("!")
             for field in ("knowledge_class", "knowledge_class_basic")
-            for value in row[field].split(",")
+            for value in re.split(r"[,|&]", row[field])
             if value.strip()
         ]
-        if any((value[1:] if value.startswith("!") else value) not in KNOWLEDGE_CLASSES for value in classes):
+        if any(
+            value not in KNOWLEDGE_CLASSES
+            and re.fullmatch(r"(?:person|region|community|place|faction|role|domain|race):[a-z0-9][a-z0-9_]{0,100}", value) is None
+            for value in classes
+        ):
             issues.append({"topic": topic, "issue": "invalid_knowledge_class"})
         if not row["tags"] or not row["setting"] or not row["source_url"] or not row["source_revision"]:
             issues.append({"topic": topic, "issue": "missing_metadata"})
@@ -690,7 +706,9 @@ def publish_reviewed_catalog(args: argparse.Namespace) -> int:
     seen_topics: set[str] = set()
     seen_phrases: dict[str, str] = {}
     for output_path, review_path in zip(output_paths, review_paths):
-        output_rows = apply_editorial_overrides(read_output_rows(output_path), args.editorial_overrides)
+        output_rows = read_output_rows(output_path)
+        if not args.skip_editorial_overrides:
+            output_rows = apply_editorial_overrides(output_rows, args.editorial_overrides)
         review = json.loads(review_path.read_text(encoding="utf-8"))
         if review.get("issues") or int(review.get("row_count", 0)) != len(output_rows):
             raise RuntimeError(f"Generated catalog has unresolved issues: {output_path}")
@@ -764,6 +782,7 @@ def publish_reviewed_catalog(args: argparse.Namespace) -> int:
             "authorized_budget_usd": float(ledger.get("authorized_budget_usd", args.budget_usd)),
             "ledger_checksum_sha256": hashlib.sha256(args.ledger.read_bytes()).hexdigest(),
             "editorial_overrides_checksum_sha256": hashlib.sha256(args.editorial_overrides.read_bytes()).hexdigest(),
+            "editorial_overrides_applied": not args.skip_editorial_overrides,
         },
         "coverage": {
             "games": ["Fallout 3", "Fallout: New Vegas", "official DLC", "Tale of Two Wastelands"],
@@ -1018,6 +1037,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--additional-sources", action="append", type=Path, default=[])
     result.add_argument("--expansion-manifest", type=Path, default=DEFAULT_EXPANSION_MANIFEST)
     result.add_argument("--editorial-overrides", type=Path, default=DEFAULT_EDITORIAL_OVERRIDES)
+    result.add_argument("--skip-editorial-overrides", action="store_true")
     result.add_argument("--expansion-input", type=Path, default=DEFAULT_EXPANSION_INPUT)
     result.add_argument("--expansion-sources", type=Path, default=DEFAULT_EXPANSION_SOURCES)
     result.add_argument("--model", default=DEFAULT_MODEL)

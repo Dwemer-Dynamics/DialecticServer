@@ -1,10 +1,10 @@
 {
   "schema": "dialectic.worldknowledge-catalog.v1",
   "catalog_id": "fallout-3-new-vegas-ttw-official",
-  "catalog_version": "parity-v1.1-2026-08-13",
+  "catalog_version": "parity-v1.2-2026-08-13",
   "display_name": "DIALECTIC Fallout 3, New Vegas, DLC and TTW",
   "csv_file": "fallout_worldknowledge_parity_v1.csv",
-  "checksum_sha256": "0c525355c9d76783057b4da7d92c3bffa4b324d13eb2a7dcc486fd63a9f69a28",
+  "checksum_sha256": "993b29ae4226729f5d1b4e27c260c1889c25061233e4ec8814fff95abfc7efa9",
   "row_count": 1221,
   "source_snapshot": {
     "file": "fallout_worldknowledge_sources.jsonl",
@@ -13,11 +13,12 @@
   },
   "generation": {
     "model": "z-ai/glm-5.2",
-    "provider_cost_usd": 6.937570989,
-    "budget_ledger_total_usd": 7.137570987,
+    "provider_cost_usd": 12.881712992,
+    "budget_ledger_total_usd": 13.081712992,
     "authorized_budget_usd": 30.0,
-    "ledger_checksum_sha256": "02ac833b239ee8ac72de8511fdf63b146a1698da414269303583f3d87fc3a088",
-    "editorial_overrides_checksum_sha256": "667713c22e8c1db4ff948ba6e5a90322147a2be7087397bf0841e2fc0ba56cf5"
+    "ledger_checksum_sha256": "d70314135360ddcd622fe9c2bef71e8f9c7308f6f0fc52a0691aa16e23273a66",
+    "editorial_overrides_checksum_sha256": "667713c22e8c1db4ff948ba6e5a90322147a2be7087397bf0841e2fc0ba56cf5",
+    "editorial_overrides_applied": false
   },
   "coverage": {
     "games": [
@@ -52,8 +53,8 @@
   },
   "editorial_review": {
     "status": "approved",
-    "reviewer": "Codex-assisted Dwemer Dynamics editorial review",
-    "reviewed_at": "2026-08-13T19:38:41Z",
+    "reviewer": "Codex-assisted Dwemer Dynamics access audit",
+    "reviewed_at": "2026-08-14T02:50:00Z",
     "method": "source-bound validation, deterministic checks, duplicate and chronology audit, and representative article review"
   }
 }

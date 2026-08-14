@@ -30,7 +30,12 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             );
             $aliasCount += max(0, count($parts) - 1);
             $this->assertNotEmpty($data['topic_desc']);
-            $this->assertNotEmpty($data['topic_desc_basic']);
+            if (trim(strval($data['topic_desc_basic'] ?? '')) === '') {
+                $this->assertMatchesRegularExpression(
+                    '/Access v2 \((?:secret|personal);/i',
+                    strval($data['editorial_note'] ?? '')
+                );
+            }
             $this->assertGreaterThanOrEqual(4, count(array_filter(array_map('trim', explode(',', $data['tags'])))));
             $this->assertNotEmpty($data['source_url']);
             $this->assertMatchesRegularExpression('/^\d+$/', $data['source_revision']);
@@ -133,6 +138,15 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $activationBefore = $testDb->fetchOne("
             SELECT activated_at FROM worldknowledge_catalogs WHERE is_active LIMIT 1
         ");
+        $testDb->execQuery("
+            UPDATE bio_templates
+               SET worldknowledge_tags = CASE npc_name
+                   WHEN 'doc_mitchell' THEN 'domain:user_authored'
+                   WHEN 'sunny_smiles' THEN ''
+                   ELSE worldknowledge_tags
+               END
+             WHERE npc_name IN ('doc_mitchell', 'sunny_smiles')
+        ");
 
         $first = dialecticWorldKnowledgeInstallFactoryCatalog($testDb, $root, true);
         $second = dialecticWorldKnowledgeInstallFactoryCatalog($testDb, $root, true);
@@ -150,6 +164,12 @@ final class WorldKnowledgeTest extends DatabaseTestCase
               FROM worldknowledge_effective
              WHERE canonical_topic = 'codex_custom_lore'
         ");
+        $templateTags = $testDb->fetchAll("
+            SELECT npc_name, worldknowledge_tags
+              FROM bio_templates
+             WHERE npc_name IN ('doc_mitchell', 'sunny_smiles')
+             ORDER BY npc_name
+        ");
         $testDb->close();
 
         $this->assertSame($before, $after);
@@ -159,6 +179,8 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             'A deliberately user-authored article that must survive factory reprovisioning.',
             $custom['topic_desc_basic'] ?? null
         );
+        $this->assertSame('domain:user_authored', $templateTags[0]['worldknowledge_tags'] ?? null);
+        $this->assertStringContainsString('person:sunny_smiles', $templateTags[1]['worldknowledge_tags'] ?? '');
     }
 
     public function testCatalogActivationCanRollBackWithoutDeletingInstalledVersions(): void
@@ -435,7 +457,8 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $this->equalTo('https://openrouter.ai/api/v1/chat/completions'),
             $this->callback(function ($streamContext) {
                 $options = stream_context_get_options($streamContext);
-                $this->assertStringNotContainsString('<knowledge>', $options['http']['content']);
+                $this->assertStringNotContainsString('topic=\\"stimpack_seller\\"', $options['http']['content']);
+                $this->assertStringNotContainsString('The stimpack vendor is a wasteland medic', $options['http']['content']);
                 return true;
             })
         )
@@ -487,14 +510,15 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $this->equalTo('https://openrouter.ai/api/v1/chat/completions'),
             $this->callback(function ($streamContext) {
                 $options = stream_context_get_options($streamContext);
-                $this->assertStringNotContainsString('topic=\\"stimpack_seller\\"', $options['http']['content']);
+                $this->assertStringContainsString('topic=\\"stimpack_seller\\" level=\\"advanced\\"', $options['http']['content']);
+                $this->assertStringContainsString('The stimpack vendor is a wasteland medic', $options['http']['content']);
                 return true;
             })
         )
         ->willReturnCallback(function($url, $context) {
             return $this->defaultConnectorResponse($url, $context);
         });
-        $this->setJsonRequest('inputtext', 100, 200, 'I carried the Platinum Chip. Surely I must know something.');
+        $this->setJsonRequest('inputtext', 100, 200, 'What do you know about this place?');
         require(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."main.php");
     }
 
@@ -568,14 +592,15 @@ final class WorldKnowledgeTest extends DatabaseTestCase
             $this->equalTo('https://openrouter.ai/api/v1/chat/completions'),
             $this->callback(function ($streamContext) {
                 $options = stream_context_get_options($streamContext);
-                $this->assertStringNotContainsString('topic=\\"stimpack_seller\\"', $options['http']['content']);
+                $this->assertStringContainsString('topic=\\"stimpack_seller\\" level=\\"advanced\\"', $options['http']['content']);
+                $this->assertStringContainsString('The stimpack vendor is a wasteland medic', $options['http']['content']);
                 return true;
             })
         )
         ->willReturnCallback(function($url, $context) {
             return $this->defaultConnectorResponse($url, $context);
         });
-        $this->setJsonRequest('inputtext', 100, 200, 'I carried the Platinum Chip. Surely I must know something.');
+        $this->setJsonRequest('inputtext', 100, 200, 'What do you know about this place?');
         require(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."main.php");
     }
 
@@ -620,7 +645,7 @@ final class WorldKnowledgeTest extends DatabaseTestCase
         $testDb->insert(
             'worldknowledge',
             array(
-                'topic' => 'stimpack_seller,stimpack vendor',
+                'topic' => 'stimpack_seller,stimpack vendor,Lair of the Stimpack Vendor',
                 'canonical_topic' => 'stimpack_seller',
                 'source_kind' => 'custom',
                 'topic_desc' => 'The stimpack vendor is a wasteland medic who buys and sells stimpaks, doctor\'s bags, and basic chems. He reserves his best supplies for customers with caps or serious injuries. He respects caravan guards because they keep trade routes open.',

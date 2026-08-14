@@ -253,47 +253,18 @@ if (!function_exists('dialecticWorldKnowledgeFindRowsForSignals')) {
 if (!function_exists('dialecticWorldKnowledgeClassAllows')) {
     function dialecticWorldKnowledgeClassAllows($classes, array $knowledgeTags): bool
     {
-        $classes = array_values(array_filter(array_map(
-            static fn($value) => strtolower(trim((string)$value)),
-            explode(',', (string)$classes)
-        )));
-        if (empty($classes)) {
-            return true;
-        }
-
-        $knowledgeTags = array_values(array_filter(array_map(
-            static fn($value) => strtolower(trim((string)$value)),
-            $knowledgeTags
-        )));
-        $denied = array_map(
-            static fn($value) => substr($value, 1),
-            array_filter($classes, static fn($value) => str_starts_with($value, '!'))
-        );
-        if (!empty(array_intersect($denied, $knowledgeTags))) {
-            return false;
-        }
-
-        $allowed = array_filter($classes, static fn($value) => !str_starts_with($value, '!'));
-        return !empty(array_intersect($allowed, $knowledgeTags));
+        $decision = dialecticWorldKnowledgeClassDecision((string)$classes, $knowledgeTags);
+        return !$decision['denied'] && $decision['allowed'];
     }
 }
 
 if (!function_exists('dialecticWorldKnowledgeResolveKnowledgePayload')) {
     function dialecticWorldKnowledgeResolveKnowledgePayload(array $row, array $knowledgeTags): ?array
     {
-        $normalizedTags = array_map(static fn($value) => strtolower(trim((string)$value)), $knowledgeTags);
-        $advancedAllowed = in_array('knowall', $normalizedTags, true)
-            || dialecticWorldKnowledgeClassAllows($row['knowledge_class'] ?? '', $knowledgeTags);
-        if ($advancedAllowed && trim((string)($row['topic_desc'] ?? '')) !== '') {
-            return ['level' => 'advanced', 'description' => trim((string)$row['topic_desc'])];
-        }
-
-        if (dialecticWorldKnowledgeClassAllows($row['knowledge_class_basic'] ?? '', $knowledgeTags)
-            && trim((string)($row['topic_desc_basic'] ?? '')) !== '') {
-            return ['level' => 'basic', 'description' => trim((string)$row['topic_desc_basic'])];
-        }
-
-        return null;
+        $decision = dialecticWorldKnowledgeAccessDecision($row, $knowledgeTags);
+        return $decision['level'] === 'denied'
+            ? null
+            : ['level' => $decision['level'], 'description' => $decision['description']];
     }
 }
 
@@ -369,11 +340,7 @@ if (!function_exists('dialecticWorldKnowledgeInjectForcedLocationContext')) {
             return 0;
         }
 
-        $knowledgeTags = array_values(array_filter(array_map(
-            'trim',
-            explode(',', (string)($GLOBALS['WORLDKNOWLEDGE'] ?? ''))
-        )));
-        $knowledgeTags[] = (string)($GLOBALS['DIALECTIC_NAME'] ?? '');
+        $knowledgeTags = dialecticWorldKnowledgeKnowledgeTags();
         $signals = dialecticWorldKnowledgeCollectLocationSignalGroups($db);
         $added = dialecticWorldKnowledgeAppendForcedRows(
             dialecticWorldKnowledgeFindRowsForSignals($db, $signals['location']),

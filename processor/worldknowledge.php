@@ -45,6 +45,7 @@ $trace = [
     'grounded_matches' => [],
     'rejected_candidates' => [],
     'tag_decisions' => [],
+    'context_tags' => [],
     'fallback' => ['eligible' => false, 'attempted' => false, 'suggestions' => [], 'resolved_topics' => []],
     'forced_signals' => [],
     'access_decisions' => [],
@@ -115,6 +116,7 @@ foreach ($catalog as $row) {
 
 $year = dialecticWorldKnowledgeCurrentYear();
 $knowledgeTags = dialecticWorldKnowledgeKnowledgeTags();
+$trace['context_tags'] = $knowledgeTags;
 $selectedCount = 0;
 $promptEntryCount = 0;
 $deniedCount = 0;

@@ -56,4 +56,67 @@ if (!function_exists('dialecticWorldKnowledgeNormalizeTopicList')) {
     }
 }
 
+if (!function_exists('dialecticWorldKnowledgeNormalizeAccessTag')) {
+    /** Normalize generated and profile-provided access tags to one stable vocabulary. */
+    function dialecticWorldKnowledgeNormalizeAccessTag($value): string
+    {
+        $value = strtolower(trim((string)$value));
+        if ($value === '') {
+            return '';
+        }
+        $negative = str_starts_with($value, '!');
+        if ($negative) {
+            $value = substr($value, 1);
+        }
+        $parts = explode(':', $value, 2);
+        $normalized = [];
+        foreach ($parts as $part) {
+            $part = preg_replace('/[^a-z0-9]+/', '_', trim($part));
+            $part = trim((string)$part, '_');
+            if ($part === '') {
+                return '';
+            }
+            $normalized[] = $part;
+        }
+        $result = implode(':', $normalized);
+        return $negative ? '!' . $result : $result;
+    }
+}
+
+if (!function_exists('dialecticWorldKnowledgeParseAccessRule')) {
+    /** Parse v2 OR-of-AND clauses while retaining comma-separated legacy any-of rules. */
+    function dialecticWorldKnowledgeParseAccessRule($value): array
+    {
+        $value = trim((string)$value);
+        $isV2 = str_contains($value, '&') || str_contains($value, '|');
+        $rawClauses = $isV2 ? explode('|', $value) : [$value];
+        $clauses = [];
+        $denied = [];
+        foreach ($rawClauses as $rawClause) {
+            $rawTerms = $isV2 ? explode('&', $rawClause) : explode(',', $rawClause);
+            $positive = [];
+            foreach ($rawTerms as $rawTerm) {
+                $tag = dialecticWorldKnowledgeNormalizeAccessTag($rawTerm);
+                if ($tag === '') {
+                    continue;
+                }
+                if (str_starts_with($tag, '!')) {
+                    $denied[] = substr($tag, 1);
+                } else {
+                    $positive[] = $tag;
+                }
+            }
+            if ($positive !== []) {
+                $clauses[] = array_values(array_unique($positive));
+            }
+        }
+        return [
+            'version' => $isV2 ? 2 : 1,
+            'clauses' => $clauses,
+            'denied' => array_values(array_unique($denied)),
+            'unrestricted' => $value === '',
+        ];
+    }
+}
+
 ?>

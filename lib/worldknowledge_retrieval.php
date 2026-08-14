@@ -5,7 +5,7 @@ declare(strict_types=1);
 /** Deterministically grounds Fallout dialogue in the installed World Knowledge catalog. */
 final class DialecticWorldKnowledgeRetriever
 {
-    public const VERSION = 'worldknowledge-parity-v1';
+    public const VERSION = 'worldknowledge-access-v2';
 
     private ?array $preparedIndex = null;
 

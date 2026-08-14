@@ -55,6 +55,71 @@ function worldknowledge_has_description($topicDesc, $topicDescBasic) {
     return trim((string)$topicDesc) !== '' || trim((string)$topicDescBasic) !== '';
 }
 
+/** Build an entries-table URL while preserving only its supported filters. */
+function worldknowledge_entries_url(array $overrides = []) {
+    $params = [];
+    foreach (['cat', 'letter', 'search', 'order', 'per_page', 'page'] as $key) {
+        if (isset($_GET[$key]) && trim((string)$_GET[$key]) !== '') {
+            $params[$key] = (string)$_GET[$key];
+        }
+    }
+    foreach ($overrides as $key => $value) {
+        if ($value === null || $value === '') {
+            unset($params[$key]);
+        } else {
+            $params[$key] = (string)$value;
+        }
+    }
+    return '?' . http_build_query($params) . '#entries';
+}
+
+/**
+ * Render a stored access rule as normalized tag chips joined by the operators the
+ * runtime actually applies: AND inside a clause, OR between clauses, and the
+ * legacy comma form as any-of. Takes the raw database value and escapes it once.
+ */
+function worldknowledge_render_access_rule($rawRule, $variant = 'advanced') {
+    $rawRule = trim((string)$rawRule);
+    $rule = dialecticWorldKnowledgeParseAccessRule($rawRule);
+    $tagClass = 'rule-tag' . ($variant === 'basic' ? ' rule-tag-basic' : '');
+
+    $groups = [];
+    foreach ($rule['clauses'] as $clause) {
+        $chips = [];
+        foreach ($clause as $tag) {
+            $chips[] = '<span class="' . $tagClass . '">' . htmlspecialchars($tag) . '</span>';
+        }
+        // Legacy comma rules match any single tag; v2 clauses require every tag.
+        $withinClause = $rule['version'] === 2 ? 'and' : 'or';
+        $groups[] = '<span class="rule-clause">'
+            . implode('<span class="rule-op">' . $withinClause . '</span>', $chips)
+            . '</span>';
+    }
+
+    if ($groups) {
+        $html = implode('<span class="rule-op rule-op-or">or</span>', $groups);
+    } elseif ($rawRule !== '' && !$rule['denied']) {
+        $html = '<span class="rule-note">Invalid rule</span>';
+    } else {
+        $html = '<span class="rule-none">Everyone</span>';
+    }
+
+    if ($rule['denied']) {
+        $denyChips = [];
+        foreach ($rule['denied'] as $tag) {
+            $denyChips[] = '<span class="rule-tag rule-tag-deny">' . htmlspecialchars($tag) . '</span>';
+        }
+        $html .= '<span class="rule-op">except</span>'
+            . implode('<span class="rule-op">or</span>', $denyChips);
+    }
+
+    if ($rawRule !== '' && !$rule['clauses'] && !$rule['denied']) {
+        $html .= '<small class="rule-note">No usable tags in this rule.</small>';
+    }
+
+    return $html;
+}
+
 // Connect to the database
 $conn = pg_connect(dialecticPgConnectionString($dbSettings));
 if (!$conn) {
@@ -103,14 +168,18 @@ if ($installedCatalogResult) {
  *  1) SINGLE TOPIC UPLOAD
  ********************************************************************/
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual'])) {
-    // Collect and sanitize form inputs
+    // Store the raw form values, exactly like the edit and CSV paths do.
+    // Encoding here wrote &amp;, &#039; and friends into PostgreSQL, which
+    // silently broke access rules such as role:doc&region:mojave or !raider and
+    // put entities in article text. The parameterized query below keeps the
+    // write safe, and every render escapes again at its own output boundary.
     $topic                = worldknowledge_normalize_topic_key($_POST['topic'] ?? '');
-    $topic_desc           = htmlspecialchars($_POST['topic_desc']           ?? '');
-    $knowledge_class      = htmlspecialchars($_POST['knowledge_class']      ?? '');
-    $topic_desc_basic     = htmlspecialchars($_POST['topic_desc_basic']     ?? '');
-    $knowledge_class_basic= htmlspecialchars($_POST['knowledge_class_basic']?? '');
-    $tags                 = htmlspecialchars($_POST['tags']                 ?? '');
-    $category             = htmlspecialchars($_POST['category']             ?? '');
+    $topic_desc           = (string)($_POST['topic_desc']            ?? '');
+    $knowledge_class      = (string)($_POST['knowledge_class']       ?? '');
+    $topic_desc_basic     = (string)($_POST['topic_desc_basic']      ?? '');
+    $knowledge_class_basic= (string)($_POST['knowledge_class_basic'] ?? '');
+    $tags                 = (string)($_POST['tags']                  ?? '');
+    $category             = (string)($_POST['category']              ?? '');
     $canonicalTopic       = dialecticWorldKnowledgeCanonicalTopic($topic);
 
     if (!empty($topic) && worldknowledge_has_description($topic_desc, $topic_desc_basic)) {
@@ -368,13 +437,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if ($result) {
             $message .= "<p>Entry '$topic' has been deleted successfully.</p>";
             
-            // Redirect to maintain filters
-            $redirectUrl = '?' . http_build_query([
-                'cat' => $_GET['cat'] ?? '',
-                'letter' => $_GET['letter'] ?? '',
-                'order' => $_GET['order'] ?? 'asc'
-            ]) . '#entries';
-            header('Location: ' . $redirectUrl);
+            header('Location: ' . worldknowledge_entries_url());
             exit;
         } else {
             $message .= "<p>Error deleting entry: " . pg_last_error($conn) . "</p>";
@@ -442,13 +505,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             ";
             pg_query_params($conn, $vector_sql, [$canonical_topic_new]);
 
-            // Redirect to exit edit mode while maintaining filters
-            $redirectUrl = '?' . http_build_query([
-                'cat' => $_GET['cat'] ?? '',
-                'letter' => $_GET['letter'] ?? '',
-                'order' => $_GET['order'] ?? 'asc'
-            ]) . '#entries';
-            header('Location: ' . $redirectUrl);
+            // Exit edit mode while retaining the current table filters and page.
+            header('Location: ' . worldknowledge_entries_url());
             exit;
         } else {
             $message .= "<p>Error updating row: " . pg_last_error($conn) . "</p>";
@@ -962,53 +1020,281 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         background: rgba(255, 182, 65, 0.05);
     }
 
-    /* Column width optimization */
-    .table-container th:nth-child(1), /* Topic */
-    .table-container td:nth-child(1) {
-        width: 12%;
-        min-width: 120px;
+    /* Column widths come from <colgroup> because the two-row header means
+       nth-child rules no longer line up with a single cell per column.
+       min-width keeps all ten columns readable and lets .table-container
+       scroll horizontally instead of crushing them. */
+    .table-container table {
+        min-width: 1180px;
     }
 
-    .table-container th:nth-child(2), /* Topic Description */
-    .table-container td:nth-child(2) {
-        width: 25%;
-        min-width: 200px;
+    .wk-col-topic      { width: 10%; }
+    .wk-col-adv-desc   { width: 20%; }
+    .wk-col-adv-rule   { width: 11%; }
+    .wk-col-basic-desc { width: 17%; }
+    .wk-col-basic-rule { width: 11%; }
+    .wk-col-tags       { width: 6%; }
+    .wk-col-category   { width: 6%; }
+    .wk-col-source     { width: 7%; }
+    .wk-col-region     { width: 7%; }
+    .wk-col-action     { width: 7%; }
+
+    .entries-pager {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        margin: 12px 0;
+        color: #c6c6c6;
     }
 
-    .table-container th:nth-child(3), /* Knowledge Class */
-    .table-container td:nth-child(3) {
-        width: 12%;
-        min-width: 120px;
+    .entries-pager-controls {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
     }
 
-    .table-container th:nth-child(4), /* Topic Description (Basic) */
-    .table-container td:nth-child(4) {
-        width: 20%;
-        min-width: 180px;
+    .entries-pager-link,
+    .entries-pager-disabled {
+        display: inline-block;
+        border: 1px solid rgba(255, 182, 65, 0.35);
+        border-radius: 6px;
+        padding: 6px 10px;
+        color: #f1f1f1;
+        text-decoration: none;
+        background: rgba(255, 255, 255, 0.03);
     }
 
-    .table-container th:nth-child(5), /* Knowledge Class (Basic) */
-    .table-container td:nth-child(5) {
-        width: 12%;
-        min-width: 120px;
+    .entries-pager-disabled {
+        opacity: 0.45;
     }
 
-    .table-container th:nth-child(6), /* Tags */
-    .table-container td:nth-child(6) {
-        width: 8%;
-        min-width: 80px;
+    .entries-per-page {
+        background: #2b2b2b;
+        color: #f8f9fa;
+        border: 1px solid #555;
+        border-radius: 5px;
+        padding: 5px 7px;
     }
 
-    .table-container th:nth-child(7), /* Category */
-    .table-container td:nth-child(7) {
-        width: 8%;
-        min-width: 80px;
+    .factory-read-only {
+        display: inline-block;
+        color: #b9b9b9;
+        border: 1px solid #555;
+        border-radius: 999px;
+        padding: 3px 8px;
+        white-space: nowrap;
+        font-size: 0.82em;
     }
 
-    .table-container th:nth-child(8), /* Action */
-    .table-container td:nth-child(8) {
-        width: 8%;
-        min-width: 80px;
+    .visually-hidden {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        padding: 0 !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        clip: rect(0, 0, 0, 0) !important;
+        white-space: nowrap !important;
+        border: 0 !important;
+    }
+
+    /* Grouped header banding: Advanced and Basic are the same pair of columns
+       (article + access rule), so they are labelled once and tinted apart. */
+    .table-container th.wk-group {
+        text-align: center;
+        letter-spacing: 0.03em;
+    }
+
+    .table-container th.wk-group-advanced {
+        color: rgb(255, 182, 65);
+        background: rgba(255, 182, 65, 0.12);
+    }
+
+    .table-container th.wk-group-basic {
+        color: #a8cdea;
+        background: rgba(93, 145, 189, 0.14);
+    }
+
+    .table-container th.wk-sub {
+        font-size: 0.9em;
+        font-weight: 600;
+    }
+
+    /* Vertical rules mark where each knowledge group starts and ends. */
+    .table-container th.wk-divide,
+    .table-container td.wk-divide {
+        border-left: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    /* The topic cell is a row header for screen readers but must still read as
+       a body cell, so the column-header chrome is undone here. */
+    .table-container tbody th[scope="row"] {
+        background: transparent;
+        border-bottom: 1px solid rgba(74, 74, 74, 0.3);
+        color: #f0e0c0;
+        font-size: 1em;
+        font-weight: 600;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+
+    .table-container tbody tr:hover th[scope="row"] {
+        background: rgba(255, 182, 65, 0.05);
+    }
+
+    /* Access rule chips */
+    .rule-clause {
+        display: inline-block;
+    }
+
+    .rule-tag {
+        display: inline-block;
+        background: rgba(255, 182, 65, 0.18);
+        border: 1px solid rgba(255, 182, 65, 0.35);
+        color: rgb(255, 182, 65);
+        padding: 3px 8px;
+        margin: 2px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        font-weight: 500;
+    }
+
+    /* Basic rules use the cool accent so the two rule columns never read alike. */
+    .rule-tag-basic {
+        background: rgba(93, 145, 189, 0.18);
+        border-color: rgba(93, 145, 189, 0.45);
+        color: #a8cdea;
+    }
+
+    .rule-tag-deny {
+        background: rgba(255, 100, 100, 0.15);
+        border-color: rgba(255, 100, 100, 0.4);
+        color: #ff9a9a;
+    }
+
+    .rule-op {
+        display: inline-block;
+        margin: 0 2px;
+        color: #c4c4c4;
+        font-size: 0.78em;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .rule-op-or {
+        color: rgb(255, 182, 65);
+    }
+
+    .rule-none {
+        color: #b0b0b0;
+        font-style: italic;
+    }
+
+    .rule-note {
+        display: block;
+        margin-top: 4px;
+        color: #ffb0b0;
+        font-size: 0.8em;
+    }
+
+    .scope-empty {
+        color: #b0b0b0;
+        font-style: italic;
+    }
+
+    /* Legend above the table explaining the two access modes. */
+    .access-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin: 0 0 12px;
+        padding: 12px 14px;
+        background: rgba(26, 26, 26, 0.6);
+        border: 1px solid #3a3a3a;
+        border-radius: 8px;
+    }
+
+    .access-legend-item {
+        flex: 1 1 260px;
+        color: #c9c9c9;
+        font-size: 0.88em;
+        line-height: 1.5;
+    }
+
+    .access-legend-item b {
+        display: block;
+        margin-bottom: 2px;
+    }
+
+    .access-legend-advanced b { color: rgb(255, 182, 65); }
+    .access-legend-basic b { color: #a8cdea; }
+
+    .access-legend code {
+        background: rgba(26, 26, 26, 0.9);
+        padding: 1px 5px;
+        border-radius: 3px;
+        color: #ffeb3b;
+        font-family: 'Courier New', monospace;
+        font-size: 0.9em;
+    }
+
+    /* Status messages can carry several lines; keep the paragraph breaks. */
+    .toast-notification .message {
+        white-space: pre-line;
+    }
+
+    /* The entries table scrolls sideways, so it must be reachable by keyboard. */
+    .table-container:focus-visible {
+        outline: 2px solid rgba(255, 182, 65, 0.7);
+        outline-offset: 2px;
+    }
+
+    /* Advanced / Basic field groups inside the entry modals. main.css resets
+       fieldset chrome globally, so it is restored explicitly here. */
+    .modal-body .access-group {
+        margin: 18px 0;
+        padding: 14px 16px 16px;
+        background: rgba(26, 26, 26, 0.45);
+        border: 1px solid #3a3a3a;
+        border-left-width: 3px;
+        border-radius: 8px;
+    }
+
+    .modal-body .access-group > legend {
+        float: none;
+        width: auto;
+        padding: 0 8px;
+        margin-bottom: 4px;
+        font-family: 'Gothic821', serif;
+        font-size: 1.05em;
+        font-weight: bold;
+        letter-spacing: 0.03em;
+    }
+
+    .modal-body .access-group-advanced {
+        border-left-color: rgb(255, 182, 65);
+    }
+
+    .modal-body .access-group-advanced > legend {
+        color: rgb(255, 182, 65);
+    }
+
+    .modal-body .access-group-basic {
+        border-left-color: #5d91bd;
+    }
+
+    .modal-body .access-group-basic > legend {
+        color: #a8cdea;
+    }
+
+    .modal-body .access-group-hint {
+        margin: 0 0 14px;
+        color: #b5b5b5;
+        font-size: 12px;
+        line-height: 1.5;
     }
 
     /* Text wrapping and overflow handling */
@@ -1034,20 +1320,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         font-size: 0.95em;
     }
 
-    /* Responsive table for smaller screens */
+    /* Responsive table for smaller screens. Below the table's min-width the
+       container scrolls horizontally, so only density is adjusted here. */
     @media (max-width: 1200px) {
         .table-container {
             font-size: 0.9em;
-        }
-        
-        .table-container th:nth-child(2), /* Topic Description */
-        .table-container td:nth-child(2) {
-            width: 30%;
-        }
-        
-        .table-container th:nth-child(4), /* Topic Description (Basic) */
-        .table-container td:nth-child(4) {
-            width: 25%;
         }
     }
 
@@ -1055,10 +1332,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         .table-container {
             font-size: 0.8em;
         }
-        
+
         .table-container th,
         .table-container td {
             padding: 6px 4px;
+        }
+
+        .table-container table {
+            min-width: 1040px;
         }
     }
 
@@ -1207,7 +1488,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 <?php endif; ?>
 
 <main>
-    <div id="toast" class="toast-notification">
+    <div id="toast" class="toast-notification" role="status" aria-live="polite">
         <span class="message"></span>
     </div>
 
@@ -1241,14 +1522,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             <div class="step-number">2</div>
                             <div class="step-content">
                                 <strong>Advanced Access Check</strong>
-                                <p>Check <code>knowledge_class</code> to see if they have access to the advanced article (<code>topic_desc</code>)</p>
+                                <p><code>knowledge_class</code> controls expert or involved access. Use <code>&amp;</code> for AND, <code>|</code> for OR, and a leading <code>!</code> to deny a tag. Legacy comma-separated rules still match on any one tag.</p>
                             </div>
                         </div>
                         <div class="logic-step">
                             <div class="step-number">3</div>
                             <div class="step-content">
                                 <strong>Basic Access Check</strong>
-                                <p>Check <code>knowledge_class_basic</code> to see if they have access to the basic article (<code>topic_desc_basic</code>)</p>
+                                <p><code>knowledge_class_basic</code> controls average-person access in the appropriate region or community, using the same rule syntax.</p>
                             </div>
                         </div>
                         <div class="logic-step">
@@ -1365,6 +1646,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Grab filters
             $selectedCategory = $_GET['cat']   ?? '';
             $letter          = strtoupper($_GET['letter'] ?? '');
+            $searchTerm      = trim((string)($_GET['search'] ?? ''));
+            $perPageAllowed  = [25, 50, 100];
+            $perPageRaw      = intval($_GET['per_page'] ?? 50);
+            $perPage         = in_array($perPageRaw, $perPageAllowed, true) ? $perPageRaw : 50;
+            $page            = max(1, intval($_GET['page'] ?? 1));
 
             // Sorting
             $order = 'ASC';
@@ -1381,7 +1667,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             <div class="action-container">
                 <button onclick="openNewEntryModal()" class="action-button add-new">Add New Entry</button>
                 <div class="search-container">
-                    <input type="text" id="searchBox" placeholder="Search topics..." style="flex-grow: 1; padding: 8px; border-radius: 4px; border: 1px solid #555555; background-color: #4a4a4a; color: #f8f9fa;">
+                    <label for="searchBox" class="visually-hidden">Search World Knowledge topics and tags</label>
+                    <input type="text" id="searchBox" value="<?php echo htmlspecialchars($searchTerm, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Search topics and tags..." style="flex-grow: 1; padding: 8px; border-radius: 4px; border: 1px solid #555555; background-color: #4a4a4a; color: #f8f9fa;">
                     <button onclick="applySearch()" class="action-button edit">Search</button>
                 </div>
             </div>
@@ -1390,12 +1677,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <div style="margin-bottom: 15px;">
                     <strong>Filter by Category:</strong><br>
                     <div class="filter-buttons" style="margin-top: 10px;">
-                        <a class="alphabet-button" href="?#entries">All Categories</a>
+                        <a class="alphabet-button" href="<?php echo htmlspecialchars(worldknowledge_entries_url(['cat' => null, 'page' => 1]), ENT_QUOTES, 'UTF-8'); ?>">All Categories</a>
                         <?php
                         foreach ($categories as $cat) {
-                            $catEncoded = urlencode($cat);
                             $style = ($selectedCategory === $cat) ? 'style="background-color:#0056b3;"' : '';
-                            echo "<a class=\"alphabet-button\" $style href=\"?cat=$catEncoded#entries\">" . htmlspecialchars($cat) . "</a>";
+                            $categoryUrl = worldknowledge_entries_url(['cat' => $cat, 'page' => 1]);
+                            echo '<a class="alphabet-button" ' . $style . ' href="'
+                                . htmlspecialchars($categoryUrl, ENT_QUOTES, 'UTF-8') . '">'
+                                . htmlspecialchars($cat) . '</a>';
                         }
                         ?>
                     </div>
@@ -1403,22 +1692,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 
                 <div>
                     <strong>Sort Order:</strong><br>
-                    <?php
-                    $baseUrl = '?';
-                    if ($selectedCategory) $baseUrl .= 'cat=' . urlencode($selectedCategory) . '&';
-                    if ($letter) $baseUrl .= 'letter=' . urlencode($letter) . '&';
-                    ?>
                     <div style="margin-top: 10px;">
-                        <a class="alphabet-button" href="<?php echo $baseUrl; ?>order=asc#entries">&#x1F53C; Ascending</a>
-                        <a class="alphabet-button" href="<?php echo $baseUrl; ?>order=desc#entries">&#x1F53D; Descending</a>
+                        <a class="alphabet-button" href="<?php echo htmlspecialchars(worldknowledge_entries_url(['order' => 'asc', 'page' => 1]), ENT_QUOTES, 'UTF-8'); ?>">&#x1F53C; Ascending</a>
+                        <a class="alphabet-button" href="<?php echo htmlspecialchars(worldknowledge_entries_url(['order' => 'desc', 'page' => 1]), ENT_QUOTES, 'UTF-8'); ?>">&#x1F53D; Descending</a>
                     </div>
                 </div>
             </div>
 
             <?php
-            // Build query
-            $searchTerm = isset($_GET['search']) ? $_GET['search'] : '';
-
+            // Count and fetch one bounded page using exactly the same filters.
             $conditions = [];
             $params = [];
             if ($selectedCategory) {
@@ -1433,28 +1715,117 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $params[] = '%' . $searchTerm . '%';
                 $conditions[] = '(topic ILIKE $' . count($params) . ' OR tags ILIKE $' . count($params) . ')';
             }
+            $whereSql = $conditions ? ' WHERE ' . implode(' AND ', $conditions) : '';
+            $countResult = pg_query_params(
+                $conn,
+                "SELECT COUNT(*) AS total FROM $schema.worldknowledge_effective" . $whereSql,
+                $params
+            );
+            $totalEntries = $countResult ? intval(pg_fetch_result($countResult, 0, 'total')) : 0;
+            $totalPages = max(1, intval(ceil($totalEntries / $perPage)));
+            $page = min($page, $totalPages);
+            $offset = ($page - 1) * $perPage;
+            $rangeStart = $totalEntries > 0 ? $offset + 1 : 0;
+            $rangeEnd = min($offset + $perPage, $totalEntries);
+
             $query = "SELECT topic, topic_desc, knowledge_class, topic_desc_basic,
-                             knowledge_class_basic, tags, category, source_kind, catalog_id, catalog_version
+                             knowledge_class_basic, tags, category, source_kind, catalog_id, catalog_version,
+                             region, editorial_note
                         FROM $schema.worldknowledge_effective"
-                . ($conditions ? ' WHERE ' . implode(' AND ', $conditions) : '')
-                . " ORDER BY topic $order";
+                . $whereSql
+                . " ORDER BY topic $order LIMIT " . intval($perPage) . " OFFSET " . intval($offset);
 
             $result = pg_query_params($conn, $query, $params);
 
             echo '<a id="entries"></a>';
-            echo '<div class="table-container">';
+            ?>
+            <div class="entries-pager" aria-label="World Knowledge pagination">
+                <div>
+                    Showing <?php echo intval($rangeStart); ?>-<?php echo intval($rangeEnd); ?>
+                    of <?php echo intval($totalEntries); ?> entries
+                </div>
+                <form method="get" action="" class="entries-pager-controls">
+                    <?php foreach (['cat', 'letter', 'search', 'order'] as $filterKey): ?>
+                        <?php if (isset($_GET[$filterKey]) && trim((string)$_GET[$filterKey]) !== ''): ?>
+                            <input type="hidden" name="<?php echo htmlspecialchars($filterKey); ?>" value="<?php echo htmlspecialchars((string)$_GET[$filterKey], ENT_QUOTES, 'UTF-8'); ?>">
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                    <input type="hidden" name="page" value="1">
+                    <label for="entriesPerPage">Per page</label>
+                    <select id="entriesPerPage" class="entries-per-page" name="per_page" onchange="this.form.submit()">
+                        <?php foreach ($perPageAllowed as $option): ?>
+                            <option value="<?php echo intval($option); ?>" <?php echo $perPage === $option ? 'selected' : ''; ?>><?php echo intval($option); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </form>
+                <div class="entries-pager-controls">
+                    <?php if ($page > 1): ?>
+                        <a class="entries-pager-link" href="<?php echo htmlspecialchars(worldknowledge_entries_url(['page' => $page - 1]), ENT_QUOTES, 'UTF-8'); ?>">Previous</a>
+                    <?php else: ?>
+                        <span class="entries-pager-disabled" aria-disabled="true">Previous</span>
+                    <?php endif; ?>
+                    <span>Page <?php echo intval($page); ?> / <?php echo intval($totalPages); ?></span>
+                    <?php if ($page < $totalPages): ?>
+                        <a class="entries-pager-link" href="<?php echo htmlspecialchars(worldknowledge_entries_url(['page' => $page + 1]), ENT_QUOTES, 'UTF-8'); ?>">Next</a>
+                    <?php else: ?>
+                        <span class="entries-pager-disabled" aria-disabled="true">Next</span>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="access-legend">
+                <p class="access-legend-item access-legend-advanced">
+                    <b>Advanced knowledge</b>
+                    The expert or personally-involved version of the article. An NPC only receives it
+                    when their tags satisfy the advanced access rule.
+                </p>
+                <p class="access-legend-item access-legend-basic">
+                    <b>Basic knowledge</b>
+                    What an ordinary person in the right place would know. An empty rule means
+                    <em>Everyone</em>.
+                </p>
+                <p class="access-legend-item">
+                    <b>Reading a rule</b>
+                    <code>and</code> requires every tag, <code>or</code> accepts any clause, and
+                    <code>except</code> denies a tag outright.
+                </p>
+            </div>
+            <?php
+            // tabindex makes the horizontally scrolling table reachable by keyboard.
+            echo '<div class="table-container" tabindex="0" role="region" aria-label="World Knowledge entries">';
             echo '<table>';
-            echo '<tr>
-                    <th>Topic</th>
-                    <th>Topic Description (Advanced)</th>
-                    <th>Knowledge Class (Advanced)</th>
-                    <th>Topic Description (Basic)</th>
-                    <th>Knowledge Class (Basic)</th>
-                    <th>Tags</th>
-                    <th>Category</th>
-                    <th>Source</th>
-                    <th>Action</th> 
-                  </tr>';
+            echo '<colgroup>
+                    <col class="wk-col-topic">
+                    <col class="wk-col-adv-desc">
+                    <col class="wk-col-adv-rule">
+                    <col class="wk-col-basic-desc">
+                    <col class="wk-col-basic-rule">
+                    <col class="wk-col-tags">
+                    <col class="wk-col-category">
+                    <col class="wk-col-source">
+                    <col class="wk-col-region">
+                    <col class="wk-col-action">
+                  </colgroup>';
+            // Two header rows: the Advanced and Basic groups each own an
+            // article + access rule pair, so the pairing is labelled once.
+            echo '<thead>
+                  <tr>
+                    <th scope="col" rowspan="2">Topic</th>
+                    <th scope="colgroup" colspan="2" class="wk-group wk-group-advanced wk-divide">Advanced knowledge</th>
+                    <th scope="colgroup" colspan="2" class="wk-group wk-group-basic wk-divide">Basic knowledge</th>
+                    <th scope="col" rowspan="2" class="wk-divide">Tags</th>
+                    <th scope="col" rowspan="2">Category</th>
+                    <th scope="col" rowspan="2">Source</th>
+                    <th scope="col" rowspan="2">Region &amp; Notes</th>
+                    <th scope="col" rowspan="2">Action</th>
+                  </tr>
+                  <tr>
+                    <th scope="col" class="wk-sub wk-divide">Article</th>
+                    <th scope="col" class="wk-sub">Access rule</th>
+                    <th scope="col" class="wk-sub wk-divide">Article</th>
+                    <th scope="col" class="wk-sub">Access rule</th>
+                  </tr>
+                  </thead>';
+            echo '<tbody>';
 
             if ($result) {
                 $rowCount = 0;
@@ -1468,46 +1839,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $category             = htmlspecialchars($row['category']             ?? '');
                     $sourceKind           = strtolower(trim((string)($row['source_kind'] ?? 'custom')));
                     $catalogLabel         = trim((string)($row['catalog_id'] ?? '') . '/' . (string)($row['catalog_version'] ?? ''), '/');
+                    $region               = htmlspecialchars($row['region'] ?? '');
+                    $editorialNote        = htmlspecialchars($row['editorial_note'] ?? '');
+                    // Raw (unescaped) rules for chip rendering; the escaped copies above feed the edit modal.
+                    $knowledgeClassRaw    = (string)($row['knowledge_class']       ?? '');
+                    $knowledgeClassBasicRaw = (string)($row['knowledge_class_basic'] ?? '');
 
                     // Normal row display
                     echo '<tr>';
-                    echo '<td>' . $topic . '</td>';
-                    echo '<td>' . nl2br($topic_desc) . '</td>';
-                    
-                    // Knowledge Class column with badge styling
-                    echo '<td style="font-size: 1.5em; line-height: 1.4;">';
-                    if (!empty(trim($knowledge_class))) {
-                        $knowledgeClasses = array_map('trim', explode(',', $knowledge_class));
-                        foreach ($knowledgeClasses as $class) {
-                            if (!empty($class)) {
-                                echo '<span style="display: inline-block; background: rgba(255, 182, 65, 0.2); color: rgb(255, 182, 65); padding: 3px 8px; margin: 2px; border-radius: 4px; font-size: 0.85em; font-weight: 500;">' . htmlspecialchars($class) . '</span>';
-                            }
-                        }
-                    } else {
-                        echo '<span style="color: #888; font-style: italic;">Everyone</span>';
-                    }
+                    echo '<th scope="row">' . $topic . '</th>';
+                    echo '<td class="wk-divide">' . nl2br($topic_desc) . '</td>';
+
+                    // Advanced access rule, shown as normalized chips joined by AND/OR
+                    echo '<td' . ($knowledgeClassRaw !== '' ? ' title="Stored rule: ' . htmlspecialchars($knowledgeClassRaw, ENT_QUOTES, 'UTF-8') . '"' : '') . '>';
+                    echo worldknowledge_render_access_rule($knowledgeClassRaw, 'advanced');
                     echo '</td>';
-                    
-                    echo '<td>' . nl2br($topic_desc_basic) . '</td>';
-                    
-                    // Knowledge Class Basic column with badge styling
-                    echo '<td style="font-size: 1.5em; line-height: 1.4;">';
-                    if (!empty(trim($knowledge_class_basic))) {
-                        $knowledgeClassesBasic = array_map('trim', explode(',', $knowledge_class_basic));
-                        foreach ($knowledgeClassesBasic as $class) {
-                            if (!empty($class)) {
-                                echo '<span style="display: inline-block; background: rgba(255, 182, 65, 0.15); color: rgb(255, 182, 65); padding: 3px 8px; margin: 2px; border-radius: 4px; font-size: 0.85em; font-weight: 400;">' . htmlspecialchars($class) . '</span>';
-                            }
-                        }
-                    } else {
-                        echo '<span style="color: #888; font-style: italic;">Everyone</span>';
-                    }
+
+                    echo '<td class="wk-divide">' . nl2br($topic_desc_basic) . '</td>';
+
+                    // Basic access rule, shown as normalized chips joined by AND/OR
+                    echo '<td' . ($knowledgeClassBasicRaw !== '' ? ' title="Stored rule: ' . htmlspecialchars($knowledgeClassBasicRaw, ENT_QUOTES, 'UTF-8') . '"' : '') . '>';
+                    echo worldknowledge_render_access_rule($knowledgeClassBasicRaw, 'basic');
                     echo '</td>';
-                    
-                    echo '<td>' . nl2br($tags) . '</td>';
+
+                    echo '<td class="wk-divide">' . nl2br($tags) . '</td>';
                     echo '<td>' . nl2br($category) . '</td>';
                     echo '<td><strong>' . htmlspecialchars(ucfirst($sourceKind)) . '</strong>'
                         . ($catalogLabel !== '' ? '<br><small>' . htmlspecialchars($catalogLabel) . '</small>' : '') . '</td>';
+                    echo '<td>' . ($region !== '' ? '<strong>' . $region . '</strong>' : '<span class="scope-empty">Unspecified</span>')
+                        . ($editorialNote !== '' ? '<br><small>' . $editorialNote . '</small>' : '') . '</td>';
 
                     // Action column
                     echo '<td style="white-space: nowrap;">';
@@ -1526,7 +1886,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             ]), ENT_QUOTES, 'UTF-8') .
                             ')" class="action-button edit">Edit</button>';
                     } else {
-                        echo '<span style="color:#aaa;">Factory articles are read-only</span>';
+                        echo '<span class="factory-read-only" title="Factory catalog articles cannot be edited here">Read-only</span>';
                     }
                     
                     echo '</div>';
@@ -1536,6 +1896,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $rowCount++;
                 }
 
+                echo '</tbody>';
                 echo '</table>';
                 echo '</div>';
 
@@ -1543,44 +1904,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     echo '<p>No entries found.</p>';
                 }
             } else {
-                echo '<p>Error fetching WorldKnowledge entries: ' . pg_last_error($conn) . '</p>';
+                // Close the table markup opened above before reporting the failure.
+                echo '</tbody>';
+                echo '</table>';
+                echo '</div>';
+                echo '<p>Error fetching WorldKnowledge entries: ' . htmlspecialchars(pg_last_error($conn)) . '</p>';
             }
             ?>
         </div>
     </div>
 
-<div id="editModal" class="modal-backdrop">
+<div id="editModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
     <div class="modal-container">
         <div class="modal-header">
-            <h2 class="modal-title">Edit WorldKnowledge Entry</h2>
+            <h2 class="modal-title" id="editModalTitle">Edit WorldKnowledge Entry</h2>
         </div>
         <div class="modal-body">
-            <form action="" method="post">
+            <form action="" method="post" class="worldknowledge-entry-form">
                 <input type="hidden" name="action" value="update_single">
                 <input type="hidden" name="topic_original" id="edit_topic_original">
 
                 <label for="edit_topic">Topic:</label>
                 <small>Canonical topic followed by optional comma-separated aliases.</small>
                 <input type="text" name="topic_new" id="edit_topic" required>
-                
 
-                <label for="edit_topic_desc">Topic Description:</label>
-                <small>Advanced knowledge information on the subject.</small>
-                <textarea name="topic_desc_new" id="edit_topic_desc" rows="8" required></textarea>
-                
+                <fieldset class="access-group access-group-advanced">
+                    <legend>Advanced knowledge</legend>
+                    <p class="access-group-hint">The expert or personally-involved version of this article, and who may receive it.</p>
 
-                <label for="edit_knowledge_class">Knowledge Class:</label>
-                <small>Who should have access to this advanced knowledge. Separate tags by commas. <a href="https://docs.google.com/spreadsheets/d/1dcfctU-iOqprwy2BOc7___4Awteczgdlv8886KalPsQ/edit?pli=1&gid=338893641" style="color: yellow;" target="_blank" rel="noopener noreferrer"> More information can be found here</a>.</small>
-                <input type="text" name="knowledge_class_new" id="edit_knowledge_class">
+                    <label for="edit_topic_desc">Article:</label>
+                    <small>The detailed, insider account of the subject.</small>
+                    <textarea name="topic_desc_new" id="edit_topic_desc" rows="8"></textarea>
 
-                <label for="edit_topic_desc_basic">Topic Description (Basic):</label>
-                <small>Who should have basic information on the subject.</small>
-                <textarea name="topic_desc_basic_new" id="edit_topic_desc_basic" rows="8"></textarea>
-                
+                    <label for="edit_knowledge_class">Access rule:</label>
+                    <small>Use <code>&amp;</code> for required tags and <code>|</code> for alternatives, for example <code>role:doctor&amp;domain:medicine|person:doc_mitchell</code>. Prefix a tag with <code>!</code> to deny it. Legacy comma-separated rules remain supported. Leave empty to let every NPC receive it.</small>
+                    <input type="text" name="knowledge_class_new" id="edit_knowledge_class">
+                </fieldset>
 
-                <label for="edit_knowledge_class_basic">Knowledge Class (Basic):</label>
-                <small>Who should have access to this basic knowledge. Leave empty to allow all NPCs to know this. Separate tags by commas. <a href="https://docs.google.com/spreadsheets/d/1dcfctU-iOqprwy2BOc7___4Awteczgdlv8886KalPsQ/edit?pli=1&gid=338893641" style="color: yellow;" target="_blank" rel="noopener noreferrer"> More information can be found here</a>.</small>
-                <input type="text" name="knowledge_class_basic_new" id="edit_knowledge_class_basic">
+                <fieldset class="access-group access-group-basic">
+                    <legend>Basic knowledge</legend>
+                    <p class="access-group-hint">The common-knowledge version of this article, and who may receive it.</p>
+
+                    <label for="edit_topic_desc_basic">Article:</label>
+                    <small>What an ordinary person in the right place would know about the subject.</small>
+                    <textarea name="topic_desc_basic_new" id="edit_topic_desc_basic" rows="8"></textarea>
+
+                    <label for="edit_knowledge_class_basic">Access rule:</label>
+                    <small>Same syntax as above. Limit average-person knowledge to the appropriate audience, for example <code>common&amp;region:mojave</code>. Leave empty only when every NPC should know it.</small>
+                    <input type="text" name="knowledge_class_basic_new" id="edit_knowledge_class_basic">
+                </fieldset>
 
                 <label for="edit_tags">Tags:</label>
                 <small>Lowercase multiword retrieval phrases. Shared tags require corroboration.</small>
@@ -1600,34 +1972,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     </div>
 </div>
 
-<div id="newEntryModal" class="modal-backdrop">
+<div id="newEntryModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="newEntryModalTitle">
     <div class="modal-container">
         <div class="modal-header">
-            <h2 class="modal-title">Add New WorldKnowledge Entry</h2>
+            <h2 class="modal-title" id="newEntryModalTitle">Add New WorldKnowledge Entry</h2>
         </div>
         <div class="modal-body">
-            <form action="" method="post">
+            <form action="" method="post" class="worldknowledge-entry-form">
                 <input type="hidden" name="submit_individual" value="1">
 
                 <label for="topic">Topic (required):</label>
                 <small>Canonical topic followed by optional comma-separated aliases.</small>
                 <input type="text" name="topic" id="topic" required>
 
-                <label for="topic_desc">Topic Description (required):</label>
-                <small>Advanced knowledge information on the subject.</small>
-                <textarea name="topic_desc" id="topic_desc" rows="5" required></textarea>
+                <fieldset class="access-group access-group-advanced">
+                    <legend>Advanced knowledge</legend>
+                    <p class="access-group-hint">The expert or personally-involved version of this article, and who may receive it.</p>
 
-                <label for="knowledge_class">Knowledge Class:</label>
-                <small>Who should have access to this advanced knowledge. Separate tags by commas. <a href="https://docs.google.com/spreadsheets/d/1dcfctU-iOqprwy2BOc7___4Awteczgdlv8886KalPsQ/edit?pli=1&gid=338893641" style="color: yellow;" target="_blank" rel="noopener noreferrer"> More information can be found here</a>.</small>
-                <input type="text" name="knowledge_class" id="knowledge_class">
+                    <label for="topic_desc">Article:</label>
+                    <small>The detailed, insider account of the subject.</small>
+                    <textarea name="topic_desc" id="topic_desc" rows="5"></textarea>
 
-                <label for="topic_desc_basic">Topic Description (Basic):</label>
-                <small>Who should have basic information on the subject.</small>
-                <textarea name="topic_desc_basic" id="topic_desc_basic" rows="5"></textarea>
+                    <label for="knowledge_class">Access rule:</label>
+                    <small>Use <code>&amp;</code> for required tags and <code>|</code> for alternatives, for example <code>role:doctor&amp;domain:medicine|person:doc_mitchell</code>. Prefix a tag with <code>!</code> to deny it. Legacy comma-separated rules remain supported. Leave empty to let every NPC receive it.</small>
+                    <input type="text" name="knowledge_class" id="knowledge_class">
+                </fieldset>
 
-                <label for="knowledge_class_basic">Knowledge Class (Basic):</label>
-                <small>Who should have access to this basic knowledge. Leave empty to allow all NPCs to know this. It is recommended for most basic articles to leave it blank. Separate tags by commas. <a href="https://docs.google.com/spreadsheets/d/1dcfctU-iOqprwy2BOc7___4Awteczgdlv8886KalPsQ/edit?pli=1&gid=338893641" style="color: yellow;" target="_blank" rel="noopener noreferrer"> More information can be found here</a>.</small>
-                <input type="text" name="knowledge_class_basic" id="knowledge_class_basic">
+                <fieldset class="access-group access-group-basic">
+                    <legend>Basic knowledge</legend>
+                    <p class="access-group-hint">The common-knowledge version of this article, and who may receive it.</p>
+
+                    <label for="topic_desc_basic">Article:</label>
+                    <small>What an ordinary person in the right place would know about the subject.</small>
+                    <textarea name="topic_desc_basic" id="topic_desc_basic" rows="5"></textarea>
+
+                    <label for="knowledge_class_basic">Access rule:</label>
+                    <small>Same syntax as above. Limit average-person knowledge to the appropriate audience, for example <code>common&amp;region:capital_wasteland</code>. Leave empty only when every NPC should know it.</small>
+                    <input type="text" name="knowledge_class_basic" id="knowledge_class_basic">
+                </fieldset>
 
                 <label for="tags">Tags:</label>
                 <small>Lowercase multiword retrieval phrases. Shared tags require corroboration.</small>
@@ -1745,6 +2127,29 @@ function switchTabDirectly(tabId) {
     updateHeaderContent(tabId);
 }
 
+// Remembers which control opened the current modal so focus can go back to it.
+let modalReturnFocus = null;
+
+function openModal(modalId) {
+    modalReturnFocus = document.activeElement;
+    const modal = document.getElementById(modalId);
+    modal.style.display = "block";
+    document.body.style.overflow = "hidden";
+    const firstField = modal.querySelector('input:not([type="hidden"]), textarea');
+    if (firstField) {
+        firstField.focus();
+    }
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).style.display = "none";
+    document.body.style.overflow = "auto";
+    if (modalReturnFocus && typeof modalReturnFocus.focus === 'function') {
+        modalReturnFocus.focus();
+    }
+    modalReturnFocus = null;
+}
+
 function openEditModal(data) {
     try {
         const decodeHTML = (html) => {
@@ -1761,9 +2166,8 @@ function openEditModal(data) {
         document.getElementById("edit_knowledge_class_basic").value = decodeHTML(data.knowledge_class_basic);
         document.getElementById("edit_tags").value = decodeHTML(data.tags);
         document.getElementById("edit_category").value = decodeHTML(data.category);
-        
-        document.getElementById("editModal").style.display = "block";
-        document.body.style.overflow = "hidden";
+
+        openModal("editModal");
     } catch (error) {
         console.error('Error in openEditModal:', error);
         alert('There was an error opening the edit form. Please try again.');
@@ -1771,19 +2175,53 @@ function openEditModal(data) {
 }
 
 function closeEditModal() {
-    document.getElementById("editModal").style.display = "none";
-    document.body.style.overflow = "auto";
+    closeModal("editModal");
 }
 
 function openNewEntryModal() {
-    document.getElementById("newEntryModal").style.display = "block";
-    document.body.style.overflow = "hidden";
+    openModal("newEntryModal");
 }
 
 function closeNewEntryModal() {
-    document.getElementById("newEntryModal").style.display = "none";
-    document.body.style.overflow = "auto";
+    closeModal("newEntryModal");
 }
+
+// The server accepts an advanced article, a basic article, or both. Enforce
+// that same cross-field rule without incorrectly requiring either one alone.
+document.querySelectorAll('.worldknowledge-entry-form').forEach(function(form) {
+    const advanced = form.querySelector('textarea[name="topic_desc"], textarea[name="topic_desc_new"]');
+    const basic = form.querySelector('textarea[name="topic_desc_basic"], textarea[name="topic_desc_basic_new"]');
+    if (!advanced || !basic) {
+        return;
+    }
+    const clearArticleError = function() {
+        advanced.setCustomValidity('');
+    };
+    advanced.addEventListener('input', clearArticleError);
+    basic.addEventListener('input', clearArticleError);
+    form.addEventListener('submit', function(event) {
+        clearArticleError();
+        if (advanced.value.trim() === '' && basic.value.trim() === '') {
+            event.preventDefault();
+            advanced.setCustomValidity('Enter an advanced article, a basic article, or both.');
+            advanced.reportValidity();
+            advanced.focus();
+        }
+    });
+});
+
+// Escape closes whichever entry modal is currently open.
+document.addEventListener('keydown', function(event) {
+    if (event.key !== 'Escape') {
+        return;
+    }
+    ['editModal', 'newEntryModal'].forEach(function(modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal && modal.style.display === 'block') {
+            closeModal(modalId);
+        }
+    });
+});
 
 function deleteEntry() {
     const topic = document.getElementById('edit_topic_original').value;
@@ -1803,7 +2241,6 @@ function deleteEntry() {
 
 function applySearch() {
     const searchTerm = document.getElementById("searchBox").value.trim();
-    let url = new URL(window.location.href);
     const urlParams = new URLSearchParams(window.location.search);
     
     // Update or add search parameter
@@ -1821,6 +2258,7 @@ function applySearch() {
     if (currentCategory) urlParams.set("cat", currentCategory);
     if (currentLetter) urlParams.set("letter", currentLetter);
     if (currentOrder) urlParams.set("order", currentOrder);
+    urlParams.set("page", "1");
     
     // Create the new URL
     window.location.href = "?" + urlParams.toString() + "#entries";
@@ -1857,8 +2295,14 @@ function showToast(message, duration = 5000) {
 
 // Update PHP message handling
 <?php if (!empty($message)): ?>
+<?php
+// $message is a run of <p> chunks; strip_tags alone would glue them into one
+// unreadable line, so paragraph breaks are preserved as newlines first.
+$toastText = strip_tags(str_replace('</p>', "\n", $message));
+$toastText = trim(preg_replace("/\n{2,}/", "\n", $toastText));
+?>
 document.addEventListener('DOMContentLoaded', function() {
-    showToast(<?php echo json_encode(strip_tags($message)); ?>);
+    showToast(<?php echo json_encode($toastText); ?>);
 });
 <?php endif; ?>
 

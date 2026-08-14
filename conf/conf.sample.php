@@ -35,7 +35,7 @@ $DYNAMIC_PROFILE=false; //Dynamic profile updates using a timer system.
 // NOTE: AUTO_DIARY and AUTO_DIARY_WAIT have been moved to profile-level settings. Configure them in your profile settings UI instead of here.
 $POWER_AWARENESS_ENABLED=false; //Enable Power Awareness system. NPCs will be aware of relative power levels and react appropriately to threats.
 $MINIME_T5=false; //Assists smaller weight LLMs with action and memory functions.
-$WORLDKNOWLEDGE="knowall"; //Assists smaller weight LLMs with action and memory functions.
+$WORLDKNOWLEDGE=""; //Active NPC or narrator profile knowledge tags are applied per request.
 $WORLDKNOWLEDGE_AMOUNT=1; //Number of WorldKnowledge keywords to extract from each response. More keyword extraction will mean longer response times.
 $PLAYER_RESPEECH=true; //Use default diary connector AI to rewrite player speech. Currently only triggers when starting speech with **.
 $PLAYER_SPEECH_STYLE=""; //Instructions for how the player character speaks and communicates. Used as context when rewriting player dialogue.

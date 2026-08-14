@@ -760,9 +760,9 @@ class NpcMaster
             $GLOBALS['DIALECTIC_BACKGROUND'] = $currentNpcData['npc_static_bio'];
         }
 
-        if (isset($currentNpcData['worldknowledge_tags'])) {
-            $GLOBALS['WORLDKNOWLEDGE'] = $currentNpcData['worldknowledge_tags'];
-        }
+        // Always replace the previous actor's knowledge context, including when
+        // the new profile has no explicit tags, so knowall cannot leak between turns.
+        $GLOBALS['WORLDKNOWLEDGE'] = (string)($currentNpcData['worldknowledge_tags'] ?? '');
 
         if (isset($currentNpcData['personality'])) {
             $GLOBALS['DIALECTIC_PERSONALITY'] = $currentNpcData['personality'];

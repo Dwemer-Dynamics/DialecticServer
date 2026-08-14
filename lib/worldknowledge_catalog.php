@@ -34,6 +34,10 @@ const DIALECTIC_WORLDKNOWLEDGE_CLASSES = [
     'followers', 'great_khan', 'boomers', 'powder_ganger', 'raider', 'courier',
 ];
 
+const DIALECTIC_WORLDKNOWLEDGE_ACCESS_NAMESPACES = [
+    'person', 'region', 'community', 'place', 'faction', 'role', 'domain', 'race',
+];
+
 /** Load and checksum-validate the shipped factory catalog without touching the database. */
 function dialecticWorldKnowledgeLoadFactoryCatalog(string $rootPath): array
 {
@@ -122,7 +126,9 @@ function dialecticWorldKnowledgeValidateFactoryRow(array $row, array $seenTopics
     if (isset($seenTopics[$canonical])) {
         throw new RuntimeException("World Knowledge catalog contains duplicate topic {$canonical}");
     }
-    if (trim(strval($row['topic_desc_basic'] ?? '')) === '') {
+    $basicText = trim(strval($row['topic_desc_basic'] ?? ''));
+    $allowsOmittedBasic = preg_match('/Access v2 \((?:secret|personal);/i', strval($row['editorial_note'] ?? '')) === 1;
+    if ($basicText === '' && !$allowsOmittedBasic) {
         throw new RuntimeException("World Knowledge catalog is missing basic text for {$canonical}");
     }
     $advancedWordCount = count(preg_split(
@@ -133,11 +139,12 @@ function dialecticWorldKnowledgeValidateFactoryRow(array $row, array $seenTopics
     ));
     $basicWordCount = count(preg_split(
         '/\s+/u',
-        trim(strval($row['topic_desc_basic'] ?? '')),
+        $basicText,
         -1,
         PREG_SPLIT_NO_EMPTY
     ));
-    if ($advancedWordCount < 70 || $advancedWordCount > 280 || $basicWordCount < 20 || $basicWordCount > 220) {
+    if ($advancedWordCount < 70 || $advancedWordCount > 280
+        || ($basicText !== '' && ($basicWordCount < 20 || $basicWordCount > 220))) {
         throw new RuntimeException("World Knowledge article lengths are outside reviewed bounds for {$canonical}");
     }
     if (trim(strval($row['topic_desc'] ?? '')) === '' && trim(strval($row['editorial_note'] ?? '')) === '') {
@@ -168,10 +175,17 @@ function dialecticWorldKnowledgeValidateFactoryRow(array $row, array $seenTopics
         }
     }
     foreach (['knowledge_class', 'knowledge_class_basic'] as $field) {
-        foreach (array_filter(array_map('trim', explode(',', strval($row[$field] ?? '')))) as $class) {
-            $class = strtolower(ltrim($class, '!'));
-            if (!in_array($class, DIALECTIC_WORLDKNOWLEDGE_CLASSES, true)) {
-                throw new RuntimeException("World Knowledge catalog contains unsupported class {$class} for {$canonical}");
+        $rule = dialecticWorldKnowledgeParseAccessRule(strval($row[$field] ?? ''));
+        $classes = array_merge($rule['denied'], ...$rule['clauses']);
+        foreach ($classes as $class) {
+            $parts = explode(':', $class, 2);
+            if (count($parts) === 1 && in_array($class, DIALECTIC_WORLDKNOWLEDGE_CLASSES, true)) {
+                continue;
+            }
+            if (count($parts) !== 2
+                || !in_array($parts[0], DIALECTIC_WORLDKNOWLEDGE_ACCESS_NAMESPACES, true)
+                || !preg_match('/^[a-z0-9][a-z0-9_]{0,100}$/', $parts[1])) {
+                throw new RuntimeException("World Knowledge catalog contains unsupported access tag {$class} for {$canonical}");
             }
         }
     }
@@ -256,6 +270,64 @@ function dialecticWorldKnowledgeRemoveLegacyFactorySeed(object $db, string $root
         fclose($handle);
     }
     return $removed;
+}
+
+/** Seed controlled factory NPC knowledge tags without replacing user-authored template values. */
+function dialecticWorldKnowledgeInstallNpcAccessTags(object $db, string $rootPath): int
+{
+    $path = rtrim($rootPath, '/\\') . DIRECTORY_SEPARATOR . 'data'
+        . DIRECTORY_SEPARATOR . 'fallout_worldknowledge_npc_tags.csv';
+    if (!is_readable($path)) {
+        throw new RuntimeException("Fallout NPC World Knowledge tags are not readable: {$path}");
+    }
+    $handle = fopen($path, 'rb');
+    if ($handle === false) {
+        throw new RuntimeException('Unable to open Fallout NPC World Knowledge tags');
+    }
+    $valuesSql = [];
+    try {
+        if (fgetcsv($handle, 0, ',', '"', '\\') !== ['npc_name', 'worldknowledge_tags']) {
+            throw new RuntimeException('Fallout NPC World Knowledge tag header is invalid');
+        }
+        while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
+            if (count($row) !== 2) {
+                throw new RuntimeException('Fallout NPC World Knowledge tag row is malformed');
+            }
+            $npcName = trim(strval($row[0]));
+            $tags = array_values(array_unique(array_filter(array_map(
+                'dialecticWorldKnowledgeNormalizeAccessTag',
+                explode(',', strval($row[1]))
+            ))));
+            if ($npcName === '' || $tags === []) {
+                throw new RuntimeException('Fallout NPC World Knowledge tag row is empty');
+            }
+            foreach ($tags as $tag) {
+                $parts = explode(':', $tag, 2);
+                if (count($parts) !== 2
+                    || !in_array($parts[0], DIALECTIC_WORLDKNOWLEDGE_ACCESS_NAMESPACES, true)) {
+                    throw new RuntimeException("Fallout NPC template {$npcName} contains unsupported access tag {$tag}");
+                }
+            }
+            $valuesSql[] = '(' . $db->escapeLiteral($npcName) . ','
+                . $db->escapeLiteral(implode(',', $tags)) . ')';
+        }
+    } finally {
+        fclose($handle);
+    }
+    if ($valuesSql === []) {
+        return 0;
+    }
+    $result = $db->fetchOne(
+        'WITH seed(npc_name,tags) AS (VALUES ' . implode(',', $valuesSql) . '), updated AS ('
+        . 'UPDATE public.bio_templates AS template SET worldknowledge_tags=seed.tags FROM seed'
+        . ' WHERE template.npc_name=seed.npc_name'
+        . " AND coalesce(btrim(template.worldknowledge_tags),'')='' RETURNING 1)"
+        . ' SELECT count(*) AS updated FROM updated'
+    );
+    if (!is_array($result) || !array_key_exists('updated', $result)) {
+        throw new RuntimeException('Unable to install Fallout NPC World Knowledge tags');
+    }
+    return intval($result['updated'] ?? 0);
 }
 
 /** Install one immutable factory version, then atomically make it the effective catalog. */
@@ -373,6 +445,8 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
             }
         }
 
+        $npcTemplateTagsInstalled = dialecticWorldKnowledgeInstallNpcAccessTags($db, $rootPath);
+
         if ($activate) {
             if (!$db->execQuery(
                 'UPDATE public.worldknowledge_catalogs SET is_active=FALSE, activated_at=NULL WHERE is_active'
@@ -408,6 +482,7 @@ function dialecticWorldKnowledgeInstallFactoryCatalog(object $db, string $rootPa
         'row_count' => count($catalog['rows']),
         'active' => $activate,
         'legacy_seed_rows_removed' => $legacySeedRemoved ?? 0,
+        'npc_template_tags_installed' => $npcTemplateTagsInstalled ?? 0,
     ];
 }
 

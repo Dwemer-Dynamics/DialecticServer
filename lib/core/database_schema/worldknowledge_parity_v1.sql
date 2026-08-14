@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS public.worldknowledge_audit (
     grounded_matches jsonb NOT NULL DEFAULT '[]'::jsonb,
     rejected_candidates jsonb NOT NULL DEFAULT '[]'::jsonb,
     tag_decisions jsonb NOT NULL DEFAULT '[]'::jsonb,
+    context_tags jsonb NOT NULL DEFAULT '[]'::jsonb,
     fallback jsonb NOT NULL DEFAULT '{}'::jsonb,
     forced_signals jsonb NOT NULL DEFAULT '[]'::jsonb,
     access_decisions jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -204,6 +205,9 @@ CREATE TABLE IF NOT EXISTS public.worldknowledge_audit (
 
 ALTER TABLE public.worldknowledge_audit
     ADD COLUMN IF NOT EXISTS retrieval_elapsed_ms numeric(12,3) NOT NULL DEFAULT 0;
+
+ALTER TABLE public.worldknowledge_audit
+    ADD COLUMN IF NOT EXISTS context_tags jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE INDEX IF NOT EXISTS worldknowledge_audit_created_idx
     ON public.worldknowledge_audit (created_at DESC);

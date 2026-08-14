@@ -26,15 +26,42 @@ function worldknowledgeAuditWebRoot(): string
     return rtrim($root, '/');
 }
 
-function worldknowledgeAuditBuildWhereClause(bool $matchedOnly): string
+/** Every stable status a stored trace can carry, in pipeline order. */
+const WORLDKNOWLEDGE_AUDIT_STATUSES = [
+    'disabled',
+    'ineligible',
+    'grounded',
+    'no_match',
+    'fallback_succeeded',
+    'fallback_failed',
+    'denied',
+];
+
+/**
+ * Compose the row filters. Matched-only and the status filter are ANDed, so
+ * selecting a status the matched-only set excludes correctly yields no rows.
+ * The status value is restricted to the allowlist above and then quoted by the
+ * driver, because this connection exposes no bound-parameter fetch helper.
+ */
+function worldknowledgeAuditBuildWhereClause(bool $matchedOnly, string $status = '', mixed $db = null): string
 {
+    $clauses = [];
     if ($matchedOnly) {
-        return "WHERE status IN ('grounded', 'fallback_succeeded')";
+        $clauses[] = "status IN ('grounded', 'fallback_succeeded')";
     }
-    return '';
+    if ($status !== '' && in_array($status, WORLDKNOWLEDGE_AUDIT_STATUSES, true)) {
+        $literal = ($db !== null && method_exists($db, 'escapeLiteral'))
+            ? $db->escapeLiteral($status)
+            : "'" . $status . "'";
+        $clauses[] = 'status = ' . $literal;
+    }
+    if ($clauses === []) {
+        return '';
+    }
+    return 'WHERE ' . implode(' AND ', $clauses);
 }
 
-function worldknowledgeAuditCountRows(bool $matchedOnly = false): int
+function worldknowledgeAuditCountRows(bool $matchedOnly = false, string $status = ''): int
 {
     $db = $GLOBALS['db'] ?? null;
     if (!$db) {
@@ -42,7 +69,7 @@ function worldknowledgeAuditCountRows(bool $matchedOnly = false): int
     }
 
     try {
-        $whereSql = worldknowledgeAuditBuildWhereClause($matchedOnly);
+        $whereSql = worldknowledgeAuditBuildWhereClause($matchedOnly, $status, $db);
         $row = $db->fetchOne('SELECT COUNT(*) AS total FROM public.worldknowledge_audit ' . $whereSql);
         return intval($row['total'] ?? 0);
     } catch (Throwable $exception) {
@@ -51,21 +78,23 @@ function worldknowledgeAuditCountRows(bool $matchedOnly = false): int
     }
 }
 
-function worldknowledgeAuditFetchRows(int $limit = 50, int $offset = 0, bool $matchedOnly = false): array
+function worldknowledgeAuditFetchRows(int $limit = 50, int $offset = 0, bool $matchedOnly = false, ?bool &$failed = null, string $status = ''): array
 {
+    $failed = false;
     $db = $GLOBALS['db'] ?? null;
     if (!$db) {
+        $failed = true;
         return [];
     }
 
     $safeLimit = max(10, min(100, $limit));
     $safeOffset = max(0, $offset);
     try {
-        $whereSql = worldknowledgeAuditBuildWhereClause($matchedOnly);
+        $whereSql = worldknowledgeAuditBuildWhereClause($matchedOnly, $status, $db);
         return $db->fetchAll(
             'SELECT audit_id, created_at, algorithm_version, status, request_type, npc_name,
                     input_text, normalized_input, catalog_id, catalog_version, grounded_matches,
-                    rejected_candidates, tag_decisions, fallback, forced_signals, access_decisions,
+                    rejected_candidates, tag_decisions, context_tags, fallback, forced_signals, access_decisions,
                     selected_articles, retrieval_elapsed_ms, elapsed_ms
              FROM public.worldknowledge_audit
              ' . $whereSql . '
@@ -75,6 +104,7 @@ function worldknowledgeAuditFetchRows(int $limit = 50, int $offset = 0, bool $ma
         );
     } catch (Throwable $exception) {
         Logger::warn("worldknowledge_audit fetch failed: " . $exception->getMessage());
+        $failed = true;
         return [];
     }
 }
@@ -103,27 +133,107 @@ function worldknowledgeAuditJson(mixed $value): array
     return is_array($decoded) ? $decoded : [];
 }
 
+/**
+ * Build the display and search copy of the stored access decisions.
+ *
+ * A decision carries the resolved article body in `description`, which this
+ * screen never needs to show or search. The body is dropped and every
+ * access-control field a reviewer relies on is kept: the topic, the level that
+ * was granted, the reason, the clause that matched, the rule version, the
+ * required clauses, and the advanced/basic evidence recorded on a denial. Only
+ * the rendered copy changes; the persisted trace row is never rewritten.
+ */
+function worldknowledgeAuditAccessProjection(array $decisions): array
+{
+    $keep = [
+        'topic',
+        'level',
+        'reason',
+        'matched_clause',
+        'rule_version',
+        'required_clauses',
+        'advanced_rule_version',
+        'advanced_required_clauses',
+        'basic_rule_version',
+        'basic_required_clauses',
+    ];
+
+    $projected = [];
+    foreach ($decisions as $decision) {
+        if (!is_array($decision)) {
+            continue;
+        }
+        $view = [];
+        foreach ($keep as $field) {
+            if (array_key_exists($field, $decision)) {
+                $view[$field] = $decision[$field];
+            }
+        }
+        // Record that a body was resolved, and how large it was, without
+        // reproducing a single character of it.
+        if (array_key_exists('description', $decision)) {
+            $view['description_chars'] = strlen(strval($decision['description']));
+        }
+        $projected[] = $view;
+    }
+    return $projected;
+}
+
+/**
+ * Flat lists of scalar tags read far better as chips than as pretty-printed
+ * JSON. Anything richer, or long enough to stop being compact, returns null so
+ * the caller keeps the JSON view.
+ */
+function worldknowledgeAuditTagChips(array $tags, int $limit = 60): ?array
+{
+    if ($tags === [] || count($tags) > $limit || array_keys($tags) !== range(0, count($tags) - 1)) {
+        return null;
+    }
+    $chips = [];
+    foreach ($tags as $tag) {
+        if (!is_scalar($tag)) {
+            return null;
+        }
+        $label = trim(strval($tag));
+        if ($label !== '') {
+            $chips[] = $label;
+        }
+    }
+    return $chips === [] ? null : $chips;
+}
+
+function worldknowledgeAuditStatusLabel(string $status): string
+{
+    return ucwords(str_replace('_', ' ', $status));
+}
+
 $isEmbed = (isset($_GET['embed']) && strval($_GET['embed']) === '1');
 $webRoot = worldknowledgeAuditWebRoot();
 $matchedOnly = isset($_GET['matched']) && strval($_GET['matched']) === '1';
+$statusRaw = trim(strval($_GET['status'] ?? ''));
+$statusFilter = in_array($statusRaw, WORLDKNOWLEDGE_AUDIT_STATUSES, true) ? $statusRaw : '';
 $page = max(1, intval($_GET['page'] ?? 1));
 $perPageAllowed = [25, 50, 100];
 $perPageRaw = intval($_GET['per_page'] ?? 50);
 $perPage = in_array($perPageRaw, $perPageAllowed, true) ? $perPageRaw : 50;
 
-$totalRows = worldknowledgeAuditCountRows($matchedOnly);
+$totalRows = worldknowledgeAuditCountRows($matchedOnly, $statusFilter);
 $totalPages = max(1, intval(ceil($totalRows / $perPage)));
 if ($page > $totalPages) {
     $page = $totalPages;
 }
 $offset = ($page - 1) * $perPage;
-$rows = worldknowledgeAuditFetchRows($perPage, $offset, $matchedOnly);
+$fetchFailed = false;
+$rows = worldknowledgeAuditFetchRows($perPage, $offset, $matchedOnly, $fetchFailed, $statusFilter);
 
 $baseParams = [];
 if ($isEmbed) {
     $baseParams['embed'] = '1';
 }
 $baseParams['per_page'] = strval($perPage);
+if ($statusFilter !== '') {
+    $baseParams['status'] = $statusFilter;
+}
 $paginationBaseParams = $baseParams;
 if ($matchedOnly) {
     $paginationBaseParams['matched'] = '1';
@@ -170,7 +280,41 @@ $rangeEnd = min($offset + $perPage, $totalRows);
         }
         .meta-label { color:rgb(255, 182, 65); font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; }
         .meta-value { font-size:.92rem; word-break: break-word; }
-        .section-label { color:rgb(255, 182, 65); font-weight:700; margin-bottom:4px; }
+        /* Section labels are headings so the card structure is navigable, but
+           they must keep the compact label look, not browser heading sizing. */
+        .section-label {
+            color:rgb(255, 182, 65);
+            font-weight:700;
+            font-size: .95rem;
+            margin: 0 0 4px;
+        }
+        .section-note { color:#9d9d9d; font-weight:400; font-size:.8rem; }
+        .sr-only {
+            position:absolute;
+            width:1px; height:1px;
+            padding:0; margin:-1px;
+            overflow:hidden;
+            clip:rect(0 0 0 0);
+            clip-path: inset(50%);
+            white-space:nowrap;
+            border:0;
+        }
+        .tag-chip-row {
+            display:flex;
+            flex-wrap:wrap;
+            gap:6px;
+            padding: 2px 0 2px;
+        }
+        .tag-chip {
+            display:inline-block;
+            background: rgba(255, 182, 65,.14);
+            border: 1px solid rgba(255, 182, 65,.32);
+            color: #ffd79a;
+            border-radius: 999px;
+            padding: 3px 10px;
+            font-size: .82rem;
+            word-break: break-word;
+        }
         .trace-box {
             background: rgba(0,0,0,.22);
             border: 1px solid rgba(255,255,255,.06);
@@ -191,6 +335,23 @@ $rangeEnd = min($offset + $perPage, $totalRows);
         .search-input {
             width: 100%; background:#111; color:#f2f2f2; border:1px solid #4a4a4a; border-radius:8px; padding:10px 12px;
         }
+        .field-label {
+            display:block;
+            color:rgb(255, 182, 65);
+            font-size:.78rem;
+            text-transform:uppercase;
+            letter-spacing:.04em;
+            margin-bottom:4px;
+        }
+        .field-hint { color:#9d9d9d; font-size:.82rem; margin-top:4px; }
+        .filter-form {
+            display:flex;
+            gap:10px;
+            align-items:flex-end;
+            flex-wrap:wrap;
+            margin:0;
+        }
+        .filter-form label { margin:0; }
         .quick-toggle {
             display: inline-flex;
             align-items: center;
@@ -226,14 +387,22 @@ $rangeEnd = min($offset + $perPage, $totalRows);
             padding: 6px 10px;
             background: rgba(255,255,255,.02);
         }
-        .pager-link[aria-disabled="true"] {
+        /* A disabled step renders as a span rather than a dimmed link, so it is
+           neither focusable nor activatable. pointer-events alone still left it
+           in the tab order and reachable with Enter. */
+        .pager-link.is-disabled {
             opacity: .45;
-            pointer-events: none;
+            cursor: default;
         }
         .per-page-select {
             background:#111; color:#f2f2f2; border:1px solid #4a4a4a; border-radius:8px; padding:6px 8px;
         }
         .empty-state { padding: 20px; text-align:center; color:#aaa; }
+        .error-state {
+            border-color: rgba(198, 83, 83, .55);
+            color: #efc9c9;
+        }
+        .error-state strong { display:block; margin-bottom:6px; color:#ff9a9a; }
         @media (max-width: 850px) {
             .toolbar-wrap { grid-template-columns: 1fr; }
         }
@@ -251,13 +420,21 @@ $rangeEnd = min($offset + $perPage, $totalRows);
 
     <div class="toolbar-wrap">
         <div>
-            <input id="auditSearch" class="search-input" type="text" placeholder="Filter current page by input, selected topic, signals, notes...">
+            <label class="field-label" for="auditSearch">Search this page</label>
+            <input id="auditSearch" class="search-input" type="search"
+                   aria-describedby="auditSearchHint"
+                   placeholder="Input, selected topic, status, signals, notes...">
+            <div class="field-hint" id="auditSearchHint">
+                Filters only the <?= h(strval(count($rows))) ?> trace<?= count($rows) === 1 ? '' : 's' ?>
+                loaded on this page. Use the status filter and pager to search the rest.
+                <span id="auditVisibleCount" role="status"></span>
+            </div>
         </div>
         <label class="quick-toggle" for="matchedOnlyToggle">
             <input id="matchedOnlyToggle" type="checkbox" <?= $matchedOnly ? 'checked' : '' ?>>
             <span>Only Matched</span>
         </label>
-        <form method="get" action="" style="margin:0;">
+        <form method="get" action="" class="filter-form">
             <?php if ($isEmbed): ?>
                 <input type="hidden" name="embed" value="1">
             <?php endif; ?>
@@ -265,22 +442,43 @@ $rangeEnd = min($offset + $perPage, $totalRows);
                 <input type="hidden" name="matched" value="1">
             <?php endif; ?>
             <input type="hidden" name="page" value="1">
-            <label style="display:inline-flex; align-items:center; gap:8px; margin:0;">
-                <span style="font-size:.9rem; color:#b8b8b8;">Per page</span>
+            <label>
+                <span class="field-label">Status</span>
+                <select class="per-page-select" name="status" onchange="this.form.submit()">
+                    <option value="" <?= $statusFilter === '' ? 'selected' : '' ?>>All statuses</option>
+                    <?php foreach (WORLDKNOWLEDGE_AUDIT_STATUSES as $option): ?>
+                        <option value="<?= h($option) ?>" <?= $statusFilter === $option ? 'selected' : '' ?>>
+                            <?= h(worldknowledgeAuditStatusLabel($option)) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <label>
+                <span class="field-label">Per page</span>
                 <select class="per-page-select" name="per_page" onchange="this.form.submit()">
                     <?php foreach ($perPageAllowed as $option): ?>
                         <option value="<?= h(strval($option)) ?>" <?= $perPage === $option ? 'selected' : '' ?>><?= h(strval($option)) ?></option>
                     <?php endforeach; ?>
                 </select>
             </label>
+            <noscript><button type="submit" class="pager-link">Apply</button></noscript>
         </form>
     </div>
 
-    <div class="pager-wrap">
-        <div class="pager-meta">
+    <nav class="pager-wrap" aria-label="Trace pagination">
+        <div class="pager-meta" role="status">
             Showing <?= h(strval($rangeStart)) ?>-<?= h(strval($rangeEnd)) ?> of <?= h(strval($totalRows)) ?> rows
-            <?php if ($matchedOnly): ?>
-                (matched only)
+            <?php
+                $activeFilters = [];
+                if ($matchedOnly) {
+                    $activeFilters[] = 'matched only';
+                }
+                if ($statusFilter !== '') {
+                    $activeFilters[] = 'status: ' . worldknowledgeAuditStatusLabel($statusFilter);
+                }
+            ?>
+            <?php if ($activeFilters !== []): ?>
+                (<?= h(implode(', ', $activeFilters)) ?>)
             <?php endif; ?>
         </div>
         <div class="pager-links">
@@ -290,15 +488,45 @@ $rangeEnd = min($offset + $perPage, $totalRows);
                 $nextParams = $paginationBaseParams;
                 $nextParams['page'] = strval(min($totalPages, $page + 1));
             ?>
-            <a class="pager-link" href="<?= h(worldknowledgeAuditBuildQuery($prevParams)) ?>" aria-disabled="<?= $page <= 1 ? 'true' : 'false' ?>">Prev</a>
+            <?php if ($page > 1): ?>
+                <a class="pager-link" href="<?= h(worldknowledgeAuditBuildQuery($prevParams)) ?>" rel="prev">Prev</a>
+            <?php else: ?>
+                <span class="pager-link is-disabled" aria-disabled="true">Prev</span>
+            <?php endif; ?>
             <span class="pager-meta">Page <?= h(strval($page)) ?> / <?= h(strval($totalPages)) ?></span>
-            <a class="pager-link" href="<?= h(worldknowledgeAuditBuildQuery($nextParams)) ?>" aria-disabled="<?= $page >= $totalPages ? 'true' : 'false' ?>">Next</a>
+            <?php if ($page < $totalPages): ?>
+                <a class="pager-link" href="<?= h(worldknowledgeAuditBuildQuery($nextParams)) ?>" rel="next">Next</a>
+            <?php else: ?>
+                <span class="pager-link is-disabled" aria-disabled="true">Next</span>
+            <?php endif; ?>
         </div>
-    </div>
+    </nav>
 
-    <?php if (count($rows) === 0): ?>
-        <div class="audit-card empty-state">No structured World Knowledge traces yet.</div>
+    <?php if ($fetchFailed): ?>
+        <div class="audit-card empty-state error-state" role="alert">
+            <strong>Could not load audit traces.</strong>
+            <div>The trace query failed, so this page cannot show existing rows. If DIALECTIC was
+                just updated, run the pending database update, then reload. Details are in the server log.</div>
+        </div>
+    <?php elseif (count($rows) === 0): ?>
+        <?php
+            // An empty query string would resolve back to the current URL, so an
+            // unfiltered view needs an explicit "?".
+            $clearHref = worldknowledgeAuditBuildQuery($isEmbed ? ['embed' => '1'] : []);
+            $clearHref = $clearHref === '' ? '?' : $clearHref;
+        ?>
+        <?php if ($activeFilters !== []): ?>
+            <div class="audit-card empty-state">
+                No traces match the current filter (<?= h(implode(', ', $activeFilters)) ?>).
+                <a class="pager-link" style="margin-left:8px;" href="<?= h($clearHref) ?>">Clear filters</a>
+            </div>
+        <?php else: ?>
+            <div class="audit-card empty-state">No structured World Knowledge traces yet.</div>
+        <?php endif; ?>
     <?php else: ?>
+        <div id="auditNoResults" class="audit-card empty-state" hidden>
+            No traces on this page match your search. Clear the box, change the status filter, or try another page.
+        </div>
         <?php foreach ($rows as $row): ?>
             <?php
                 $input = strval($row['input_text'] ?? '');
@@ -312,17 +540,28 @@ $rangeEnd = min($offset + $perPage, $totalRows);
                 $matches = worldknowledgeAuditJson($row['grounded_matches'] ?? []);
                 $rejections = worldknowledgeAuditJson($row['rejected_candidates'] ?? []);
                 $tagDecisions = worldknowledgeAuditJson($row['tag_decisions'] ?? []);
+                $contextTags = worldknowledgeAuditJson($row['context_tags'] ?? []);
                 $fallback = worldknowledgeAuditJson($row['fallback'] ?? []);
                 $forced = worldknowledgeAuditJson($row['forced_signals'] ?? []);
-                $access = worldknowledgeAuditJson($row['access_decisions'] ?? []);
+                // Article bodies stay out of both the rendered trace and the
+                // search payload; the projection keeps the access evidence.
+                $access = worldknowledgeAuditAccessProjection(worldknowledgeAuditJson($row['access_decisions'] ?? []));
                 $selected = worldknowledgeAuditJson($row['selected_articles'] ?? []);
+                $contextTagChips = worldknowledgeAuditTagChips($contextTags);
                 $jsonFlags = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
                 $searchBlob = strtolower(implode(' ', [
                     $input, $normalizedInput, $status, $npcName, $requestType, $catalog,
-                    json_encode([$matches, $rejections, $tagDecisions, $fallback, $forced, $access, $selected], $jsonFlags),
+                    json_encode([$matches, $rejections, $tagDecisions, $contextTags, $fallback, $forced, $access, $selected], $jsonFlags),
                 ]));
+                $cardTitle = trim(sprintf(
+                    '%s trace for %s at %s',
+                    worldknowledgeAuditStatusLabel($status),
+                    $npcName !== '' ? $npcName : '(unknown NPC)',
+                    $created !== '' ? $created : '(unknown time)'
+                ));
             ?>
-            <section class="audit-card" data-search="<?= h($searchBlob) ?>">
+            <section class="audit-card" data-search="<?= h($searchBlob) ?>" aria-label="<?= h($cardTitle) ?>">
+                <h2 class="sr-only"><?= h($cardTitle) ?></h2>
                 <div class="meta-grid">
                     <div class="meta-pill"><div class="meta-label">Status</div><div class="meta-value"><?= h(ucwords(str_replace('_', ' ', $status))) ?></div></div>
                     <div class="meta-pill"><div class="meta-label">NPC</div><div class="meta-value"><?= h($npcName !== '' ? $npcName : '(unknown)') ?></div></div>
@@ -335,20 +574,34 @@ $rangeEnd = min($offset + $perPage, $totalRows);
                     <div class="meta-pill"><div class="meta-label">Retrieval</div><div class="meta-value"><?= h($row['retrieval_elapsed_ms'] ?? '0') ?> ms</div></div>
                 </div>
 
-                <div class="section-label">Input</div>
+                <h3 class="section-label">Input</h3>
                 <div class="trace-box"><?= h($input) ?></div>
 
                 <?php foreach ([
-                    'Selected Articles' => $selected,
-                    'Grounded Matches' => $matches,
-                    'Access Decisions' => $access,
-                    'Rejected Candidates' => $rejections,
-                    'Tag Decisions' => $tagDecisions,
-                    'Forced Context' => $forced,
-                    'Fallback' => $fallback,
-                ] as $label => $payload): ?>
-                    <div class="section-label" style="margin-top:10px;"><?= h($label) ?></div>
-                    <pre class="trace-box"><?= h($payload ? json_encode($payload, $jsonFlags) : '(none)') ?></pre>
+                    ['label' => 'Selected Articles', 'payload' => $selected],
+                    ['label' => 'Grounded Matches', 'payload' => $matches],
+                    ['label' => 'Access Decisions', 'payload' => $access, 'note' => 'article text omitted'],
+                    ['label' => 'NPC Context Tags', 'payload' => $contextTags, 'chips' => $contextTagChips],
+                    ['label' => 'Rejected Candidates', 'payload' => $rejections],
+                    ['label' => 'Tag Decisions', 'payload' => $tagDecisions],
+                    ['label' => 'Forced Context', 'payload' => $forced],
+                    ['label' => 'Fallback', 'payload' => $fallback],
+                ] as $section): ?>
+                    <h3 class="section-label" style="margin-top:10px;">
+                        <?= h($section['label']) ?>
+                        <?php if (isset($section['note'])): ?>
+                            <span class="section-note">(<?= h($section['note']) ?>)</span>
+                        <?php endif; ?>
+                    </h3>
+                    <?php if (!empty($section['chips'])): ?>
+                        <div class="tag-chip-row">
+                            <?php foreach ($section['chips'] as $chip): ?>
+                                <span class="tag-chip"><?= h($chip) ?></span>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <pre class="trace-box"><?= h($section['payload'] ? json_encode($section['payload'], $jsonFlags) : '(none)') ?></pre>
+                    <?php endif; ?>
                 <?php endforeach; ?>
             </section>
         <?php endforeach; ?>
@@ -371,13 +624,34 @@ if (matchedToggle) {
 
 const searchInput = document.getElementById('auditSearch');
 if (searchInput) {
-  searchInput.addEventListener('input', () => {
+  const cards = Array.from(document.querySelectorAll('[data-search]'));
+  const countOutput = document.getElementById('auditVisibleCount');
+  const noResults = document.getElementById('auditNoResults');
+
+  const applyFilter = () => {
     const needle = String(searchInput.value || '').trim().toLowerCase();
-    document.querySelectorAll('[data-search]').forEach((card) => {
+    let visible = 0;
+    cards.forEach((card) => {
       const hay = String(card.getAttribute('data-search') || '').toLowerCase();
-      card.style.display = (needle === '' || hay.includes(needle)) ? '' : 'none';
+      const shown = needle === '' || hay.includes(needle);
+      card.hidden = !shown;
+      card.style.display = shown ? '' : 'none';
+      if (shown) {
+        visible += 1;
+      }
     });
-  });
+    if (countOutput) {
+      countOutput.textContent = needle === ''
+        ? ''
+        : ' Showing ' + visible + ' of ' + cards.length + ' on this page.';
+    }
+    if (noResults) {
+      noResults.hidden = !(needle !== '' && visible === 0);
+    }
+  };
+
+  searchInput.addEventListener('input', applyFilter);
+  applyFilter();
 }
 </script>
 </body>
