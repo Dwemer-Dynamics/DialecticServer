@@ -18,6 +18,45 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         }
     }
 
+    public function testUnsetResultLimitUsesTheSharedThreeArticleDefault(): void
+    {
+        $savedLimit = ['exists' => array_key_exists('WORLDKNOWLEDGE_RESULT_LIMIT', $GLOBALS),
+            'value' => $GLOBALS['WORLDKNOWLEDGE_RESULT_LIMIT'] ?? null];
+        $savedAmount = ['exists' => array_key_exists('WORLDKNOWLEDGE_AMOUNT', $GLOBALS),
+            'value' => $GLOBALS['WORLDKNOWLEDGE_AMOUNT'] ?? null];
+        try {
+            unset($GLOBALS['WORLDKNOWLEDGE_RESULT_LIMIT']);
+            $GLOBALS['WORLDKNOWLEDGE_AMOUNT'] = 1;
+            $this->assertSame(3, dialecticWorldKnowledgeEffectiveSettings()['values']['result_limit']);
+        } finally {
+            if ($savedLimit['exists']) $GLOBALS['WORLDKNOWLEDGE_RESULT_LIMIT'] = $savedLimit['value'];
+            else unset($GLOBALS['WORLDKNOWLEDGE_RESULT_LIMIT']);
+            if ($savedAmount['exists']) $GLOBALS['WORLDKNOWLEDGE_AMOUNT'] = $savedAmount['value'];
+            else unset($GLOBALS['WORLDKNOWLEDGE_AMOUNT']);
+        }
+    }
+
+    public function testFullConversationBudgetSkipsEveryForcedLookup(): void
+    {
+        $db = new class {
+            public function fetchAll(string $query): array
+            {
+                throw new RuntimeException('forced lookup should not run');
+            }
+            public function fetchOne(string $query): array
+            {
+                throw new RuntimeException('forced lookup should not run');
+            }
+        };
+        $GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING'] = 0;
+        try {
+            $this->assertSame(0, dialecticWorldKnowledgeInjectForcedLocationContext($db));
+            $this->assertSame(0, dialecticWorldKnowledgeInjectForcedActorContext($db));
+        } finally {
+            unset($GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING']);
+        }
+    }
+
     public function testInteriorLocationAndWorldspaceProduceSeparateSignals(): void
     {
         $this->assertSame(

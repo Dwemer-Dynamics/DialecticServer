@@ -330,6 +330,9 @@ if (!function_exists('dialecticWorldKnowledgeAppendForcedRows')) {
 if (!function_exists('dialecticWorldKnowledgeInjectForcedLocationContext')) {
     function dialecticWorldKnowledgeInjectForcedLocationContext($db): int
     {
+        if (intval($GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING'] ?? PHP_INT_MAX) <= 0) {
+            return 0;
+        }
         $enabledValue = $GLOBALS['LOCATION_WORLDKNOWLEDGE'] ?? true;
         $enabled = function_exists('isWorldKnowledgeEnabled')
             ? isWorldKnowledgeEnabled($enabledValue)
@@ -346,6 +349,9 @@ if (!function_exists('dialecticWorldKnowledgeInjectForcedLocationContext')) {
             'location',
             1
         );
+        if (intval($GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING'] ?? PHP_INT_MAX) <= 0) {
+            return $added;
+        }
         $added += dialecticWorldKnowledgeAppendForcedRows(
             dialecticWorldKnowledgeFindRowsForSignals($db, $signals['worldspace']),
             $knowledgeTags,
@@ -360,6 +366,9 @@ if (!function_exists('dialecticWorldKnowledgeInjectForcedLocationContext')) {
 if (!function_exists('dialecticWorldKnowledgeInjectForcedActorContext')) {
     function dialecticWorldKnowledgeInjectForcedActorContext($db): int
     {
+        if (intval($GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING'] ?? PHP_INT_MAX) <= 0) {
+            return 0;
+        }
         $signals = dialecticWorldKnowledgeCurrentNpcSignals($db);
         $knowledgeTags = dialecticWorldKnowledgeKnowledgeTags();
         $added = 0;
@@ -374,7 +383,8 @@ if (!function_exists('dialecticWorldKnowledgeInjectForcedActorContext')) {
                 1
             );
         }
-        if ($isEnabled($GLOBALS['FACTION_WORLDKNOWLEDGE'] ?? true)) {
+        if (intval($GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING'] ?? PHP_INT_MAX) > 0
+            && $isEnabled($GLOBALS['FACTION_WORLDKNOWLEDGE'] ?? true)) {
             $added += dialecticWorldKnowledgeAppendForcedRows(
                 dialecticWorldKnowledgeFindRowsForSignals($db, $signals['faction']),
                 $knowledgeTags,

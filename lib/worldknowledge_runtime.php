@@ -40,7 +40,7 @@ function dialecticWorldKnowledgeEffectiveSettings(): array
         return !in_array(strtolower(trim(strval($value))), ['0', 'false', 'no', 'off'], true);
     };
     $topicCount = max(1, min(3, intval($GLOBALS['WORLDKNOWLEDGE_AMOUNT'] ?? 1)));
-    $resultLimit = max(1, min(5, intval($GLOBALS['WORLDKNOWLEDGE_RESULT_LIMIT'] ?? $topicCount)));
+    $resultLimit = max(1, min(5, intval($GLOBALS['WORLDKNOWLEDGE_RESULT_LIMIT'] ?? 3)));
     $fallbackKey = array_key_exists('WORLDKNOWLEDGE_EXTRACTOR_FALLBACK', $GLOBALS)
         ? 'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK'
         : 'WORLDKNOWLEDGE_CUSTOM';
