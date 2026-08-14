@@ -430,7 +430,7 @@ foreach ($rows as $summaryRow) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WorldKnowledge Audit</title>
+    <title>World Knowledge Audit</title>
     <link rel="icon" type="image/x-icon" href="images/favicon.ico">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="css/main.css">
@@ -445,9 +445,9 @@ foreach ($rows as $summaryRow) {
             border: 1px solid #444;
             border-radius: 10px;
         }
-        .page-header { padding: 18px; margin-bottom: 14px; text-align: center; }
+        .page-header { padding: 18px; margin-bottom: 14px; text-align: left; }
         .page-header h1 { margin-bottom: 6px; }
-        .page-header > div { max-width: 720px; margin: 0 auto; color: #c8c8c8; line-height: 1.5; }
+        .page-header > div { max-width: 720px; color: #c8c8c8; line-height: 1.5; }
         .audit-card { padding: 14px; margin-bottom: 12px; }
         /* Plain-language summary tiles, page-scoped except the filtered total. */
         .summary-grid {
@@ -721,6 +721,11 @@ foreach ($rows as $summaryRow) {
                 letter-spacing: .04em;
             }
         }
+        @media (max-width: 420px) {
+            .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .summary-panel { padding: 11px; }
+            .metric { font-size: 19px; }
+        }
     </style>
 </head>
 <body>
@@ -729,7 +734,7 @@ foreach ($rows as $summaryRow) {
 <?php endif; ?>
 <main class="page-wrap container-fluid">
     <div class="page-header">
-        <h1>WorldKnowledge Audit</h1>
+        <h1>World Knowledge Audit</h1>
         <div>See which World Knowledge topics DIALECTIC found in each conversation and what it gave the character.</div>
     </div>
 
