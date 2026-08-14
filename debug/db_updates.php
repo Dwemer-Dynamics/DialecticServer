@@ -4628,8 +4628,8 @@ if ($checkVersion('worldknowledge_oghma_parity') < 20260814001) {
     }
 }
 
-if ($checkVersion('worldknowledge_herika_v1') < 20260814001) {
-    Logger::debug('Applying worldknowledge_herika_v1 20260814001 - use the eight-field Herika article contract');
+if ($checkVersion('worldknowledge_herika_v1') < 20260814002) {
+    Logger::debug('Applying worldknowledge_herika_v1 20260814002 - use the finalized eight-field Herika article contract');
     $migrationOk = false;
     $transactionOpen = false;
     try {
@@ -4660,8 +4660,8 @@ if ($checkVersion('worldknowledge_herika_v1') < 20260814001) {
     }
 
     if ($migrationOk) {
-        $updateVersion('worldknowledge_herika_v1', 20260814001);
-        Logger::info('Applied patch worldknowledge_herika_v1 20260814001');
+        $updateVersion('worldknowledge_herika_v1', 20260814002);
+        Logger::info('Applied patch worldknowledge_herika_v1 20260814002');
     }
 }
 

@@ -1,7 +1,7 @@
 {
   "schema": "dialectic.worldknowledge-catalog.v1",
   "catalog_id": "fallout-3-new-vegas-ttw-official",
-  "catalog_version": "parity-v1.7-2026-08-14",
+  "catalog_version": "parity-v1.8-2026-08-14",
   "display_name": "DIALECTIC Fallout 3, New Vegas, DLC and TTW",
   "csv_file": "fallout_worldknowledge_parity_v1.csv",
   "checksum_sha256": "668643b70ebc932603e730a754d972733a1c0c380c8e4ae3e4c67199535e22f1",

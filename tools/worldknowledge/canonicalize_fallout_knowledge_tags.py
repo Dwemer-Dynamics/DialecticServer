@@ -439,7 +439,7 @@ def rewrite_npc_tags(path: Path, *, check: bool, allowed: set[str]) -> tuple[int
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
-    parser.add_argument("--catalog-version", default="parity-v1.7-2026-08-14")
+    parser.add_argument("--catalog-version", default="parity-v1.8-2026-08-14")
     args = parser.parse_args()
 
     vocabulary = json.loads(VOCABULARY.read_text(encoding="utf-8"))
