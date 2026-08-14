@@ -76,7 +76,9 @@ function worldknowledge_entries_url(array $overrides = []) {
 /**
  * Render a stored access rule as normalized tag chips joined by the operators the
  * runtime actually applies: AND inside a clause, OR between clauses, and the
- * legacy comma form as any-of. Takes the raw database value and escapes it once.
+ * legacy comma form as any-of. Required tags are shown as one adjacent group
+ * rather than repeating a literal AND between every chip; the conjunction is kept
+ * for screen readers only. Takes the raw database value and escapes it once.
  */
 function worldknowledge_render_access_rule($rawRule, $variant = 'advanced') {
     $rawRule = trim((string)$rawRule);
@@ -89,11 +91,17 @@ function worldknowledge_render_access_rule($rawRule, $variant = 'advanced') {
         foreach ($clause as $tag) {
             $chips[] = '<span class="' . $tagClass . '">' . htmlspecialchars($tag) . '</span>';
         }
-        // Legacy comma rules match any single tag; v2 clauses require every tag.
-        $withinClause = $rule['version'] === 2 ? 'and' : 'or';
-        $groups[] = '<span class="rule-clause">'
-            . implode('<span class="rule-op">' . $withinClause . '</span>', $chips)
-            . '</span>';
+        if ($rule['version'] === 2) {
+            // v2 clauses require every tag, so the chips are banded together and
+            // "and" is announced but not drawn between each pair.
+            $clauseClass = 'rule-clause' . (count($chips) > 1 ? ' rule-clause-all' : '');
+            $joiner = '<span class="visually-hidden"> and </span>';
+        } else {
+            // Legacy comma rules match any single tag, so the alternation stays visible.
+            $clauseClass = 'rule-clause';
+            $joiner = '<span class="rule-op">or</span>';
+        }
+        $groups[] = '<span class="' . $clauseClass . '">' . implode($joiner, $chips) . '</span>';
     }
 
     if ($groups) {
@@ -973,18 +981,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         justify-content: flex-end;
     }
 
-    /* Table container height adjustment */
+    /* Table container height adjustment. The surface is a flat panel so the many
+       tinted cues inside it (group headers, rule chips) stay legible. */
     .table-container {
         max-height: calc(100vh - 450px) !important;
         margin-top: 20px;
         width: 100%;
         overflow-x: auto;
-        background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
+        background: rgba(34, 34, 34, 0.98);
         border-radius: 10px;
         border: 1px solid #3a3a3a;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15),
-                    inset 0 1px rgba(255, 255, 255, 0.03);
-        padding: 12px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        padding: 10px;
     }
 
     /* Table styling improvements */
@@ -995,7 +1003,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 
     .table-container th {
-        padding: 12px 10px;
+        padding: 9px 8px;
         font-weight: bold;
         text-align: left;
         vertical-align: top;
@@ -1010,8 +1018,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         overflow-wrap: break-word;
         hyphens: auto;
         vertical-align: top;
-        padding: 10px;
-        line-height: 1.5;
+        padding: 7px 8px;
+        line-height: 1.45;
         border-bottom: 1px solid rgba(74, 74, 74, 0.3);
         color: #d0d0d0;
     }
@@ -1146,7 +1154,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     /* Access rule chips */
     .rule-clause {
-        display: inline-block;
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
+        vertical-align: middle;
+    }
+
+    /* Tags that must all match are banded into a single unit instead of being
+       separated by a repeated AND label. The band survives wrapping, which the
+       narrow rule columns need. */
+    .rule-clause-all {
+        gap: 3px;
+        padding: 1px 3px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 6px;
     }
 
     .rule-tag {
@@ -1154,11 +1176,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         background: rgba(255, 182, 65, 0.18);
         border: 1px solid rgba(255, 182, 65, 0.35);
         color: rgb(255, 182, 65);
-        padding: 3px 8px;
+        padding: 2px 7px;
         margin: 2px;
         border-radius: 4px;
         font-size: 0.85em;
         font-weight: 500;
+    }
+
+    .rule-clause-all .rule-tag {
+        margin: 1px 0;
     }
 
     /* Basic rules use the cool accent so the two rule columns never read alike. */
@@ -1184,7 +1210,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         letter-spacing: 0.04em;
     }
 
+    /* OR is now the only operator drawn between clauses, so it gets the room
+       the removed AND labels used to take up. */
     .rule-op-or {
+        margin: 0 5px;
         color: rgb(255, 182, 65);
     }
 
@@ -1295,29 +1324,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         color: #b5b5b5;
         font-size: 12px;
         line-height: 1.5;
-    }
-
-    /* Text wrapping and overflow handling */
-    .table-container td {
-        word-wrap: break-word;
-        overflow-wrap: break-word;
-        hyphens: auto;
-        vertical-align: top;
-        padding: 10px;
-        line-height: 1.5;
-        border-bottom: 1px solid rgba(74, 74, 74, 0.3);
-        color: #d0d0d0;
-    }
-
-    .table-container th {
-        padding: 12px 10px;
-        font-weight: bold;
-        text-align: left;
-        vertical-align: top;
-        color: rgb(255, 182, 65);
-        background: rgba(26, 26, 26, 0.6);
-        border-bottom: 2px solid rgba(255, 182, 65, 0.3);
-        font-size: 0.95em;
     }
 
     /* Responsive table for smaller screens. Below the table's min-width the
@@ -1785,8 +1791,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 </p>
                 <p class="access-legend-item">
                     <b>Reading a rule</b>
-                    <code>and</code> requires every tag, <code>or</code> accepts any clause, and
-                    <code>except</code> denies a tag outright.
+                    Tags shown boxed together are all required, <code>or</code> accepts any one
+                    group, and <code>except</code> denies a tag outright. Hover a rule to see how
+                    it is stored.
                 </p>
             </div>
             <?php
@@ -1850,14 +1857,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     echo '<th scope="row">' . $topic . '</th>';
                     echo '<td class="wk-divide">' . nl2br($topic_desc) . '</td>';
 
-                    // Advanced access rule, shown as normalized chips joined by AND/OR
+                    // Advanced access rule, shown as grouped required tags with OR between alternatives.
                     echo '<td' . ($knowledgeClassRaw !== '' ? ' title="Stored rule: ' . htmlspecialchars($knowledgeClassRaw, ENT_QUOTES, 'UTF-8') . '"' : '') . '>';
                     echo worldknowledge_render_access_rule($knowledgeClassRaw, 'advanced');
                     echo '</td>';
 
                     echo '<td class="wk-divide">' . nl2br($topic_desc_basic) . '</td>';
 
-                    // Basic access rule, shown as normalized chips joined by AND/OR
+                    // Basic access rule, shown as grouped required tags with OR between alternatives.
                     echo '<td' . ($knowledgeClassBasicRaw !== '' ? ' title="Stored rule: ' . htmlspecialchars($knowledgeClassBasicRaw, ENT_QUOTES, 'UTF-8') . '"' : '') . '>';
                     echo worldknowledge_render_access_rule($knowledgeClassBasicRaw, 'basic');
                     echo '</td>';
