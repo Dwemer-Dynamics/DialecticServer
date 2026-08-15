@@ -4,7 +4,7 @@
   "catalog_version": "parity-v1.8-2026-08-14",
   "display_name": "DIALECTIC Fallout 3, New Vegas, DLC and TTW",
   "csv_file": "fallout_worldknowledge_parity_v1.csv",
-  "checksum_sha256": "668643b70ebc932603e730a754d972733a1c0c380c8e4ae3e4c67199535e22f1",
+  "checksum_sha256": "a6c86b50d66103ae552b1d27e3483a6c19a1ca2ff1f13e8bddd8a94d3d1250f6",
   "row_count": 1169,
   "source_snapshot": {
     "file": "fallout_worldknowledge_sources.jsonl",
