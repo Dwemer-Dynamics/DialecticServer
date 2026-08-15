@@ -78,7 +78,7 @@ function worldknowledge_access_rule_conflicts($advancedRule, $basicRule) {
 /** Build an entries-table URL while preserving only its supported filters. */
 function worldknowledge_entries_url(array $overrides = []) {
     $params = [];
-    foreach (['cat', 'letter', 'search', 'order', 'per_page', 'page'] as $key) {
+    foreach (['cat', 'letter', 'search', 'order', 'page'] as $key) {
         if (isset($_GET[$key]) && trim((string)$_GET[$key]) !== '') {
             $params[$key] = (string)$_GET[$key];
         }
@@ -1104,14 +1104,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         opacity: 0.45;
     }
 
-    .entries-per-page {
-        background: #2b2b2b;
-        color: #f8f9fa;
-        border: 1px solid #555;
-        border-radius: 5px;
-        padding: 5px 7px;
-    }
-
     .factory-read-only {
         display: inline-block;
         color: #b9b9b9;
@@ -1594,9 +1586,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $selectedCategory = $_GET['cat']   ?? '';
             $letter          = strtoupper($_GET['letter'] ?? '');
             $searchTerm      = trim((string)($_GET['search'] ?? ''));
-            $perPageAllowed  = [25, 50, 100];
-            $perPageRaw      = intval($_GET['per_page'] ?? 50);
-            $perPage         = in_array($perPageRaw, $perPageAllowed, true) ? $perPageRaw : 50;
+            // Page size is fixed: every entries page shows the same 500 rows, so
+            // there is nothing for the reader to choose and no per_page input to trust.
+            $perPage         = 500;
             $page            = max(1, intval($_GET['page'] ?? 1));
 
             // Sorting
@@ -1629,7 +1621,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             'letter' => null,
                             'search' => null,
                             'order' => null,
-                            'per_page' => null,
                             'page' => null,
                         ]), ENT_QUOTES, 'UTF-8'); ?>">All Categories</a>
                         <?php
@@ -1640,7 +1631,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                 'letter' => null,
                                 'search' => null,
                                 'order' => null,
-                                'per_page' => null,
                                 'page' => null,
                             ]);
                             echo '<a class="alphabet-button" ' . $style . ' href="'
@@ -1707,20 +1697,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     Showing <?php echo intval($rangeStart); ?>-<?php echo intval($rangeEnd); ?>
                     of <?php echo intval($totalEntries); ?> entries
                 </div>
-                <form method="get" action="" class="entries-pager-controls">
-                    <?php foreach (['cat', 'letter', 'search', 'order'] as $filterKey): ?>
-                        <?php if (isset($_GET[$filterKey]) && trim((string)$_GET[$filterKey]) !== ''): ?>
-                            <input type="hidden" name="<?php echo htmlspecialchars($filterKey); ?>" value="<?php echo htmlspecialchars((string)$_GET[$filterKey], ENT_QUOTES, 'UTF-8'); ?>">
-                        <?php endif; ?>
-                    <?php endforeach; ?>
-                    <input type="hidden" name="page" value="1">
-                    <label for="entriesPerPage">Per page</label>
-                    <select id="entriesPerPage" class="entries-per-page" name="per_page" onchange="this.form.submit()">
-                        <?php foreach ($perPageAllowed as $option): ?>
-                            <option value="<?php echo intval($option); ?>" <?php echo $perPage === $option ? 'selected' : ''; ?>><?php echo intval($option); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </form>
                 <div class="entries-pager-controls">
                     <?php if ($page > 1): ?>
                         <a class="entries-pager-link" href="<?php echo htmlspecialchars(worldknowledge_entries_url(['page' => $page - 1]), ENT_QUOTES, 'UTF-8'); ?>">Previous</a>
@@ -2201,6 +2177,8 @@ function applySearch() {
     if (currentCategory) urlParams.set("cat", currentCategory);
     if (currentLetter) urlParams.set("letter", currentLetter);
     if (currentOrder) urlParams.set("order", currentOrder);
+    // Page size is fixed, so drop any per_page left over in a bookmarked URL.
+    urlParams.delete("per_page");
     urlParams.set("page", "1");
     
     // Create the new URL
