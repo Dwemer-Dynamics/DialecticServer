@@ -435,6 +435,22 @@ final class WorldKnowledgeForcedContextTest extends TestCase
         }
     }
 
+    public function testPreviousExchangeFallbackIsLimitedToReferentialFollowUps(): void
+    {
+        foreach (['What about their leader?', 'Tell me more about it.', 'What happened there?'] as $input) {
+            $this->assertTrue(DialecticWorldKnowledgeRetriever::shouldUsePreviousExchange($input), $input);
+        }
+        foreach (['Thanks.', 'What are we doing now?', 'It started raining.', 'Never mind.'] as $input) {
+            $this->assertFalse(DialecticWorldKnowledgeRetriever::shouldUsePreviousExchange($input), $input);
+        }
+
+        $retriever = new DialecticWorldKnowledgeRetriever([
+            ['topic'=>'new_california_republic', 'aliases'=>'NCR', 'canonical_topic'=>'new_california_republic', 'category'=>'faction', 'tags'=>'representative democracy'],
+        ]);
+        $this->assertSame([], $retriever->extract('What about their leader?', [], 3)['topics']);
+        $this->assertSame(['new_california_republic'], $retriever->extract('We were discussing the NCR.', [], 1)['topics']);
+    }
+
     public function testWorldKnowledgeOverridesUseGlobalThenProfileThenNpcPrecedence(): void
     {
         $GLOBALS['RACE_WORLDKNOWLEDGE'] = true;

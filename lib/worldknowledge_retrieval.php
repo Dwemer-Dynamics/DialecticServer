@@ -48,6 +48,24 @@ final class DialecticWorldKnowledgeRetriever
         ) === 1;
     }
 
+    /** Limit history carry-over to short, explicitly referential follow-up lines. */
+    public static function shouldUsePreviousExchange(string $text): bool
+    {
+        $normalized = self::normalize($text);
+        if ($normalized === '' || mb_strlen($normalized, 'UTF-8') > 240) {
+            return false;
+        }
+        if (preg_match('/^(?:ok(?:ay)?|thanks?|thank you|sure|right|fine|good|got it|i see|never mind|nevermind|forget it|lets go|let us go)$/u', $normalized) === 1) {
+            return false;
+        }
+        if (preg_match('/\b(?:tell me more|go on|what else|anything else|what happened next|why is that|how so)\b/u', $normalized) === 1) {
+            return true;
+        }
+        $reference = preg_match('/\b(?:it|its|they|them|their|theirs|he|him|his|she|her|hers|this|that|these|those|there|former|latter)\b/u', $normalized) === 1;
+        $cue = preg_match('/\b(?:who|what|where|when|why|how|which|leader|leaders|founder|founders|origin|origins|history|story|purpose|member|members|enemy|enemies|ally|allies|located|happened|mean|means|more|else|dangerous|safe|powerful|important)\b/u', $normalized) === 1;
+        return $reference && $cue;
+    }
+
     /**
      * @param list<array<string,mixed>> $catalog
      * @return array{version:string,topics:list<string>,matches:list<array<string,mixed>>,rejected:list<array<string,mixed>>,tag_decisions:list<array<string,mixed>>,fallback_eligible:bool,elapsed_ms:float}

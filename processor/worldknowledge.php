@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_runtime.php';
 require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_forced_context.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'eventlog_helper.php';
 
 $GLOBALS['WORLDKNOWLEDGE_HINT'] = '';
 $GLOBALS['WORLDKNOWLEDGE_INJECTED_TOPICS'] = [];
@@ -14,6 +15,45 @@ if (!function_exists('isWorldKnowledgeEnabled')) {
     function isWorldKnowledgeEnabled(mixed $value): bool
     {
         return !in_array($value, [null, false, 0, '0', 'false', 'off', 'no'], true);
+    }
+}
+
+if (!function_exists('dialecticWorldKnowledgeSanitizeInputText')) {
+    /** Remove transport-only labels while preserving bounded dialogue text. */
+    function dialecticWorldKnowledgeSanitizeInputText(string $input): string
+    {
+        $input = preg_replace('/\([^)]*Context location[^)]*\)/iu', ' ', $input) ?? $input;
+        $input = preg_replace('/\((?:(?:talking|whispering|shouting)|speaking privately)\s+to\s+[^()]+\)/iu', ' ', $input) ?? $input;
+        return trim(mb_strcut(preg_replace('/\s+/u', ' ', $input) ?? $input, 0, 16384, 'UTF-8'));
+    }
+
+    /** Return at most the immediately preceding two distinct dialogue lines. */
+    function dialecticWorldKnowledgePreviousExchangeText($db, string $currentInput): string
+    {
+        $npcName = trim(strval($GLOBALS['DIALECTIC_NAME'] ?? ''));
+        if (!$db || $npcName === '' || !method_exists($db, 'fetchAll') || !method_exists($db, 'escape')
+            || !function_exists('dialecticBuildNpcEventLogPeopleWhereClause')) return '';
+        try {
+            $peopleWhere = dialecticBuildNpcEventLogPeopleWhereClause($db, $npcName);
+            $rows = $db->fetchAll(
+                "SELECT type, data FROM eventlog WHERE type IN ('inputtext','chat','rechat')"
+                . " AND {$peopleWhere} ORDER BY rowid DESC LIMIT 6"
+            );
+        } catch (Throwable) {
+            return '';
+        }
+        $currentKey = DialecticWorldKnowledgeRetriever::normalize($currentInput);
+        $seen = [];
+        $parts = [];
+        foreach ($rows as $row) {
+            $text = dialecticWorldKnowledgeSanitizeInputText(strval($row['data'] ?? ''));
+            $key = DialecticWorldKnowledgeRetriever::normalize($text);
+            if ($key === '' || $key === $currentKey || isset($seen[$key])) continue;
+            $seen[$key] = true;
+            $parts[] = $text;
+            if (count($parts) >= 2) break;
+        }
+        return mb_strcut(implode("\n", array_reverse($parts)), 0, 4096, 'UTF-8');
     }
 }
 
@@ -31,9 +71,7 @@ if ($requestType === 'rechat' && $db && method_exists($db, 'fetchOne')) {
 } else {
     $inputText = trim(strval($gameRequest[3] ?? ''));
 }
-$inputText = preg_replace('/\([^)]*Context location[^)]*\)/iu', ' ', $inputText) ?? $inputText;
-$inputText = preg_replace('/\((?:(?:talking|whispering|shouting)|speaking privately)\s+to\s+[^()]+\)/iu', ' ', $inputText) ?? $inputText;
-$inputText = trim(preg_replace('/\s+/u', ' ', $inputText) ?? $inputText);
+$inputText = dialecticWorldKnowledgeSanitizeInputText($inputText);
 
 $trace = [
     'algorithm_version' => DialecticWorldKnowledgeRetriever::VERSION,
@@ -50,6 +88,7 @@ $trace = [
     'tag_decisions' => [],
     'context_tags' => [],
     'fallback' => ['eligible' => false, 'attempted' => false, 'suggestions' => [], 'resolved_topics' => []],
+    'context_fallback' => ['eligible' => false, 'attempted' => false, 'used' => false],
     'forced_signals' => [],
     'access_decisions' => [],
     'selected_articles' => [],
@@ -94,13 +133,30 @@ foreach ($catalog as $row) {
 $topicCount = intval($settings['topic_count']);
 $resultLimit = intval($settings['result_limit']);
 $retriever = new DialecticWorldKnowledgeRetriever($catalog);
+$retrievalStarted = hrtime(true);
 $retrieval = $retriever->extract($inputText, [], $topicCount);
+$previousExchange = '';
+$trace['context_fallback']['eligible'] = $retrieval['topics'] === []
+    && DialecticWorldKnowledgeRetriever::shouldUsePreviousExchange($inputText);
+if ($trace['context_fallback']['eligible']) {
+    $previousExchange = dialecticWorldKnowledgePreviousExchangeText($db, $inputText);
+    if ($previousExchange !== '') {
+        $trace['context_fallback']['attempted'] = true;
+        $previousRetrieval = $retriever->extract($previousExchange, [], 1);
+        if ($previousRetrieval['topics'] !== []) {
+            foreach ($previousRetrieval['matches'] as &$match) $match['context_source'] = 'previous_exchange';
+            unset($match);
+            $retrieval = $previousRetrieval;
+            $trace['context_fallback']['used'] = true;
+        }
+    }
+}
 $topics = $retrieval['topics'];
 $trace['grounded_matches'] = $retrieval['matches'];
 $trace['rejected_candidates'] = $retrieval['rejected'];
 $trace['tag_decisions'] = $retrieval['tag_decisions'];
 $trace['fallback']['eligible'] = boolval($retrieval['fallback_eligible']);
-$trace['retrieval_elapsed_ms'] = floatval($retrieval['elapsed_ms']);
+$trace['retrieval_elapsed_ms'] = round((hrtime(true) - $retrievalStarted) / 1_000_000, 3);
 
 $fallbackEnabled = boolval($settings['extractor_fallback_enabled']);
 $fallbackConfigured = strval($settings['connector_id']) !== '';
@@ -110,7 +166,10 @@ if ($topics === [] && $retrieval['fallback_eligible'] && $fallbackEnabled && $fa
     try {
         require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_llm_service.php';
         $language = trim(strval($GLOBALS['CORE_LANG'] ?? 'en')) ?: 'en';
-        $response = LLMTopic($inputText, $language);
+        $fallbackText = $trace['context_fallback']['attempted'] && $previousExchange !== ''
+            ? "Previous exchange:\n{$previousExchange}\nCurrent follow-up:\n{$inputText}"
+            : $inputText;
+        $response = LLMTopic($fallbackText, $language);
         $payload = is_string($response) ? json_decode($response, true) : null;
         $generated = trim(strval(is_array($payload) ? ($payload['generated_tags'] ?? '') : ''));
         $suggestions = array_values(array_filter(array_map('trim', preg_split('/[,;|]+/', $generated) ?: [])));
