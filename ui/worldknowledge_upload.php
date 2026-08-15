@@ -148,6 +148,29 @@ function worldknowledge_filter_alias_input($conn, string $schema, string $topic,
     return dialecticWorldKnowledgeFilterAliases($topic, $aliases, $rows);
 }
 
+/** Resolve stored edit ownership instead of trusting a browser-supplied source kind. */
+function worldknowledge_effective_origin($conn, string $schema, string $topic): array {
+    $canonical = dialecticWorldKnowledgeCanonicalTopic($topic);
+    $result = pg_query_params(
+        $conn,
+        "SELECT topic, canonical_topic, source_kind
+           FROM {$schema}.worldknowledge_effective
+          WHERE canonical_topic = $1
+          LIMIT 1",
+        [$canonical]
+    );
+    $row = $result ? pg_fetch_assoc($result) : false;
+    if (!$row) {
+        return ['topic' => '', 'canonical_topic' => '', 'source_kind' => ''];
+    }
+
+    return [
+        'topic' => (string)($row['topic'] ?? ''),
+        'canonical_topic' => (string)($row['canonical_topic'] ?? ''),
+        'source_kind' => strtolower(trim((string)($row['source_kind'] ?? ''))),
+    ];
+}
+
 // The shipped catalog is the only factory dataset, so the page reads the one
 // active row for display and offers no version picker.
 $activeCatalog = null;
@@ -524,7 +547,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_single') {
     // Sanitize and read posted fields - use htmlspecialchars_decode to convert HTML entities back
     $topic_original       = $_POST['topic_original'] ?? '';
+    // The stored row decides what this save may do, never the form.
+    $origin              = worldknowledge_effective_origin($conn, $schema, $topic_original);
+    $origin_is_factory   = $origin['source_kind'] === 'factory';
     $topic_new           = worldknowledge_normalize_topic_key(htmlspecialchars_decode($_POST['topic_new'] ?? ''));
+    if ($origin_is_factory) {
+        // Editing a factory article writes a separate custom article, and that
+        // override only replaces the shipped one while it keeps the same
+        // canonical topic. The stored name therefore wins over the posted one.
+        $topic_new = $origin['topic'];
+    }
     $aliases_input       = htmlspecialchars_decode($_POST['aliases_new'] ?? '');
     $filtered_aliases    = worldknowledge_filter_alias_input($conn, $schema, $topic_new, $aliases_input);
     $aliases_new         = $filtered_aliases['aliases'];
@@ -538,30 +570,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $knowledge_class_basic_new = dialecticWorldKnowledgeNormalizeAccessRule(htmlspecialchars_decode($_POST['knowledge_class_basic_new'] ?? ''));
     $tags_new            = htmlspecialchars_decode($_POST['tags_new'] ?? '');
     $category_new        = htmlspecialchars_decode($_POST['category_new'] ?? '');
-    $canonical_topic_new = dialecticWorldKnowledgeCanonicalTopic($topic_new);
+    $canonical_topic_new = $origin_is_factory
+        ? $origin['canonical_topic']
+        : dialecticWorldKnowledgeCanonicalTopic($topic_new);
     $class_conflict      = worldknowledge_access_rule_conflicts($knowledge_class_new, $knowledge_class_basic_new);
 
-    if ($class_conflict !== '') {
+    if ($origin['source_kind'] === '') {
+        $message .= '<p>The original article no longer exists. Refresh the catalog and try again.</p>';
+    } elseif ($class_conflict !== '') {
         $message .= '<p>' . htmlspecialchars($class_conflict) . '</p>';
     } elseif (!empty($topic_new) && worldknowledge_has_description($topic_desc_new, $topic_desc_basic_new)) {
-        // Perform the update
-        $update_sql = "
-            UPDATE $schema.worldknowledge
-            SET 
-                topic = $1,
-                aliases = $2,
-                topic_desc = $3,
-                knowledge_class = $4,
-                topic_desc_basic = $5,
-                knowledge_class_basic = $6,
-                tags = $7,
-                category = $8,
-                canonical_topic = $9,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE topic = $10 AND source_kind = 'custom'
-        ";
-
-        $update_result = pg_query_params($conn, $update_sql, [
+        $params = [
             $topic_new,
             $aliases_new,
             $topic_desc_new,
@@ -571,30 +590,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $tags_new,
             $category_new,
             $canonical_topic_new,
-            $topic_original
-        ]);
+        ];
 
-        if ($update_result) {
-            $message .= "<p>Row updated successfully for topic <strong>$topic_original</strong>.</p>";
+        if ($origin_is_factory) {
+            // Factory content remains source-controlled. The custom row becomes
+            // effective until the user deletes it and reveals the factory row.
+            $save_sql = "
+                INSERT INTO $schema.worldknowledge (
+                    topic, aliases, topic_desc, knowledge_class, topic_desc_basic,
+                    knowledge_class_basic, tags, category, canonical_topic, source_kind, is_active
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'custom', TRUE)
+                ON CONFLICT (canonical_topic) WHERE source_kind='custom' AND is_active
+                DO UPDATE SET
+                    topic=EXCLUDED.topic, aliases=EXCLUDED.aliases, topic_desc=EXCLUDED.topic_desc,
+                    knowledge_class=EXCLUDED.knowledge_class, topic_desc_basic=EXCLUDED.topic_desc_basic,
+                    knowledge_class_basic=EXCLUDED.knowledge_class_basic, tags=EXCLUDED.tags,
+                    category=EXCLUDED.category, updated_at=CURRENT_TIMESTAMP
+            ";
+        } else {
+            $save_sql = "
+                UPDATE $schema.worldknowledge
+                SET topic=$1, aliases=$2, topic_desc=$3, knowledge_class=$4,
+                    topic_desc_basic=$5, knowledge_class_basic=$6, tags=$7,
+                    category=$8, canonical_topic=$9, updated_at=CURRENT_TIMESTAMP
+                WHERE canonical_topic=$10 AND source_kind='custom'
+            ";
+            $params[] = $origin['canonical_topic'];
+        }
 
-            // Update the native_vector
+        $save_result = pg_query_params($conn, $save_sql, $params);
+        $saved = $save_result !== false && ($origin_is_factory || pg_affected_rows($save_result) === 1);
+
+        if ($saved) {
             $vector_sql = "
                 UPDATE $schema.worldknowledge
-                SET native_vector = 
+                SET native_vector=
                       setweight(to_tsvector(coalesce(topic, '')), 'A')
                     || setweight(to_tsvector(coalesce(aliases, '')), 'A')
                     || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
                     || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
-                WHERE canonical_topic = $1 AND source_kind = 'custom'
+                WHERE canonical_topic=$1 AND source_kind='custom'
             ";
             pg_query_params($conn, $vector_sql, [$canonical_topic_new]);
 
+            $notice = $origin_is_factory
+                ? 'Saved a custom article. It now replaces the factory article, which was left unchanged.'
+                : 'Article updated successfully.';
+            $rejected_count = count($filtered_aliases['rejected']);
+            if ($rejected_count > 0) {
+                $notice .= " {$rejected_count} alias(es) were skipped because another article already owns them.";
+            }
+
             // Exit edit mode while retaining the current table filters and page.
-            header('Location: ' . worldknowledge_entries_url());
+            header('Location: ' . worldknowledge_entries_url(['message' => $notice]));
             exit;
-        } else {
-            $message .= "<p>Error updating row: " . pg_last_error($conn) . "</p>";
         }
+
+        $save_error = trim((string)pg_last_error($conn));
+        if ($save_error === '') {
+            $save_error = 'The article changed before it could be saved. Refresh the catalog and try again.';
+        }
+        $message .= "<p>Error saving row: " . htmlspecialchars($save_error) . "</p>";
     } else {
         $message .= '<p>A topic and at least one description are required when saving.</p>';
     }
@@ -995,6 +1052,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         box-shadow: 0 0 0 3px rgba(255, 182, 65, 0.1);
     }
 
+    /* A factory topic is fixed while it is being overridden, so the field reads
+       as locked rather than merely unresponsive. */
+    .modal-body input[readonly] {
+        background-color: rgba(26, 26, 26, 0.45);
+        color: #bdbdbd;
+        cursor: not-allowed;
+    }
+
+    /* main.css gives the modal buttons an explicit display, which would defeat
+       the hidden attribute, so hiding is restored for everything in the modal. */
+    .modal-body [hidden] {
+        display: none !important;
+    }
+
+    /* Explains that saving a factory article creates a custom one instead. */
+    .factory-override-note {
+        margin: 0 0 18px;
+        padding: 12px 14px;
+        background: rgba(26, 26, 26, 0.6);
+        border: 1px solid #3a3a3a;
+        border-left: 3px solid rgb(255, 182, 65);
+        border-radius: 4px;
+        color: #c9c9c9;
+        font-size: 0.9em;
+        line-height: 1.55;
+    }
+
+    .factory-override-note strong {
+        color: rgb(255, 182, 65);
+    }
+
     .modal-footer {
         position: sticky;
         bottom: 0;
@@ -1102,16 +1190,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     .entries-pager-disabled {
         opacity: 0.45;
-    }
-
-    .factory-read-only {
-        display: inline-block;
-        color: #b9b9b9;
-        border: 1px solid #555;
-        border-radius: 999px;
-        padding: 3px 8px;
-        white-space: nowrap;
-        font-size: 0.82em;
     }
 
     .visually-hidden {
@@ -1602,7 +1680,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             ?>
             
             <h2 id="entries">&#x1F4CB; World Knowledge Entries</h2>
-            
+
             <div class="action-container">
                 <button onclick="openNewEntryModal()" class="action-button add-new">Add New Entry</button>
                 <div class="search-container">
@@ -1782,23 +1860,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     echo '<td style="white-space: nowrap;">';
                     echo '<div style="display: flex; gap: 4px;">';
                     
-                    if ($sourceKind === 'custom') {
-                        echo '<button onclick="openEditModal(' .
-                            htmlspecialchars(json_encode([
-                                'topic' => $topic,
-                                'aliases' => $aliases,
-                                'topic_desc' => $topic_desc,
-                                'knowledge_class' => $knowledge_class,
-                                'topic_desc_basic' => $topic_desc_basic,
-                                'knowledge_class_basic' => $knowledge_class_basic,
-                                'tags' => $tags,
-                                'category' => $category
-                            ]), ENT_QUOTES, 'UTF-8') .
-                            ')" class="action-button edit">Edit</button>';
-                    } else {
-                        echo '<span class="factory-read-only" title="Factory catalog articles cannot be edited here">Read-only</span>';
-                    }
-                    
+                    // Factory articles are editable too: saving one writes a
+                    // custom article over it instead of changing the catalog.
+                    echo '<button type="button"' . ($sourceKind === 'factory'
+                        ? ' title="Saving creates a custom override and leaves the factory article unchanged."'
+                        : '') . ' onclick="openEditModal(' .
+                        htmlspecialchars(json_encode([
+                            'topic' => $topic,
+                            'aliases' => $aliases,
+                            'topic_desc' => $topic_desc,
+                            'knowledge_class' => $knowledge_class,
+                            'topic_desc_basic' => $topic_desc_basic,
+                            'knowledge_class_basic' => $knowledge_class_basic,
+                            'tags' => $tags,
+                            'category' => $category,
+                            'source_kind' => $sourceKind
+                        ]), ENT_QUOTES, 'UTF-8') .
+                        ')" class="action-button edit">Edit<span class="visually-hidden"> ' . htmlspecialchars($topic) . '</span></button>';
                     echo '</div>';
                     echo '</td>';
                     echo '</tr>';
@@ -1830,13 +1908,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             <h2 class="modal-title" id="editModalTitle">Edit WorldKnowledge Entry</h2>
         </div>
         <div class="modal-body">
+            <p class="factory-override-note" id="edit_factory_note" hidden>
+                <strong>This article ships with DIALECTIC.</strong>
+                It is never changed here. Saving stores a separate custom article for the same topic,
+                and that custom article is what NPCs receive from then on. Delete the custom article
+                later and the factory one is in use again.
+            </p>
             <form action="" method="post" class="worldknowledge-entry-form">
                 <input type="hidden" name="action" value="update_single">
                 <input type="hidden" name="topic_original" id="edit_topic_original">
 
                 <label for="edit_topic">Topic:</label>
-                <small>Canonical lowercase topic identifier.</small>
-                <input type="text" name="topic_new" id="edit_topic" required>
+                <small id="edit_topic_hint">Canonical lowercase topic identifier.</small>
+                <input type="text" name="topic_new" id="edit_topic" aria-describedby="edit_topic_hint" required>
 
                 <label for="edit_aliases">Aliases:</label>
                 <small>Alternate names that should find this article. Separate aliases with commas.</small>
@@ -1877,8 +1961,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <input type="text" name="category_new" id="edit_category">
 
                 <div class="modal-footer">
-                    <button type="submit" name="submit" value="update" class="btn-save">Save Changes</button>
-                    <button type="button" onclick="deleteEntry()" class="btn-danger">Delete</button>
+                    <button type="submit" name="submit" value="update" class="btn-save" id="edit_save_button">Save Changes</button>
+                    <button type="button" onclick="deleteEntry()" class="btn-danger" id="edit_delete_button">Delete</button>
                     <button type="button" onclick="closeEditModal()" class="btn-base btn-cancel">Cancel</button>
                 </div>
             </form>
@@ -2086,6 +2170,35 @@ function openEditModal(data) {
         document.getElementById("edit_tags").value = decodeHTML(data.tags);
         document.getElementById("edit_category").value = decodeHTML(data.category);
 
+        // Presentation only: the server re-reads the stored row before deciding
+        // what a save is allowed to write.
+        const isFactory = (data.source_kind || '') === 'factory';
+        const modal = document.getElementById("editModal");
+        const deleteButton = document.getElementById("edit_delete_button");
+
+        document.getElementById("editModalTitle").textContent =
+            isFactory ? 'Edit Factory Article' : 'Edit WorldKnowledge Entry';
+        document.getElementById("edit_factory_note").hidden = !isFactory;
+        document.getElementById("edit_save_button").textContent =
+            isFactory ? 'Save as Custom Article' : 'Save Changes';
+
+        // The override has to keep the factory topic to replace that article.
+        const topicField = document.getElementById("edit_topic");
+        topicField.readOnly = isFactory;
+        document.getElementById("edit_topic_hint").textContent = isFactory
+            ? 'A factory topic keeps its name so the custom article replaces it.'
+            : 'Canonical lowercase topic identifier.';
+
+        // Nothing custom exists for a factory topic yet, so there is nothing to delete.
+        deleteButton.hidden = isFactory;
+        deleteButton.disabled = isFactory;
+
+        if (isFactory) {
+            modal.setAttribute('aria-describedby', 'edit_factory_note');
+        } else {
+            modal.removeAttribute('aria-describedby');
+        }
+
         openModal("editModal");
     } catch (error) {
         console.error('Error in openEditModal:', error);
@@ -2144,7 +2257,7 @@ document.addEventListener('keydown', function(event) {
 
 function deleteEntry() {
     const topic = document.getElementById('edit_topic_original').value;
-    if (confirm("Are you sure you want to delete: " + topic + "?")) {
+    if (confirm("Delete the custom article \"" + topic + "\"? If DIALECTIC ships a factory article for this topic, that one will be used again.")) {
         const form = document.createElement('form');
         form.method = 'POST';
         const currentCategory = new URLSearchParams(window.location.search).get('cat');
