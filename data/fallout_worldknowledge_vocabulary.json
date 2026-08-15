@@ -1,0 +1,91 @@
+{
+  "format": "dwemer.dialectic-worldknowledge-vocabulary.v1",
+  "version": "1.2.0",
+  "frozen_on": "2026-08-13",
+  "canonical_style": "lowercase_snake_case",
+  "semantics": {
+    "knowledge_tags": "Plain permissions representing knowledge an NPC can plausibly use.",
+    "article_tags": "Natural descriptive phrases used for search and for ranking an already grounded topic.",
+    "profile_subjects": "Exact NPC IDs are inferred at request time for self-knowledge and are never persisted as profile tags.",
+    "rule_grammar": "Comma-separated classes are simple alternatives. A matching exclamation-prefixed class denies first. Empty classes are unrestricted."
+  },
+  "roles": [
+    "traveler", "doctor", "engineer", "explorer", "gunsmith", "historian",
+    "hunter", "leader", "medic", "merchant", "missionary", "prospector",
+    "raider", "researcher", "scavenger", "scientist", "scout", "security",
+    "slave", "sniper", "soldier", "survivalist", "tribal", "vault_dweller"
+  ],
+  "domains": [
+    "agriculture", "archaeology", "biology", "chemistry", "energy_weapons",
+    "engineering", "explosives", "faction_intelligence", "firearms", "history",
+    "medicine", "military", "politics", "prewar_history", "robotics", "survival",
+    "technology", "trade", "vault_tec", "wildlife", "xenotechnology"
+  ],
+  "factions": [
+    "boomers", "brotherhood_of_steel", "caesars_legion", "chairmen",
+    "children_of_atom", "enclave", "followers_of_the_apocalypse", "great_khans",
+    "gun_runners", "ncr", "powder_gangers", "raider", "the_family",
+    "white_glove_society"
+  ],
+  "races": ["dog", "ghoul", "human", "nightkin", "robot", "super_mutant"],
+  "regions": [
+    "anchorage", "big_mt", "capital_wasteland", "divide", "mojave",
+    "mothership_zeta", "point_lookout", "sierra_madre", "the_pitt", "zion"
+  ],
+  "localities": [
+    "big_town", "camp_mccarran", "canterbury_commons", "freeside",
+    "goodsprings", "hidden_valley", "hoover_dam", "jacobstown",
+    "little_lamplight", "megaton", "new_vegas", "new_vegas_strip",
+    "novac", "paradise_falls", "primm", "red_rock_canyon", "rivet_city",
+    "tenpenny_tower", "underworld", "vault_101", "westside"
+  ],
+  "reserved": ["blocked", "common", "knowall"],
+  "article_access_markers": ["blocked", "common"],
+  "legacy_namespaces": [
+    "person", "region", "community", "place", "faction", "role", "domain", "race"
+  ],
+  "legacy_aliases": {
+    "person:lonewanderer": "lone_wanderer",
+    "person:vault_dweller": "the_vault_dweller",
+    "role:caravaner": "traveler",
+    "role:courier": "traveler",
+    "role:military": "soldier",
+    "faction:military": "soldier",
+    "faction:legion": "caesars_legion",
+    "faction:brotherhood": "brotherhood_of_steel",
+    "faction:brotherhood_of_steelf": "brotherhood_of_steel",
+    "faction:followers": "followers_of_the_apocalypse",
+    "faction:great_khan": "great_khans",
+    "faction:powder_ganger": "powder_gangers",
+    "faction:raiders": "raider",
+    "race:supermutant": "super_mutant",
+    "region:the_divide": "divide",
+    "place:the_divide": "divide",
+    "region:zion_canyon": "zion",
+    "place:zion_canyon": "zion",
+    "community:zion_canyon": "zion"
+  },
+  "plain_legacy_aliases": {
+    "lonewanderer": "lone_wanderer",
+    "caravaner": "traveler",
+    "legion": "caesars_legion",
+    "brotherhood": "brotherhood_of_steel",
+    "brotherhood_of_steelf": "brotherhood_of_steel",
+    "followers": "followers_of_the_apocalypse",
+    "great_khan": "great_khans",
+    "powder_ganger": "powder_gangers",
+    "raiders": "raider",
+    "supermutant": "super_mutant",
+    "big_empty": "big_mt",
+    "the_divide": "divide",
+    "zion_canyon": "zion"
+  },
+  "biography_rules": {
+    "always_add": [],
+    "never_assign": ["blocked", "common", "knowall"],
+    "person": "Never persist an NPC ID as a profile tag; self-knowledge is inferred at request time.",
+    "location": "Use current or former stable familiarity, not transient quest destinations.",
+    "occupation": "Grant only practiced knowledge-bearing roles.",
+    "faction": "Grant only authoritative membership or explicit durable biography evidence."
+  }
+}

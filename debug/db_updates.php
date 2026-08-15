@@ -619,6 +619,7 @@ if (!$existsColumn[0]["column_name"]) {
 $db->execQuery("
     CREATE TABLE IF NOT EXISTS public.worldknowledge (
         topic character varying NOT NULL,
+        aliases text NOT NULL DEFAULT '',
         topic_desc character varying NOT NULL,
         native_vector tsvector,
         knowledge_class text,
@@ -628,6 +629,7 @@ $db->execQuery("
         category text
     )
 ");
+$db->execQuery("ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS aliases text NOT NULL DEFAULT ''");
 $db->execQuery("ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS native_vector tsvector");
 $db->execQuery("ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS knowledge_class text");
 $db->execQuery("ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS topic_desc_basic text");
@@ -4312,6 +4314,7 @@ if ($checkVersion("fallout_worldknowledge_seed") < 20260722001) {
         try {
             $expectedHeader = [
                 'topic',
+                'aliases',
                 'topic_desc',
                 'knowledge_class',
                 'topic_desc_basic',
@@ -4368,7 +4371,11 @@ if ($checkVersion("fallout_worldknowledge_seed") < 20260722001) {
                     throw new RuntimeException('Unable to map a world knowledge seed row');
                 }
 
-                $topic = dialecticWorldKnowledgeNormalizeTopicList($data['topic'] ?? '');
+                $topicAndAliases = trim(strval($data['topic'] ?? ''));
+                if (trim(strval($data['aliases'] ?? '')) !== '') {
+                    $topicAndAliases .= ',' . trim(strval($data['aliases']));
+                }
+                $topic = dialecticWorldKnowledgeNormalizeTopicList($topicAndAliases);
                 $canonicalTopic = dialecticWorldKnowledgeCanonicalTopic($topic);
                 $basicDescription = trim(strval($data['topic_desc_basic'] ?? ''));
                 $category = strtolower(trim(strval($data['category'] ?? '')));
@@ -4448,6 +4455,312 @@ if ($checkVersion("fallout_worldknowledge_seed") < 20260722001) {
     if ($b_ok) {
         $updateVersion("fallout_worldknowledge_seed", 20260722001);
         Logger::info("Applied patch fallout_worldknowledge_seed 20260722001");
+    }
+}
+
+if ($checkVersion('worldknowledge_parity') < 20260813001) {
+    Logger::debug('Applying worldknowledge_parity 20260813001 - add factory catalog metadata and structured audit');
+    $migrationOk = false;
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge parity migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '') {
+            throw new RuntimeException('World Knowledge parity schema is missing');
+        }
+        if (!$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge parity schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge parity schema');
+        }
+        $transactionOpen = false;
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge parity schema: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_parity', 20260813001);
+        Logger::info('Applied patch worldknowledge_parity 20260813001');
+    }
+}
+
+if ($checkVersion('worldknowledge_access') < 20260813001) {
+    Logger::debug('Applying worldknowledge_access 20260813001 - install tiered catalog and NPC context tags');
+    $migrationOk = false;
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge access migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '' || !$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge access schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge access schema');
+        }
+        $transactionOpen = false;
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge access migration: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_access', 20260813001);
+        Logger::info('Applied patch worldknowledge_access 20260813001');
+    }
+}
+
+if ($checkVersion('worldknowledge_canonical_tags') < 20260813003) {
+    Logger::debug('Applying worldknowledge_canonical_tags 20260813003 - canonicalize access permissions');
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge canonical tag migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '' || !$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge canonical tag schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge canonical tag schema');
+        }
+        $transactionOpen = false;
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
+        $updateVersion('worldknowledge_canonical_tags', 20260813003);
+        Logger::info('Applied patch worldknowledge_canonical_tags 20260813003');
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge canonical tags: ' . $e->getMessage());
+    }
+}
+
+if ($checkVersion('worldknowledge_oghma_parity') < 20260814001) {
+    Logger::debug('Applying worldknowledge_oghma_parity 20260814001 - install curated Oghma catalog');
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge Oghma parity migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '' || !$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge Oghma parity schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge Oghma parity schema');
+        }
+        $transactionOpen = false;
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
+        $invalidCatalogRows = $db->fetchAll(
+            "SELECT catalog.catalog_id, catalog.catalog_version"
+            . " FROM public.worldknowledge_catalogs AS catalog"
+            . " WHERE NOT catalog.is_active AND (SELECT count(*) FROM public.worldknowledge AS article"
+            . " WHERE article.source_kind='factory' AND article.catalog_id=catalog.catalog_id"
+            . " AND article.catalog_version=catalog.catalog_version) <> catalog.row_count"
+        );
+        $removedIncompleteCatalogs = 0;
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin incomplete World Knowledge catalog cleanup');
+        }
+        $transactionOpen = true;
+        foreach ((array)$invalidCatalogRows as $invalidCatalog) {
+            $catalogId = strval($invalidCatalog['catalog_id'] ?? '');
+            $catalogVersion = strval($invalidCatalog['catalog_version'] ?? '');
+            if ($catalogId === '' || $catalogVersion === '') {
+                continue;
+            }
+            if (!$db->execQuery(
+                "DELETE FROM public.worldknowledge WHERE source_kind='factory' AND catalog_id="
+                . $db->escapeLiteral($catalogId) . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion)
+            ) || !$db->execQuery(
+                'DELETE FROM public.worldknowledge_catalogs WHERE NOT is_active AND catalog_id='
+                . $db->escapeLiteral($catalogId) . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion)
+            )) {
+                throw new RuntimeException("Unable to remove incomplete World Knowledge catalog {$catalogId}/{$catalogVersion}");
+            }
+            $removedIncompleteCatalogs++;
+        }
+        $updateVersion('worldknowledge_oghma_parity', 20260814001);
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit incomplete World Knowledge catalog cleanup');
+        }
+        $transactionOpen = false;
+        Logger::info("Applied patch worldknowledge_oghma_parity 20260814001; removed {$removedIncompleteCatalogs} incomplete inactive factory catalogs");
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge Oghma parity: ' . $e->getMessage());
+    }
+}
+
+if ($checkVersion('worldknowledge_herika_v1') < 20260814002) {
+    Logger::debug('Applying worldknowledge_herika_v1 20260814002 - use the finalized eight-field Herika article contract');
+    $migrationOk = false;
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge Herika V1 migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '' || !$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge Herika V1 schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge Herika V1 schema');
+        }
+        $transactionOpen = false;
+
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge Herika V1 contract: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_herika_v1', 20260814002);
+        Logger::info('Applied patch worldknowledge_herika_v1 20260814002');
+    }
+}
+
+if ($checkVersion('worldknowledge_npc_common_cleanup') < 20260814004) {
+    Logger::debug('Applying worldknowledge_npc_common_cleanup 20260814004 - remove the legacy public marker from NPC tags');
+    $migrationOk = false;
+    try {
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        $updatedNpcTags = dialecticWorldKnowledgeInstallNpcAccessTags(
+            $db,
+            dirname(__DIR__) . DIRECTORY_SEPARATOR
+        );
+        $removedCommonTags = 0;
+        foreach (['bio_templates', 'bio_templates_custom', 'core_npc_master', 'core_npc_master_history'] as $npcTable) {
+            $result = $db->fetchOne(
+                "WITH updated AS (UPDATE public.{$npcTable} AS npc SET worldknowledge_tags=COALESCE(("
+                . "SELECT string_agg(btrim(entry.tag), ',' ORDER BY entry.ordinality)"
+                . " FROM unnest(string_to_array(coalesce(npc.worldknowledge_tags,''), ','))"
+                . " WITH ORDINALITY AS entry(tag, ordinality)"
+                . " WHERE btrim(entry.tag)<>'' AND lower(btrim(entry.tag))<>'common'"
+                . "),'') WHERE 'common'=ANY(regexp_split_to_array(lower(coalesce(npc.worldknowledge_tags,'')),"
+                . " '[,|[:space:]]+')) RETURNING 1) SELECT count(*) AS updated FROM updated"
+            );
+            if (!is_array($result) || !array_key_exists('updated', $result)) {
+                throw new RuntimeException("Unable to remove common from {$npcTable} World Knowledge tags");
+            }
+            $removedCommonTags += intval($result['updated'] ?? 0);
+        }
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        Logger::error('Error removing the legacy common marker from NPC tags: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_npc_common_cleanup', 20260814004);
+        Logger::info("Applied patch worldknowledge_npc_common_cleanup 20260814004; reprojected {$updatedNpcTags} factory rows and removed common from {$removedCommonTags} NPC tag rows");
+    }
+}
+
+if ($checkVersion('worldknowledge_npc_class_cleanup') < 20260814005) {
+    Logger::debug('Applying worldknowledge_npc_class_cleanup 20260814005 - remove persisted NPC subject classes');
+    $migrationOk = false;
+    try {
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        $updatedNpcTags = dialecticWorldKnowledgeInstallNpcAccessTags(
+            $db,
+            dirname(__DIR__) . DIRECTORY_SEPARATOR
+        );
+        $removedSubjectTags = 0;
+        foreach (['bio_templates', 'bio_templates_custom', 'core_npc_master', 'core_npc_master_history'] as $npcTable) {
+            $normalizedNpcName = "trim(both '_' from regexp_replace(lower(split_part(coalesce(npc.npc_name,''),'__',1)), '[^a-z0-9]+', '_', 'g'))";
+            $result = $db->fetchOne(
+                "WITH updated AS (UPDATE public.{$npcTable} AS npc SET worldknowledge_tags=COALESCE(("
+                . "SELECT string_agg(btrim(entry.tag), ',' ORDER BY entry.ordinality)"
+                . " FROM unnest(string_to_array(coalesce(npc.worldknowledge_tags,''), ','))"
+                . " WITH ORDINALITY AS entry(tag, ordinality)"
+                . " WHERE btrim(entry.tag)<>''"
+                . " AND lower(btrim(entry.tag))<>({$normalizedNpcName})"
+                . "),'') WHERE ({$normalizedNpcName})<>'' AND ({$normalizedNpcName})=ANY("
+                . "regexp_split_to_array(lower(coalesce(npc.worldknowledge_tags,'')), '[,|[:space:]]+'))"
+                . " RETURNING 1) SELECT count(*) AS updated FROM updated"
+            );
+            if (!is_array($result) || !array_key_exists('updated', $result)) {
+                throw new RuntimeException("Unable to remove persisted NPC subjects from {$npcTable} World Knowledge tags");
+            }
+            $removedSubjectTags += intval($result['updated'] ?? 0);
+        }
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        Logger::error('Error removing persisted NPC subject classes: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_npc_class_cleanup', 20260814005);
+        Logger::info("Applied patch worldknowledge_npc_class_cleanup 20260814005; reprojected {$updatedNpcTags} factory rows and removed subjects from {$removedSubjectTags} NPC tag rows");
+    }
+}
+
+if ($checkVersion('worldknowledge_catalog_integrity') < 20260814006) {
+    Logger::debug('Applying worldknowledge_catalog_integrity 20260814006 - restore and verify the complete active factory catalog');
+    $migrationOk = false;
+    try {
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        $catalogResult = dialecticWorldKnowledgeInstallFactoryCatalog(
+            $db,
+            dirname(__DIR__) . DIRECTORY_SEPARATOR
+        );
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        Logger::error('Error synchronizing the complete World Knowledge catalog: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_catalog_integrity', 20260814006);
+        Logger::info(
+            'Applied patch worldknowledge_catalog_integrity 20260814006; synchronized '
+            . $catalogResult['catalog_id'] . '/' . $catalogResult['catalog_version']
+            . ' with ' . $catalogResult['row_count'] . ' factory articles'
+        );
     }
 }
 

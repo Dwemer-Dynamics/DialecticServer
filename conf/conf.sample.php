@@ -35,8 +35,9 @@ $DYNAMIC_PROFILE=false; //Dynamic profile updates using a timer system.
 // NOTE: AUTO_DIARY and AUTO_DIARY_WAIT have been moved to profile-level settings. Configure them in your profile settings UI instead of here.
 $POWER_AWARENESS_ENABLED=false; //Enable Power Awareness system. NPCs will be aware of relative power levels and react appropriately to threats.
 $MINIME_T5=false; //Assists smaller weight LLMs with action and memory functions.
-$WORLDKNOWLEDGE="knowall"; //Assists smaller weight LLMs with action and memory functions.
+$WORLDKNOWLEDGE=""; //Active NPC or narrator profile knowledge tags are applied per request.
 $WORLDKNOWLEDGE_AMOUNT=1; //Number of WorldKnowledge keywords to extract from each response. More keyword extraction will mean longer response times.
+$WORLDKNOWLEDGE_RESULT_LIMIT=3; //Maximum World Knowledge articles included in one prompt after conversational and forced selection.
 $PLAYER_RESPEECH=true; //Use default diary connector AI to rewrite player speech. Currently only triggers when starting speech with **.
 $PLAYER_SPEECH_STYLE=""; //Instructions for how the player character speaks and communicates. Used as context when rewriting player dialogue.
 $PROMPT_TIMESTAMP=false; //Add rough timestamp subdividers to event context (e.g., 'Moments Ago', 'A while ago') to help the LLM understand temporal relationships.
@@ -349,6 +350,10 @@ $FEATURES["MISC"]["JSON_DIALOGUE_FORMAT_REORDER"]=false; //Reorders properties i
 
 $WORLDKNOWLEDGE_INFINIUM=true;
 $LOCATION_WORLDKNOWLEDGE=true; // Force matching current location and worldspace lore into prompts.
+$RACE_WORLDKNOWLEDGE=true; // Force matching NPC race or species lore into prompts.
+$FACTION_WORLDKNOWLEDGE=true; // Force matching active NPC faction lore into prompts.
+$WORLDKNOWLEDGE_EXTRACTOR_FALLBACK=false; // Optionally allow one connector fallback for explicit unmatched lore requests when custom extraction is enabled.
+$WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS=1500; //Bound the optional extractor fallback between 250 and 3000 milliseconds.
 
 $FEATURES["MISC"]["LIFE_LINK_PLUGIN"]=false; // WIP. Use life link plugin for dynamic profiles
 

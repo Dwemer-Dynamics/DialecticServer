@@ -21,6 +21,24 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
         $this->assertTrue(dialecticRuntimeDatabaseEncodingIsSupported());
     }
 
+    public function testNpcWithoutKnowledgeTagsClearsPreviousActorsKnowall(): void
+    {
+        $GLOBALS['WORLDKNOWLEDGE'] = 'knowall';
+
+        $this->npcMaster->setOldGlobalsFromCurrentNpcData([
+            'npc_name' => 'No Knowledge Tags Test',
+        ], false);
+
+        $this->assertSame('', $GLOBALS['WORLDKNOWLEDGE']);
+
+        $this->npcMaster->setOldGlobalsFromCurrentNpcData([
+            'npc_name' => 'Tagged Knowledge Test',
+            'worldknowledge_tags' => 'community:goodsprings,domain:medicine',
+        ], false);
+
+        $this->assertSame('community:goodsprings,domain:medicine', $GLOBALS['WORLDKNOWLEDGE']);
+    }
+
     public function testNpcMetadataRoundTripsUnicode(): void
     {
         $created = $this->npcMaster->create([
