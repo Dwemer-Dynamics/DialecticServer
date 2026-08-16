@@ -259,7 +259,7 @@ if (in_array($currentPageName, $roleplayPages, true)) {
 // Server version and dev-build detection
 // Read version from .version_number.txt
 $versionFile = dirname(__DIR__, 2) . '/.version_number.txt';
-$serverVersionRaw = '0.7.3'; // fallback
+$serverVersionRaw = '0.8.0'; // fallback
 if (file_exists($versionFile)) {
  $versionContent = trim(file_get_contents($versionFile));
  if ($versionContent !== '') {

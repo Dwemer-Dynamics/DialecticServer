@@ -1,0 +1,92 @@
+{
+  "schema": "dialectic.worldknowledge-editorial-curation.v1",
+  "exclusions": {
+    "generic_ammunition": [
+      "shotgun_shell",
+      "357_magnum_round",
+      "20_gauge_round",
+      "45_70_gov_t",
+      "25mm_grenade",
+      "9mm_round",
+      "flamer_fuel",
+      "50_mg",
+      "32_caliber_round",
+      "308_caliber_round",
+      "40mm_grenade",
+      "5mm_round",
+      "12_gauge_round",
+      "44_round_magnum",
+      "44_magnum_round",
+      "missile",
+      "308_round",
+      "12_7mm_round",
+      "5_56mm_round",
+      "case_45_auto",
+      "10mm_round"
+    ],
+    "generic_inventory": [
+      "flour",
+      "surgical_tubing",
+      "cherry_bomb",
+      "scrap_electronics",
+      "sensor_module",
+      "empty_soda_bottle",
+      "pressure_cooker",
+      "lead_metal",
+      "campfire",
+      "steam_gauge_assembly",
+      "workbench",
+      "turpentine",
+      "motorcycle_handbrake",
+      "reloading_bench"
+    ],
+    "generic_food_drink": [
+      "dirty_water",
+      "wine",
+      "purified_water",
+      "irradiated_water",
+      "bubblegum",
+      "mre",
+      "fresh_potato",
+      "whiskey",
+      "human_flesh",
+      "blood_sausage",
+      "pork_n_beans",
+      "trail_mix"
+    ]
+  },
+  "merges": {
+    "doctor_s_bag": {
+      "survivor": "doctor_s_bag",
+      "sources": ["doctors_bag", "doctor_s_bag"],
+      "title": "Doctor's bag",
+      "aliases": ["doctors bag"],
+      "category": "medicine",
+      "game": "Fallout 3 and New Vegas"
+    },
+    "euclid_s_c_finder": {
+      "survivor": "euclid_s_c_finder",
+      "sources": ["euclids_c_finder", "euclid_s_c_finder"],
+      "title": "Euclid's C-Finder",
+      "aliases": ["Euclids C Finder"],
+      "category": "weapon",
+      "game": "Fallout New Vegas"
+    },
+    "gun_runners": {
+      "survivor": "gun_runners",
+      "sources": ["gun_runners", "gun_runners_faction"],
+      "title": "Gun Runners",
+      "aliases": ["the Gun Runners", "Gun Runners faction"],
+      "category": "organization",
+      "game": "Fallout New Vegas"
+    },
+    "energy_weapon_power_cells": {
+      "survivor": "microfusion_cell",
+      "sources": ["energy_cell", "electron_charge_pack", "microfusion_cell"],
+      "title": "Energy weapon power cells",
+      "aliases": ["energy cells", "microfusion cells", "electron charge packs"],
+      "category": "technology",
+      "game": "Fallout 3 and New Vegas"
+    }
+  }
+}

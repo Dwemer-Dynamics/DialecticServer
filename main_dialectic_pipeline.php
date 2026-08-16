@@ -2346,7 +2346,7 @@ error_log("[WORLDKNOWLEDGE CHECK] MINIME_T5(auto)=" . ($minimeEnabled ? 'Y' : 'N
     . " | WORLDKNOWLEDGE_INFINIUM=" . var_export($GLOBALS["WORLDKNOWLEDGE_INFINIUM"] ?? null, true)
     . " (enabled=" . ($worldknowledgeInfiniumEnabled ? 'Y' : 'N') . ")");
 
-if (($minimeEnabled || $worldknowledgeCustomEnabled || $locationWorldKnowledgeEnabled) && $worldknowledgeInfiniumEnabled) {
+if ($worldknowledgeInfiniumEnabled) {
     Logger::phaseStart("worldknowledge_processor", [
         "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
     ]);
@@ -2542,7 +2542,7 @@ $promptBottomInjections = function_exists('dialecticRenderPromptInjections')
 
 $knowledgeSection = "";
 if (!empty($GLOBALS["WORLDKNOWLEDGE_HINT"])) {
-    $knowledgeSection = "\n\n<knowledge>\n" . $GLOBALS["WORLDKNOWLEDGE_HINT"] . "\n</knowledge>";
+    $knowledgeSection = "\n\n<fallout_context>\n<knowledge>\n" . $GLOBALS["WORLDKNOWLEDGE_HINT"] . "\n</knowledge>\n</fallout_context>";
 }
 
 $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
