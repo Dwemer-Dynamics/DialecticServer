@@ -48,7 +48,7 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
             </div>
             <div id="rel_status" class="relationship-editor-status" role="status"></div>
 
-            <input type="hidden" name="relationships_jsonb" id="relationships_jsonb" value="<?= htmlspecialchars(json_encode($relationshipRows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') ?>">
+            <input type="hidden" name="relationships_jsonb" id="relationships_jsonb" value="<?= htmlspecialchars(json_encode((object)$relationshipRows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') ?>">
             <input type="hidden" name="relationships_locked" id="relationships_locked" value="<?= !empty($relationshipExtended['relationships_locked']) ? '1' : '0' ?>">
         </div>
     </details>
@@ -160,7 +160,12 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
     const types = baseTypes.slice();
     let relationships = {};
     let detailsTarget = '';
-    try { relationships = JSON.parse(hidden.value || '{}') || {}; } catch (_) { relationships = {}; }
+    try {
+        const parsedRelationships = JSON.parse(hidden.value || '{}');
+        relationships = parsedRelationships && typeof parsedRelationships === 'object' && !Array.isArray(parsedRelationships)
+            ? parsedRelationships
+            : {};
+    } catch (_) { relationships = {}; }
     Object.values(relationships).forEach(data => {
         const type = String(data.type || '').toLowerCase();
         if (type && !types.includes(type)) types.push(type);
@@ -330,10 +335,11 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
         render();
         setStatus('Relationship details updated. Save the NPC to keep them.', false);
     });
-    document.getElementById('rel_add').addEventListener('click', () => {
+    // Shared by the Add button and the save hooks below. Returns false when nothing is staged.
+    function commitStagedRow() {
         const targetInput = document.getElementById('rel_new_target');
         const target = targetInput.value.trim();
-        if (!target) return setStatus('Enter a target name first.', true);
+        if (!target) return false;
         relationships[target] = {
             aff: Math.max(-100, Math.min(100, Number(document.getElementById('rel_new_affinity').value || 0))),
             type: document.getElementById('rel_new_type').value || 'neutral'
@@ -342,6 +348,10 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
         targetInput.value = '';
         document.getElementById('rel_new_affinity').value = '0';
         render();
+        return true;
+    }
+    document.getElementById('rel_add').addEventListener('click', () => {
+        if (!commitStagedRow()) return setStatus('Enter a target name first.', true);
         setStatus('Relationship added. Save the NPC to keep it.', false);
     });
     document.getElementById('rel_build').addEventListener('click', () => openModal('rel_build_modal'));
@@ -389,6 +399,17 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
         setStatus('All relationships cleared. Save the NPC to make this permanent.', false);
     });
     locked.addEventListener('change', sync);
+
+    // The add row is not part of the submitted fields, so a filled target would be dropped
+    // when the NPC is saved without pressing Add. Commit it first on both save paths:
+    // the standalone form submits, while the modal posts FormData from a save button click.
+    // Capture phase keeps this ahead of the handlers that read relationships_jsonb.
+    const npcForm = section.closest('form');
+    if (npcForm) npcForm.addEventListener('submit', () => { commitStagedRow(); }, true);
+    document.addEventListener('click', event => {
+        const save = event.target && event.target.closest ? event.target.closest('#npc_modal_save') : null;
+        if (save) commitStagedRow();
+    }, true);
 
     // npc_master currently emits several biography fields on one PHP line. Move the
     // component after render so its visible position still matches CHIM: below Backstory.
