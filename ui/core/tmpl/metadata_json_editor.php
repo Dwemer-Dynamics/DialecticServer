@@ -22,6 +22,10 @@ $localSchemaOverrides = [
         'type' => 'integer',
         'description' => 'Cooldown period in seconds between combat barks to prevent spam during combat. This cooldown is global across all NPCs in the party.',
     ],
+    'BORED_EVENT' => [
+        'type' => 'integer',
+        'description' => 'Bored Event Chance. Probability that an AI NPC starts a random conversation every couple of minutes while this profile is active. 0 = Never | 50 = 50% | 100 = Always',
+    ],
     'RECHAT_ALLOW_ACTIONS' => [
         'type' => 'boolean',
         'description' => 'Allow AI NPCs to trigger actions between eachother during Rechat. This can cause some chaos...',
@@ -43,19 +47,32 @@ $localSchemaOverrides = [
 // Visual keys to expose (can be expanded easily)
 $visualKeys = isset($profileSyncableMetadataKeys) && is_array($profileSyncableMetadataKeys)
     ? $profileSyncableMetadataKeys
-    : ["RECHAT_H","RECHAT_P","RECHAT_ALLOW_ACTIONS","DIARY_PROMPT","DIARY_COOLDOWN","CONTEXT_HISTORY_DIARY","COMBAT_BARK_COOLDOWN"];
+    : ["RECHAT_H","RECHAT_P","RECHAT_ALLOW_ACTIONS","DIARY_PROMPT","DIARY_COOLDOWN","CONTEXT_HISTORY_DIARY","COMBAT_BARK_COOLDOWN","BORED_EVENT"];
 
 // Organize visual keys into categories for display
 $visualGroups = [
   'Rechat' => ["RECHAT_H","RECHAT_P","RECHAT_ALLOW_ACTIONS"],
   'Diary' => ["DIARY_PROMPT","DIARY_COOLDOWN","CONTEXT_HISTORY_DIARY"],
   'Combat' => ["COMBAT_BARK_COOLDOWN"],
+  'Bored Event' => ["BORED_EVENT"],
 ];
 
 // Pair related sections into aligned rows; the final odd section spans the row.
 $visualRows = [
   ['Rechat', 'Diary'],
-  ['Combat'],
+  ['Combat', 'Bored Event'],
+];
+
+// Fallback values shown when a profile has no explicit value stored yet.
+// Keeps existing profiles on their current effective behaviour until they are saved.
+$defaultBoredEventChance = 30;
+if (class_exists('CoreProfile')) {
+    $defaultBoredEventChance = CoreProfile::effectiveBoredEventChance();
+} elseif (is_numeric($GLOBALS['BORED_EVENT'] ?? null)) {
+    $defaultBoredEventChance = max(0, min(100, intval($GLOBALS['BORED_EVENT'])));
+}
+$visualKeyFallbacks = [
+    'BORED_EVENT' => $defaultBoredEventChance,
 ];
 
 // Pretty label similar to global_settings General tab
@@ -65,6 +82,7 @@ function meta_pretty_label(string $name): string {
         'RECHAT_H' => 'Rechat Response Rounds',
         'RECHAT_P' => 'Rechat Probaility',
         'CONTEXT_HISTORY_DIARY' => 'Context History Diary Event Count',
+        'BORED_EVENT' => 'Bored Event Chance',
     ];
     
     if (isset($customLabels[$name])) {
@@ -81,6 +99,7 @@ function meta_icon_for(string $key): string {
     if (strpos($u, 'DIARY') !== false) return '&#x1F4D9;';
     if (strpos($u, 'COMBAT_BARK') !== false) return '&#x2694;&#xFE0F;';
     if (strpos($u, 'RECHAT') === 0) return '&#x1F501;';
+    if (strpos($u, 'BORED') !== false) return '&#x1F4A4;';
     return '&#x2699;&#xFE0F;';
 }
 
@@ -128,6 +147,7 @@ function renderMetaInput($key, $schema, $value, $controlOnly = false) {
             'COMBAT_BARK_COOLDOWN' => ['min'=>10,'max'=>600,'step'=>1],
             'DIARY_COOLDOWN' => ['min'=>10,'max'=>1200,'step'=>1],
             'CONTEXT_HISTORY_DIARY' => ['min'=>0,'max'=>400,'step'=>1],
+            'BORED_EVENT' => ['min'=>0,'max'=>100,'step'=>1],
         ];
 
         if (($type==='integer' || $type==='number') && isset($ranges[$key])) {
@@ -187,7 +207,7 @@ function renderMetaSettingRow(string $key, array $schemaEntry, $value): string {
     <div class="content-section" style="margin-bottom:10px;">
         <?php
         $rendered = [];
-        $renderVisualGroup = function(string $title, array $keys) use (&$rendered, $visualKeys, $metadataCurrent, $localSchemaOverrides, $confSchema): void {
+        $renderVisualGroup = function(string $title, array $keys) use (&$rendered, $visualKeys, $metadataCurrent, $localSchemaOverrides, $confSchema, $visualKeyFallbacks): void {
             $keysInVisual = array_values(array_intersect($keys, $visualKeys));
             if (count($keysInVisual) === 0) return;
 
@@ -207,7 +227,7 @@ function renderMetaSettingRow(string $key, array $schemaEntry, $value): string {
             echo '<div class="provider-card profile-settings-group-card">';
             foreach ($keysInVisual as $k) {
                 $schemaEntry = $localSchemaOverrides[$k] ?? ($confSchema[$k] ?? []);
-                $val = $metadataCurrent[$k] ?? '';
+                $val = $metadataCurrent[$k] ?? ($visualKeyFallbacks[$k] ?? '');
                 echo renderMetaSettingRow($k, $schemaEntry, $val);
                 $rendered[$k] = true;
             }
@@ -239,7 +259,7 @@ function renderMetaSettingRow(string $key, array $schemaEntry, $value): string {
             echo '<div class="provider-card profile-settings-group-card">';
             foreach ($remaining as $k) {
                 $schemaEntry = $localSchemaOverrides[$k] ?? ($confSchema[$k] ?? []);
-                $val = $metadataCurrent[$k] ?? '';
+                $val = $metadataCurrent[$k] ?? ($visualKeyFallbacks[$k] ?? '');
                 echo renderMetaSettingRow($k, $schemaEntry, $val);
             }
             echo '</div>';

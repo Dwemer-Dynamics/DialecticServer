@@ -2,8 +2,21 @@
 
 class CoreProfile
 {
+    /** Default used when no global or profile Bored Event chance is configured. */
+    const BORED_EVENT_DEFAULT = 30;
+
     private $table     = "core_profiles";
     private $lastError = '';
+
+    public static function effectiveBoredEventChance(): int
+    {
+        $raw = $GLOBALS['BORED_EVENT'] ?? null;
+        if (is_numeric($raw)) {
+            return max(0, min(100, intval($raw)));
+        }
+
+        return self::BORED_EVENT_DEFAULT;
+    }
 
     public static function defaultMetadata(): array
     {
@@ -20,6 +33,7 @@ class CoreProfile
             'RPG_COMMENTS_CHANCE' => 20,
             'LLM_FALLBACK_ENABLED' => true,
             'COMBAT_BARK_COOLDOWN' => 30,
+            'BORED_EVENT' => self::effectiveBoredEventChance(),
             'DIARY_PROMPT' => "Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#'s recent dialogues and events into #DIALECTIC_NAME#'s diary. WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.",
             'DIARY_COOLDOWN' => 120,
             'CONTEXT_HISTORY_DIARY' => 100,
