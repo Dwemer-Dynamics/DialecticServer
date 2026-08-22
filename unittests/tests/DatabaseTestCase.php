@@ -60,6 +60,11 @@ abstract class DatabaseTestCase extends TestCase
             'value' => 'false',
             'description' => 'Disabled in automated tests to prevent external LLM requests.',
         ], 'id');
+        // Pin profile chances so bored-event tests are not gated on a random roll.
+        $db->execQuery(
+            "UPDATE core_profiles"
+            . " SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{BORED_EVENT}', '100'::jsonb, true)"
+        );
         $db->close();
     }
 

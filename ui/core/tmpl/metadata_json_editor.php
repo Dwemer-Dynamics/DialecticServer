@@ -64,15 +64,9 @@ $visualRows = [
 ];
 
 // Fallback values shown when a profile has no explicit value stored yet.
-// Keeps existing profiles on their current effective behaviour until they are saved.
-$defaultBoredEventChance = 30;
-if (class_exists('CoreProfile')) {
-    $defaultBoredEventChance = CoreProfile::effectiveBoredEventChance();
-} elseif (is_numeric($GLOBALS['BORED_EVENT'] ?? null)) {
-    $defaultBoredEventChance = max(0, min(100, intval($GLOBALS['BORED_EVENT'])));
-}
+// Saving the profile materialises the same fixed default used by the runtime.
 $visualKeyFallbacks = [
-    'BORED_EVENT' => $defaultBoredEventChance,
+    'BORED_EVENT' => class_exists('CoreProfile') ? CoreProfile::BORED_EVENT_DEFAULT : 30,
 ];
 
 // Pretty label similar to global_settings General tab
