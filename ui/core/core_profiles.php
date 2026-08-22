@@ -560,7 +560,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create"])) {
 $profileSyncableMetadataKeys = [
     'RECHAT_H', 'RECHAT_P', 'RECHAT_ALLOW_ACTIONS',
     'DIARY_PROMPT', 'DIARY_COOLDOWN', 'CONTEXT_HISTORY_DIARY',
-    'COMBAT_BARK_COOLDOWN',
+    'COMBAT_BARK_COOLDOWN', 'BORED_EVENT',
 ];
 
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["update"])) {
@@ -2171,6 +2171,9 @@ const saveAllBtn = document.getElementById('btn_save_all');
             <?php
             // Configure override editor for Profile mode
             $profileOverrideCatalog = dialecticGetOverrideableGeneralSettingsCatalog();
+            // Keys with a dedicated profile control must not also appear here; both editors
+            // post the same meta_vis[] name and the generic one would blank the value on save.
+            unset($profileOverrideCatalog['BORED_EVENT']);
             $currentProfileOverrides = [];
             try {
                 if (!empty($editItem["metadata"])) {
