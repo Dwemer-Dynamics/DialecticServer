@@ -587,12 +587,9 @@ if (!$isEmbed) {
  font-weight: normal;
  font-style: normal;
 }
-main { padding: <?php echo $isEmbed ? '20px 5px 5px' : '30px 5px 5px'; ?>; }
+main { padding: <?php echo $isEmbed ? '10px 5px 5px' : '30px 5px 5px'; ?>; }
 .page-shell { max-width: 1450px; margin: 0 auto; }
-.page-header { background: linear-gradient(180deg, rgba(42,42,42,.95), rgba(34,34,34,.98)); padding: 20px; border-radius: 10px; border: 1px solid #3a3a3a; box-shadow: 0 2px 8px rgba(0,0,0,.15), inset 0 1px rgba(255,255,255,.03); text-align: center; margin-bottom: 30px; }
-.page-header h1.api-title { margin-bottom: 8px; }
-h1.api-title { margin: 0 0 20px 0; font-family: 'Gothic821', serif; word-spacing: 8px; font-size: 2.2em; color: rgb(255, 182, 65); text-shadow: 2px 2px 4px rgba(0,0,0,.5); text-align: center; }
-.page-subtitle { color: #bbb; font-size: 1.1em; margin: 0; }
+/* Page header is the shared compact inline row (.dialectic-page-head in dialectic-theme.css). */
 .notice { margin-bottom: 14px; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255, 182, 65,.25); background: rgba(42,42,42,.9); color: #e7cfac; }
 .layout { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; gap: 18px; align-items: start; }
 .left-col, .right-col { background: linear-gradient(180deg, rgba(42,42,42,.95), rgba(34,34,34,.98)); border: 1px solid #3a3a3a; border-radius: 10px; padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.15), inset 0 1px rgba(255,255,255,.03); }
@@ -635,7 +632,7 @@ h1.api-title { margin: 0 0 20px 0; font-family: 'Gothic821', serif; word-spacing
  .list-wrap { max-height: 420px; }
  .editor-grid, .inline-two { grid-template-columns: 1fr; }
 }
-</style><main><div class="page-shell"><div class="page-header"><h1 class="api-title">TTS Connectors</h1><p class="page-subtitle">Text-to-Speech Setup Options.</p></div><?php if (!empty($_GET['notice'])): ?><div class="notice"><?php echo h($_GET['notice']); ?></div><?php endif; ?><div class="layout"><div class="left-col"><div class="btn-row sidebar-action-grid"><a class="btn-save" href="<?php echo h(ttsPageUrl(['create_blank' => 1])); ?>">New</a><form method="post" action="<?php echo h(ttsPageUrl()); ?>" enctype="multipart/form-data" id="tts_import_form"><input type="hidden" name="import" value="1"><input type="file" name="import_file[]" id="tts_import_file" accept=".csv" multiple style="display:none;"><button type="button" class="btn-primary" id="tts_import_btn">Import</button></form></div><div class="list-wrap" id="tts_connector_list"><?php foreach ($rows as $row): ?><?php
+</style><main><div class="page-shell"><div class="page-header dialectic-page-head"><h1 class="api-title dialectic-page-head-title">TTS Connectors</h1><p class="page-subtitle dialectic-page-head-note">Text-to-Speech Setup Options.</p></div><?php if (!empty($_GET['notice'])): ?><div class="notice"><?php echo h($_GET['notice']); ?></div><?php endif; ?><div class="layout"><div class="left-col"><div class="btn-row sidebar-action-grid"><a class="btn-save" href="<?php echo h(ttsPageUrl(['create_blank' => 1])); ?>">New</a><form method="post" action="<?php echo h(ttsPageUrl()); ?>" enctype="multipart/form-data" id="tts_import_form"><input type="hidden" name="import" value="1"><input type="file" name="import_file[]" id="tts_import_file" accept=".csv" multiple style="display:none;"><button type="button" class="btn-primary" id="tts_import_btn">Import</button></form></div><div class="list-wrap" id="tts_connector_list"><?php foreach ($rows as $row): ?><?php
  $rowId = intval($row['id'] ?? 0);
  $rowDriver = $ttsConnector->normalizeDriverValue($row['driver'] ?? 'none');
  $rowActive = ($editItem && intval($editItem['id'] ?? 0) === $rowId) ? ' active' : '';

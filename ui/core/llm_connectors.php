@@ -217,36 +217,9 @@ include(__DIR__.DIRECTORY_SEPARATOR."../tmpl/head.html");
  font-weight: normal;
  font-style: normal;
 }
-main { padding: 30px 5px 5px; }
+main { padding: 10px 5px 5px; }
 
-/* Page Header */
-.page-header {
- background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
- padding: 20px;
- border-radius: 10px;
- border: 1px solid #3a3a3a;
- box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 1px rgba(255, 255, 255, 0.03);
- text-align: center;
- margin-bottom: 30px;
-}
-.page-header h1.api-title {
- margin-bottom: 8px;
-}
-.page-subtitle {
- color: #bbb;
- font-size: 1.1em;
- margin: 0;
-}
-
-h1.api-title {
- margin: 0 0 20px 0;
- font-family: 'Gothic821', serif;
- word-spacing: 8px;
- font-size: 2.2em;
- color: rgb(255, 182, 65);
- text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
- text-align: center;
-}
+/* Page header is the shared compact inline row (.dialectic-page-head in dialectic-theme.css). */
 .llm-left .llm-title { font-family: 'Gothic821', serif; word-spacing: 6px; }
 .toast-notification { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: #fff; font-weight: 500; z-index: 10000; opacity: 0; transform: translateX(400px); transition: all 0.3s ease; max-width: 400px; }
 .toast-notification.show { opacity: 1; transform: translateX(0); }
@@ -722,7 +695,7 @@ if (isset($_GET["partial"]) && $_GET["partial"] === "editor") {
  modelInputEmbed.addEventListener('change', function(){ applyService(detectService(), false); });
  }
  })();
- </script><div id="toast" class="toast-notification" style="position:static; margin: 8px auto 12px; display:block; opacity:0; transform:none; max-width:960px; width: calc(100% - 20px);"><span class="message"></span></div><script>
+ </script><div id="toast" class="toast-notification" style="position:static; margin: 0 auto 8px; display:block; opacity:0; transform:none; max-width:960px; width: calc(100% - 20px);"><span class="message"></span></div><script>
  // Toast helper for embedded editor
  if (typeof window.showToast !== 'function') {
  window.showToast = function(message, isError){
@@ -1339,7 +1312,7 @@ $editItem = null;
 if (isset($_GET["edit"])) {
  $editItem = $llm->getById($_GET["edit"]);
 }
-?><div class="page-header"><h1 class="api-title">LLM Connectors</h1><p class="page-subtitle">Configure Language Model connectors for AI dialogue generation</p></div><div id="toast" class="toast-notification" style="position:static; margin: 8px auto 12px; display:block; opacity:0; transform:none; max-width:960px; width: calc(100% - 20px);"><span class="message"></span></div><div class="llm-layout"><div class="llm-left position-sticky"><div class="sidebar-action-grid"><form method="get" action="llm_connectors.php"><input type="hidden" name="create_blank" value="1"><button type="submit" class="btn-save">New</button></form><form method="post" action="llm_connectors.php" enctype="multipart/form-data" id="llm_import_form"><input type="hidden" name="import" value="1"><input type="file" name="import_file[]" id="llm_import_file" accept=".csv" multiple style="display:none"><button type="button" class="btn-primary" id="llm_import_btn">Import</button></form></div><div id="llm_list" class="conn-list"></div><script>
+?><div class="page-header dialectic-page-head"><h1 class="api-title dialectic-page-head-title">LLM Connectors</h1><p class="page-subtitle dialectic-page-head-note">Configure Language Model connectors for AI dialogue generation</p></div><div id="toast" class="toast-notification" style="position:static; margin: 0 auto 8px; display:block; opacity:0; transform:none; max-width:960px; width: calc(100% - 20px);"><span class="message"></span></div><div class="llm-layout"><div class="llm-left position-sticky"><div class="sidebar-action-grid"><form method="get" action="llm_connectors.php"><input type="hidden" name="create_blank" value="1"><button type="submit" class="btn-save">New</button></form><form method="post" action="llm_connectors.php" enctype="multipart/form-data" id="llm_import_form"><input type="hidden" name="import" value="1"><input type="file" name="import_file[]" id="llm_import_file" accept=".csv" multiple style="display:none"><button type="button" class="btn-primary" id="llm_import_btn">Import</button></form></div><div id="llm_list" class="conn-list"></div><script>
  (function(){
  const RAW = <?= json_encode($data ?? [], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
  const ACTIVE_ID = <?= json_encode($_GET['edit'] ?? '') ?>;

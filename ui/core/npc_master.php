@@ -49,8 +49,8 @@ include(__DIR__.DIRECTORY_SEPARATOR."../tmpl/head.html");
  font-style: normal;
 }
 main {
- padding-top: 40px;
- padding-bottom: 40px;
+ padding-top: 10px;
+ padding-bottom: 24px;
 }
 .page-header {
  margin: 0 0 24px 0;
@@ -2918,7 +2918,7 @@ document.addEventListener('DOMContentLoaded', () => {
  justify-content:flex-start;
  gap:12px;
  padding:14px;
- margin:16px 0 0 0;
+ margin:0;
  background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
  border-radius: 10px;
  border: 1px solid #3a3a3a;
@@ -3191,7 +3191,7 @@ document.addEventListener('DOMContentLoaded', () => {
  'mtmOnly' => $mtmOnly,
  'lockOnly' => $lockOnly,
  'salOnly' => $salOnly,
-]); ?><div style="margin:10px 0; padding:10px 14px; background:rgba(255, 182, 65,0.08); border:1px solid rgba(255, 182, 65,0.25); border-radius:8px; font-size:12.5px; color:#cfd9ea; line-height:1.5;"><strong style="color:rgb(255, 182, 65);">History Pullback:</strong>
+]); ?><div style="margin:8px 0 10px; padding:10px 14px; background:rgba(255, 182, 65,0.08); border:1px solid rgba(255, 182, 65,0.25); border-radius:8px; font-size:12.5px; color:#cfd9ea; line-height:1.5;"><strong style="color:rgb(255, 182, 65);">History Pullback:</strong>
  Every time a save game is loaded, DIALECTIC snapshots all NPC profiles and restores <strong>unlocked</strong> NPCs to their state at the save's game timestamp.
  Loading an older save will roll back unlocked profiles to that point in time. NPCs created <em>after</em> the save's timestamp may disappear entirely.
  <br><span style="color:rgb(255, 182, 65);">Lock a profile to protect it from pullback.</span>

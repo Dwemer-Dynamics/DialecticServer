@@ -70,7 +70,7 @@ function dialecticConfigHubIframeAttrs($tabId, $src, $loading = 'lazy')
 
 <link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css">
 <style>
-main { padding: 80px 10px 10px; height: 100vh; }
+main { padding: 0 10px 8px; height: calc(100vh - var(--hub-navbar-offset)); }
 .tab-buttons { display: flex; flex-wrap: wrap; margin: 20px 0; border-bottom: 2px solid rgba(255, 182, 65, 0.2); gap: 5px; word-spacing: 5px; }
 .tab-button { background: linear-gradient(180deg, rgba(42, 42, 42, 0.8), rgba(34, 34, 34, 0.9)); border: 2px solid #3a3a3a; border-bottom: none; padding: 12px 18px; color: #f8f9fa; cursor: pointer; border-top-left-radius: 8px; border-top-right-radius: 8px; transition: all 0.3s ease; font-size: 1em; white-space: nowrap; font-family: 'Gothic821', sans-serif; word-spacing: 5px; letter-spacing: 1.5px; margin-bottom: -2px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
 .tab-button:hover { background: linear-gradient(180deg, rgba(58, 58, 58, 0.9), rgba(48, 48, 48, 1)); color: rgb(255, 182, 65); border-color: rgba(255, 182, 65, 0.3); box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); }
