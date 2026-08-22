@@ -167,8 +167,8 @@ if (!$isEmbed) {
 
  /* Override main container styles */
  main {
- padding-top: <?php echo $isEmbed ? '20px' : '80px'; ?>;
- padding-bottom: 40px;
+ padding-top: <?php echo $isEmbed ? '10px' : '80px'; ?>;
+ padding-bottom: 24px;
  padding-left: 5%;
  padding-right: 5%;
  /*width: 100%;*/
@@ -192,31 +192,7 @@ if (!$isEmbed) {
  z-index: 100;
  }
 
- /* Header Styling */
- .page-header {
- text-align: center;
- margin-bottom: 28px;
- padding: 24px 20px;
- background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(28, 28, 28, 0.98));
- border-radius: 10px;
- border: 1px solid #3a3a3a;
- box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
- }
-
- .page-header h1 {
- margin-bottom: 10px;
- font-family: 'Gothic821', serif;
- word-spacing: 8px;
- font-size: 2em;
- color: rgb(255, 182, 65);
- text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
- }
-
- .page-header p {
- color: #aaa;
- font-size: 0.95em;
- margin: 4px 0;
- }
+ /* Header Styling - compact inline row, see .dialectic-page-head in dialectic-theme.css */
 
  /* Content Layout */
  .content-grid {
@@ -875,10 +851,6 @@ if (!$isEmbed) {
  grid-template-columns: 1fr;
  }
  
- .page-header {
- padding: 18px 15px;
- }
- 
  .content-section {
  padding: 18px;
  }
@@ -896,14 +868,6 @@ if (!$isEmbed) {
  padding-right: 2%;
  }
  
- .page-header h1 {
- font-size: 1.5em;
- }
-
- .page-header p {
- font-size: 0.85em;
- }
-
  .toggle-row {
  padding: 10px 12px;
  }
@@ -928,7 +892,7 @@ if (!$isEmbed) {
  }
 </style><?php if ($isEmbed): ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/dialectic-theme.css?v=<?php echo filemtime(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'dialectic-theme.css'); ?>"><style>
  /* Embedded in hub: remove extra top padding since navbar is hidden */
- main { padding-top: 20px; }
+ main { padding-top: 10px; }
 </style><?php endif; ?><main><div class="page-container"><div id="toast" class="toast-notification <?php echo (!$saveSuccess && $saveMessage) ? 'error' : ''; ?>"><span class="message"><?php echo htmlspecialchars($saveMessage); ?></span></div><script>
  function showToast(message, isError=false, duration=3200) {
  try {
@@ -1045,9 +1009,9 @@ if (!$isEmbed) {
  showToast(<?php echo json_encode((string)$saveMessage); ?>, <?php echo $saveSuccess ? 'false' : 'true'; ?>, 3000);
  }catch(_e){} 
  }, 50);
- </script><?php endif; ?><div class="page-header"><h1>
+ </script><?php endif; ?><div class="page-header dialectic-page-head"><h1 class="dialectic-page-head-title">
  Player Management
- </h1><p>Manage your character's information and view in-game statistics</p><p>Changes made here will be used by AI NPCs to understand your character better</p></div><form id="player-form" method="post" action=""><button type="submit" class="btn-save" name="save_player" value="1">Save Player Settings</button><div class="content-grid player-overview-grid"><!-- Player Info Section --><div class="content-section"><h2> Player Information</h2><label for="player_name">Player Name</label><input type="text" id="player_name" value="<?php echo htmlspecialchars($playerName); ?>" readonly><span class="hint">Detected automatically from Fallout and saved to the player table.</span></div><!-- Appearance Section --><div class="content-section"><h2> Player Appearance</h2><label for="appearance">Physical Description</label><textarea id="appearance" name="appearance" placeholder="Describe your character's appearance..."><?php echo htmlspecialchars($appearance); ?></textarea><span class="hint">Physical description of your character used for AI context. NPC will be aware of your appereance.</span></div><!-- Bio Section --><div class="content-section player-bio-section"><h2> Player Bio</h2><label for="bio">Character Bio</label><textarea id="bio" name="bio" placeholder="Describe your character's background and story..."><?php echo htmlspecialchars($bio); ?></textarea><span class="hint">Backstory and character context.</span><div style="margin-top: 10px;"><input type="hidden" name="bio_known_by_all" value="false"><label for="bio_known_by_all" style="display: inline-flex; align-items: center; gap: 8px; margin: 0;"><input
+ </h1><div class="dialectic-page-head-note"><p>Manage your character's information and view in-game statistics</p><p>Changes made here will be used by AI NPCs to understand your character better</p></div></div><form id="player-form" method="post" action=""><button type="submit" class="btn-save" name="save_player" value="1">Save Player Settings</button><div class="content-grid player-overview-grid"><!-- Player Info Section --><div class="content-section"><h2> Player Information</h2><label for="player_name">Player Name</label><input type="text" id="player_name" value="<?php echo htmlspecialchars($playerName); ?>" readonly><span class="hint">Detected automatically from Fallout and saved to the player table.</span></div><!-- Appearance Section --><div class="content-section"><h2> Player Appearance</h2><label for="appearance">Physical Description</label><textarea id="appearance" name="appearance" placeholder="Describe your character's appearance..."><?php echo htmlspecialchars($appearance); ?></textarea><span class="hint">Physical description of your character used for AI context. NPC will be aware of your appereance.</span></div><!-- Bio Section --><div class="content-section player-bio-section"><h2> Player Bio</h2><label for="bio">Character Bio</label><textarea id="bio" name="bio" placeholder="Describe your character's background and story..."><?php echo htmlspecialchars($bio); ?></textarea><span class="hint">Backstory and character context.</span><div style="margin-top: 10px;"><input type="hidden" name="bio_known_by_all" value="false"><label for="bio_known_by_all" style="display: inline-flex; align-items: center; gap: 8px; margin: 0;"><input
  type="checkbox"
  id="bio_known_by_all"
  name="bio_known_by_all"

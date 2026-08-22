@@ -51,37 +51,9 @@ include(__DIR__.DIRECTORY_SEPARATOR."../tmpl/head.html");
     font-weight: normal;
     font-style: normal;
 }
-main { padding-top: 40px; padding-bottom: 40px; }
+main { padding-top: 10px; padding-bottom: 24px; }
 
-/* Page Header */
-.page-header {
-    background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
-    padding: 20px;
-    border-radius: 10px;
-    border: 1px solid #3a3a3a;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 1px rgba(255, 255, 255, 0.03);
-    text-align: center;
-    margin-bottom: 30px;
-}
-.page-header h1.api-title {
-    margin-bottom: 8px;
-}
-.page-subtitle {
-    color: #bbb;
-    font-size: 1.1em;
-    margin: 0;
-}
-
-h1.api-title {
-    margin: 0 0 20px 0;
-    font-family: 'Gothic821', serif;
-    letter-spacing: 0.7px;
-    word-spacing: 12px;
-    font-size: 2.2em;
-    color: rgb(255, 182, 65);
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
-    text-align: center;
-}
+/* Page header is the shared compact inline row (.dialectic-page-head in dialectic-theme.css). */
 .wide-centered { max-width: 1300px; margin: 0 auto; }
 .two-col-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .connector-card { 
@@ -1360,9 +1332,9 @@ $ttsById = $byId($ttsRows);
 
 ?>
 
-<div class="page-header">
-    <h1 class="api-title">DIALECTIC Profiles</h1>
-    <p class="page-subtitle">Manage NPC profiles with LLM and TTS connectors</p>
+<div class="page-header dialectic-page-head">
+    <h1 class="api-title dialectic-page-head-title">DIALECTIC Profiles</h1>
+    <p class="page-subtitle dialectic-page-head-note">Manage NPC profiles with LLM and TTS connectors</p>
 </div>
 
 <div class="llm-layout">

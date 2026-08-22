@@ -272,10 +272,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><style>
  /* Override main container styles */
  main {
- padding-top: 20px;
- padding-bottom: 40px;
- padding-left: 10%;
- padding-right: 10%;
+ padding: 10px clamp(10px, 2.5vw, 34px) 24px;
  width: 100%;
  margin: 0;
  max-width: 100%;
@@ -299,32 +296,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
  font-style: normal;
  }
 
- /* Header Styling */
- .page-header {
- text-align: center;
- margin-bottom: 30px;
- padding: 20px;
- background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
- border-radius: 10px;
- border: 1px solid #3a3a3a;
- box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 1px rgba(255, 255, 255, 0.03);
- }
-
+ /* Header Styling - compact inline row, see .dialectic-page-head in dialectic-theme.css */
  .page-header h1 {
- margin: 0 0 8px 0;
  font-family: 'Gothic821', serif !important;
- word-spacing: 8px;
- font-size: 2.5em;
- color: rgb(255, 182, 65);
- text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
- letter-spacing: 2px;
- }
-
- .page-subtitle {
- color: #bbb;
- margin: 0;
- font-size: 1.1em;
- line-height: 1.6;
  }
 
  /* Info boxes */
@@ -371,15 +345,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
  .prompts-search-section {
  background: linear-gradient(135deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
  border-radius: 10px;
- padding: 18px 20px;
- margin-bottom: 18px;
+ padding: 12px 14px;
+ margin-bottom: 10px;
  border: 1px solid #3a3a3a;
  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 1px rgba(255, 255, 255, 0.03);
  }
 
  .prompts-search-label {
  display: block;
- margin-bottom: 8px;
+ margin-bottom: 4px;
  color: rgb(255, 182, 65);
  font-family: 'Gothic821', serif;
  font-size: 1.15em;
@@ -389,14 +363,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
  .prompts-search-help {
  color: #b0b0b0;
- margin: 0 0 12px 0;
+ margin: 0 0 8px 0;
  font-size: 0.95em;
  }
 
  .prompts-search-input {
  width: 100%;
  max-width: 540px;
- padding: 12px 14px;
+ padding: 10px 12px;
  background: rgba(26, 26, 26, 0.85);
  border: 1px solid #3a3a3a;
  border-radius: 6px;
@@ -598,13 +572,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
  .import-export-section {
  background: linear-gradient(135deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
  border-radius: 10px;
- padding: 20px;
- margin-bottom: 25px;
+ padding: 12px 14px;
+ margin-bottom: 10px;
  border: 1px solid #3a3a3a;
- display: flex;
- gap: 20px;
- align-items: center;
- flex-wrap: wrap;
+ display: grid;
+ grid-template-columns: minmax(190px, 0.8fr) minmax(320px, 1.2fr) minmax(300px, 1.3fr);
+ gap: 14px;
+ align-items: start;
  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 1px rgba(255, 255, 255, 0.03);
  transition: border-color 0.3s ease, box-shadow 0.3s ease;
  }
@@ -618,18 +592,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
  color: rgb(255, 182, 65);
  font-family: 'Gothic821', serif;
  margin: 0;
- flex: 1 0 100%;
  }
 
  .export-section, .import-section {
- flex: 1;
- min-width: 300px;
+ min-width: 0;
  }
 
  .export-section p, .import-section p {
  color: #b0b0b0;
- margin: 10px 0;
+ margin: 4px 0 8px;
  font-size: 0.9em;
+ }
+
+ .export-section > p:first-child,
+ .import-section > p:first-child {
+ margin-top: 0;
+ color: rgb(255, 182, 65);
+ }
+
+ /* Guidance sits inside the export/import row as its own responsive column. */
+ .prompt-guidance {
+ min-width: 0;
+ margin: 0;
+ padding: 10px 12px;
+ border: 1px solid rgba(100, 149, 237, 0.3);
+ border-radius: 8px;
+ background: linear-gradient(135deg, rgba(100, 149, 237, 0.1), rgba(100, 149, 237, 0.05));
+ }
+
+ .prompt-guidance p {
+ margin: 0 0 6px;
+ color: #d0d0d0;
+ font-size: 0.82em;
+ line-height: 1.4;
+ }
+
+ .prompt-guidance p:last-child {
+ margin-bottom: 0;
  }
 
  .file-input-wrapper {
@@ -645,7 +644,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
  .file-input-label {
  display: inline-block;
- padding: 10px 20px;
+ padding: 10px 14px;
  background: #4a4a4a;
  color: white;
  border-radius: 4px;
@@ -667,7 +666,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
  .btn-export {
  background: linear-gradient(135deg, rgba(100, 149, 237, 0.9), rgba(80, 129, 217, 0.9));
  color: white;
- padding: 10px 20px;
+ padding: 10px 14px;
  border: 1px solid rgba(100, 149, 237, 0.3);
  border-radius: 6px;
  cursor: pointer;
@@ -687,13 +686,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
  .btn-import {
  background: linear-gradient(135deg, rgba(255, 182, 65, 0.9), rgba(222, 104, 0, 0.9));
  color: white;
- padding: 10px 20px;
+ padding: 10px 14px;
  border: 1px solid rgba(255, 182, 65, 0.3);
  border-radius: 6px;
  cursor: pointer;
  font-size: 1em;
  transition: all 0.2s ease;
- margin-top: 10px;
+ margin-top: 8px;
  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
  }
 
@@ -866,14 +865,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
  }
 
  /* Responsive */
- @media (max-width: 768px) {
- main {
- padding-left: 2%;
- padding-right: 2%;
+ @media (max-width: 1100px) {
+ .import-export-section {
+ grid-template-columns: repeat(2, minmax(0, 1fr));
  }
- 
- .page-header h1 {
- font-size: 1.8em;
+
+ .prompt-guidance {
+ grid-column: 1 / -1;
+ }
+ }
+
+ @media (max-width: 768px) {
+ .import-export-section {
+ grid-template-columns: 1fr;
+ }
+
+ .prompt-guidance {
+ grid-column: auto;
  }
  
  .prompts-table {
@@ -886,8 +894,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
  }
  }
 </style><?php if ($isEmbed): ?><style>
- main { padding-top: 20px; }
-</style><?php endif; ?><main><div id="toast" class="toast-notification"><span class="message"></span></div><div class="page-header"><h1>Prompts Manager</h1><p class="page-subtitle">Manage system and custom prompts used throughout DIALECTIC</p></div><div class="info-box"><p><strong>Note:</strong> Recommend for advanced users only. Changing prompts can cause unexpected behavior that may worsen the roleplay experience.</p><p><strong>Default Prompt:</strong> System-maintained baseline that updates with DIALECTIC. <strong>Custom Prompt:</strong> Your personalized override that takes precedence when set.</p><p>Click <strong>Edit</strong> to view and modify prompts. Click <strong>Clear</strong> to revert to default.</p></div><div class="import-export-section"><div class="export-section"><p><strong> Export Custom Prompts</strong></p><p>Download all your custom prompts as a CSV file to share with others.</p><a href="?action=export_custom" class="btn-export"> Export Custom Prompts</a></div><div class="import-section"><p><strong> Import Custom Prompts</strong></p><p>Upload a CSV file to import custom prompts shared by others.</p><form method="post" enctype="multipart/form-data" id="importForm"><input type="hidden" name="action" value="import_custom"><div class="file-input-wrapper"><input type="file" name="csv_file" id="csvFile" accept=".csv" onchange="handleFileSelect(this)"><label for="csvFile" class="file-input-label"> Choose CSV File</label><span class="selected-file" id="selectedFileName"></span></div><br><button type="submit" class="btn-import" id="importBtn" disabled> Import Custom Prompts</button></form></div></div><div class="prompts-search-section"><label class="prompts-search-label" for="promptsSearch">Search Prompts</label><p class="prompts-search-help">Filter by prompt key, description, status, or preview text.</p><input
+ main { padding-top: 10px; }
+</style><?php endif; ?><main><div id="toast" class="toast-notification"><span class="message"></span></div><div class="page-header dialectic-page-head"><h1 class="dialectic-page-head-title">Prompts Manager</h1><p class="page-subtitle dialectic-page-head-note">Manage system and custom prompts used throughout DIALECTIC</p></div><div class="import-export-section"><div class="export-section"><p><strong> Export Custom Prompts</strong></p><p>Download all your custom prompts as a CSV file to share with others.</p><a href="?action=export_custom" class="btn-export"> Export Custom Prompts</a></div><div class="import-section"><p><strong> Import Custom Prompts</strong></p><p>Upload a CSV file to import custom prompts shared by others.</p><form method="post" enctype="multipart/form-data" id="importForm"><input type="hidden" name="action" value="import_custom"><div class="file-input-wrapper"><input type="file" name="csv_file" id="csvFile" accept=".csv" onchange="handleFileSelect(this)"><label for="csvFile" class="file-input-label"> Choose CSV File</label><span class="selected-file" id="selectedFileName"></span></div><br><button type="submit" class="btn-import" id="importBtn" disabled> Import Custom Prompts</button></form></div><aside class="prompt-guidance"><p><strong>Note:</strong> Recommended for advanced users only. Changing prompts can cause unexpected behavior that may worsen the roleplay experience.</p><p><strong>Default Prompt:</strong> System-maintained baseline that updates with DIALECTIC. <strong>Custom Prompt:</strong> Your personalized override that takes precedence when set.</p><p>Click <strong>Edit</strong> to view and modify prompts. Click <strong>Clear</strong> to revert to default.</p></aside></div><div class="prompts-search-section"><label class="prompts-search-label" for="promptsSearch">Search Prompts</label><p class="prompts-search-help">Filter by prompt key, description, status, or preview text.</p><input
  type="text"
  id="promptsSearch"
  class="prompts-search-input"
