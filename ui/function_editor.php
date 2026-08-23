@@ -2552,6 +2552,13 @@ if (!$isEmbed) {
         }
     }
     @media (max-width: 720px) {
+        .toast-notification {
+            left: 16px;
+            right: 16px;
+            min-width: 0;
+            max-width: none;
+            box-sizing: border-box;
+        }
         .editor-actionbar {
             align-items: stretch;
         }
@@ -2563,9 +2570,15 @@ if (!$isEmbed) {
             margin-left: 0;
         }
         .help-tip {
+            max-width: min(280px, calc(100vw - 32px));
+        }
+        .actionbar-group:not(.actionbar-group-end) .help-tip {
             right: auto;
             left: 0;
-            max-width: min(280px, 84vw);
+        }
+        .actionbar-group-end .help-tip {
+            right: 0;
+            left: auto;
         }
         .bulk-field-list {
             grid-template-columns: 1fr;
