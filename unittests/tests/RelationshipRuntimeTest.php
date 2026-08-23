@@ -10,7 +10,7 @@ final class RelationshipRuntimeTest extends TestCase
 
     protected function setUp(): void
     {
-        foreach (['RELATIONSHIP_SYSTEM_ENABLED', 'RELLLM_CONNECTOR', 'PLAYER_NAME'] as $key) {
+        foreach (['RELATIONSHIP_SYSTEM_ENABLED', 'RELLLM_CONNECTOR', 'RELATIONSHIP_UPDATE_CHANCE', 'PLAYER_NAME'] as $key) {
             $this->savedGlobals[$key] = [
                 'exists' => array_key_exists($key, $GLOBALS),
                 'value' => $GLOBALS[$key] ?? null,
@@ -47,6 +47,16 @@ final class RelationshipRuntimeTest extends TestCase
         $GLOBALS['RELATIONSHIP_SYSTEM_ENABLED'] = true;
         $this->assertTrue(dialecticRelationshipUsesDedicatedConnector(5));
         $this->assertFalse(dialecticRelationshipUsesDedicatedConnector(0));
+    }
+
+    public function testAutomaticEvaluationChanceUsesInclusiveBoundsAndSafeDefault(): void
+    {
+        $this->assertFalse(RelationshipManager::shouldRunAutomaticEvaluation(0, 1));
+        $this->assertTrue(RelationshipManager::shouldRunAutomaticEvaluation(100, 100));
+        $this->assertTrue(RelationshipManager::shouldRunAutomaticEvaluation(25, 25));
+        $this->assertFalse(RelationshipManager::shouldRunAutomaticEvaluation(25, 26));
+        $this->assertTrue(RelationshipManager::shouldRunAutomaticEvaluation('invalid', 50));
+        $this->assertFalse(RelationshipManager::shouldRunAutomaticEvaluation('invalid', 51));
     }
 
     public function testContextIncludesPlayerAndKnownNearbyNpcOnly(): void
