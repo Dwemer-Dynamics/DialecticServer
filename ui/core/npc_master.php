@@ -14,6 +14,7 @@ require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "chat_helper_functions.
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "data_functions.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "logger.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "utils_game_timestamp.php");
+require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "eventlog_helper.php");
 require_once($enginePath . "ext" . DIRECTORY_SEPARATOR . "relationship_system" . DIRECTORY_SEPARATOR . "npc_save_handler.php");
 
 $GLOBALS["ENGINE_PATH"]=$enginePath;
@@ -40,7 +41,7 @@ require_once(__DIR__.DIRECTORY_SEPARATOR."../profile_loader.php");
 $TITLE = "DIALECTIC - NPC Master";
 ob_start();
 include(__DIR__.DIRECTORY_SEPARATOR."../tmpl/head.html");
-?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/npc_event_history.css"><style>
+?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/npc_event_history.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/relationship_timeline.css"><style>
 /* Core styling alignment */
 @font-face {
  font-family: 'Gothic821';
@@ -934,7 +935,7 @@ if (isset($_GET["export"]) && is_numeric($_GET["export"])) {
  }
  if (!empty($exportRow['extended_data'])) {
  $tmp = json_decode((string)$exportRow['extended_data'], true);
- if (is_array($tmp)) { $exportData['extended_data'] = $tmp; }
+ if (is_array($tmp)) { $exportData['extended_data'] = dialecticStripHistorySourceMarker($tmp); }
  }
 
  $filename = preg_replace('/[^a-z0-9_-]+/i', '_', strtolower($exportRow['npc_name'] ?? 'npc')) . '_export.json';
@@ -1205,7 +1206,8 @@ if (!function_exists('renderNpcToolbar')) {
 }
 
 if (isset($_GET["edit"])) {
- $editItem = $npc->getById($_GET["edit"]);
+ // The history-source marker is internal bookkeeping and must never reach the editor JSON.
+ $editItem = dialecticStripHistorySourceMarkerFromRow($npc->getById($_GET["edit"]));
 
  if (!$editItem && isset($_GET['partial']) && $_GET['partial'] === '1') {
  try { while (ob_get_level() > 0) { ob_end_clean(); } } catch (Throwable $e) {}
@@ -1445,7 +1447,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["restore_from_history"
  'dynamic_profile' => !empty($histRow['dynamic_profile']) ? 1 : 0,
  'tags' => $histRow['tags'] ?? '',
  'metadata' => $histRow['metadata'] ?? '',
- 'extended_data' => $histRow['extended_data'] ?? '',
+ 'extended_data' => dialecticStripHistorySourceMarker($histRow['extended_data'] ?? ''),
  'md5' => $histRow['md5'] ?? md5($histRow['npc_name'] ?? '')
  ];
 
@@ -1576,7 +1578,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  }
  exit;
 }
-?><?php if ($editItem): ?><h2>Edit NPC (ID: <?= htmlspecialchars($editItem["id"]) ?>)</h2><?php endif; ?><?php if (isset($_GET['partial']) && $_GET['partial']=='1') { ob_end_clean(); ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/npc_event_history.css"><style>html,body{background:#2a2a2a;margin-bottom:50px;margin-right:5px;} main{background:#2a2a2a; padding:12px;} .form-container{background:#2a2a2a; border:1px solid #4a4a4a; border-radius:8px;}
+?><?php if ($editItem): ?><h2>Edit NPC (ID: <?= htmlspecialchars($editItem["id"]) ?>)</h2><?php endif; ?><?php if (isset($_GET['partial']) && $_GET['partial']=='1') { ob_end_clean(); ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/npc_event_history.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/relationship_timeline.css"><style>html,body{background:#2a2a2a;margin-bottom:50px;margin-right:5px;} main{background:#2a2a2a; padding:12px;} .form-container{background:#2a2a2a; border:1px solid #4a4a4a; border-radius:8px;}
 .modal-inline-actions{display:flex; gap:6px; align-items:center; justify-content:flex-end; margin-bottom:8px;}
 .modal-inline-actions .btn-toggle{background:transparent; border:none; padding:6px; color:#e9efff; font-size:22px; line-height:1; text-decoration:none; cursor:pointer;}
 .modal-inline-actions .btn-toggle:hover{color: rgb(255, 182, 65); text-decoration:none;}

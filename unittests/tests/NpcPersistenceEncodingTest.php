@@ -3,6 +3,7 @@
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'DatabaseTestCase.php';
 require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'npc_master.class.php';
 require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'runtime_bootstrap.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'eventlog_helper.php';
 
 final class NpcPersistenceEncodingTest extends DatabaseTestCase
 {
@@ -228,6 +229,17 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
                AND extended_data->>'_dialectic_history_source' = 'relationship_evaluation'"
         );
         $this->assertSame(1, (int)$snapshotCount['count']);
+
+        $timelineRows = dialecticFetchRelationshipTimelineChanges($GLOBALS['db'], [
+            'npc_id' => (int)$row['id'],
+            'limit' => 10,
+        ]);
+        $this->assertCount(1, $timelineRows);
+        $this->assertSame('relationship', $timelineRows[0]['type']);
+        $this->assertSame('affinity', $timelineRows[0]['changes'][0]['kind']);
+        $this->assertSame(10, $timelineRows[0]['changes'][0]['before_aff']);
+        $this->assertSame(35, $timelineRows[0]['changes'][0]['after_aff']);
+        $this->assertSame(0, $timelineRows[0]['rowid']);
 
         $this->assertTrue($this->npcMaster->restoreNPC(100));
         $atSave = $this->npcMaster->getByName('Veronica Relationship Timeline Test');

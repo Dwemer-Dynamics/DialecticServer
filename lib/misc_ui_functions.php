@@ -60,6 +60,9 @@ function print_array_as_table($data)
                 
                 echo "<td><span class='foldableCtl' onclick='togglePre(this)' style='cursor:pointer'>[+]</span><pre class='foldable'>" . $cell . "</pre></td>";
 
+            } elseif ($n == "rowid" && !is_numeric($cell)) {
+                // Virtual/derived rows have no physical rowid, so they get no delete link.
+                echo "<td class='$colorClass'>" . $cell . "</td>";
             } elseif ($n == "rowid") {
                 echo "<td class='$colorClass'>
                     <a class='icon-link' href='#' 
