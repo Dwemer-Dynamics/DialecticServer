@@ -3613,6 +3613,27 @@ if ($checkVersion("core_action") < 20260823001) {
     Logger::info("Applied patch core_action 20260823001");
 }
 
+if ($checkVersion("core_action") < 20260823002) {
+    Logger::debug("Applying core_action 20260823002 - keep generic follow separate from party recruitment");
+
+    $followDescription = 'Temporarily move to and follow the specified target actor without joining the party or follower roster. Do not use for requests to join the party or become a companion; use Join_#PLAYER_NAME#_Party.';
+    $followDescriptionLiteral = $db->escapeLiteral($followDescription);
+
+    $db->execQuery("UPDATE public.core_action SET description = {$followDescriptionLiteral}, updated_at = NOW() WHERE code_name = 'Follow'");
+    $db->execQuery("
+        UPDATE public.core_action_custom
+           SET description = {$followDescriptionLiteral}, updated_at = NOW()
+         WHERE code_name = 'Follow'
+           AND description IN (
+               'Move to and follow the specified target actor',
+               'Move to and follow the specified target actor.'
+           )
+    ");
+
+    $updateVersion("core_action", 20260823002);
+    Logger::info("Applied patch core_action 20260823002");
+}
+
 if ($checkVersion("core_tts_connector_metadata") < 20260626001) {
     Logger::debug("Applying core_tts_connector_metadata 20260626001 - remove copied connector metadata references");
 

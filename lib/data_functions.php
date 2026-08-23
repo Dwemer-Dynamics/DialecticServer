@@ -6129,8 +6129,9 @@ function call_llm_internal() {
                             );
 
                             if ($isPlayerFollowTarget) {
-                                error_log("[ACTION POSTFILTER Follow] $localtarget => {$requestedFollowTarget} => FollowPlayer");
-                                $actions[$n]=$replaceAction($action, "FollowPlayer", "");
+                                $resolvedPlayerTarget=$playerNameForFollow !== "" ? $playerNameForFollow : $requestedFollowTarget;
+                                error_log("[ACTION POSTFILTER Follow] $localtarget => {$requestedFollowTarget} => Follow($resolvedPlayerTarget)");
+                                $actions[$n]=$replaceAction($action, "Follow", $resolvedPlayerTarget);
                                 continue;
                             }
 
