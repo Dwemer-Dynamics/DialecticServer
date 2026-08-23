@@ -365,6 +365,7 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
  @media (max-height: 800px) { .embed-frame { min-height: 420px; } }
 </style>
 <link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'hub-navigation.css'); ?>">
+<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/relationship_timeline.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'relationship_timeline.css'); ?>">
 <?php
 
 include(__DIR__.DIRECTORY_SEPARATOR."tmpl/navbar.php");
@@ -439,8 +440,14 @@ if (isset($_GET['clear_hidden_event_types']) && $_GET['clear_hidden_event_types'
 }
 
 $eventLogHiddenTypes = dialecticNormalizeEventLogTypeList($eventLogHiddenTypes);
-$eventLogTypeOptions = dialecticGetVisibleEventLogTypes($db, $eventLogHiddenTypes);
 $eventLogVisibleWhereClause = dialecticBuildVisibleEventLogWhereClause($db, '', $eventLogHiddenTypes);
+
+// Read-only relationship changes derived from core_npc_master_history snapshots.
+// They are virtual rows: nothing is written back into the eventlog table.
+$eventLogRelationshipRows = dialecticRelationshipTimelineIsVisible('', $eventLogHiddenTypes)
+ ? dialecticFetchRelationshipTimelineChanges($db, ['limit' => 200, 'scan_limit' => 800])
+ : [];
+$eventLogTypeOptions = dialecticGetEventLogTypeOptions($db, $eventLogHiddenTypes, count($eventLogRelationshipRows));
 
 $eventLogBaseParams = [
  'tab' => 'eventlog',
@@ -612,6 +619,9 @@ function getTimeColor($time) {
  // Keep context guidance directly below the description so both scan as one compact introduction.
  echo "<div class='event-log-note'>";
  echo " <strong>Note:</strong> Not all events will show up in AI context. Any blacklist settings will not be used for context. This is a raw log of some of the more relevant events.";
+ if (!empty($eventLogRelationshipRows)) {
+ echo " <strong>relationship</strong> rows are read-only, derived from NPC history snapshots; hover or focus one for the full before/after breakdown.";
+ }
  echo "</div>";
  
  // Show success message if events were deleted
@@ -656,7 +666,13 @@ function getTimeColor($time) {
  $limit = $eventLogLimit;
  $page = $eventLogPage;
  $offset = ($page - 1) * $limit;
- 
+
+ // Total/pagination still describes the physical eventlog table only.
+ $countQuery = "SELECT COUNT(*) as total FROM eventlog WHERE $eventLogVisibleWhereClause";
+ $countResult = $db->fetchAll($countQuery);
+ $totalRecords = $countResult[0]['total'];
+ $totalPages = ceil($totalRecords / $limit);
+
  $results = $db->fetchAll(
  "SELECT type, data, people, gamets, localts, ts, rowid
  FROM eventlog a
@@ -664,7 +680,16 @@ function getTimeColor($time) {
  ORDER BY " . dialecticGetEventLogUiOrderBy() . "
  LIMIT $limit OFFSET $offset"
  );
- 
+
+ // Virtual relationship rows join the page whose time window contains them, so
+ // offsets, page counts and raw event rows are all left untouched.
+ $results = dialecticMergeRelationshipTimelineRows(
+ is_array($results) ? $results : [],
+ $eventLogRelationshipRows,
+ $page <= 1,
+ $page >= max(1, (int)$totalPages)
+ );
+
  $columnHeaders = [
  'type' => 'Event',
  'data' => 'Events',
@@ -673,10 +698,25 @@ function getTimeColor($time) {
  ];
  
  $mappedResults = array_map(function ($row) use ($columnHeaders) {
+ // Relationship rows are derived from NPC history snapshots: read-only, never deletable.
+ if (!empty($row['virtual'])) {
+ $relationshipPeople = array_merge([(string)($row['npc_name'] ?? '')], (array)($row['targets'] ?? []));
+ $relationshipPeople = array_values(array_filter(array_map('trim', $relationshipPeople), 'strlen'));
+ return [
+ '' => dialecticRelationshipTimelineReadOnlyHtml(),
+ 'Event' => '<span class="rel-timeline-type">' . htmlspecialchars((string)($row['type'] ?? '')) . '</span>',
+ 'Events' => dialecticRelationshipTimelineTooltipHtml($row, 'eventlog-rel'),
+ 'People Present' => htmlspecialchars(implode(', ', $relationshipPeople)),
+ $columnHeaders['gamets'] => htmlspecialchars((string)($row['fallout_time'] ?? '')),
+ 'Time (UTC)' => htmlspecialchars((string)($row['local_time'] ?? '')),
+ 'rowid' => '<span class="rel-timeline-virtual-id" title="Derived from NPC history, not stored in the event log">&mdash;</span>',
+ ];
+ }
+
  $mappedRow = [];
  // Add checkbox column first (PostgreSQL returns rowid in lowercase)
  $mappedRow[''] = '<input type="checkbox" class="event-checkbox" data-rowid="' . htmlspecialchars($row['rowid'] ?? '') . '" style="cursor: pointer; width: 18px; height: 18px;">';
- 
+
  foreach ($row as $key => $value) {
  if ($key === 'data' && function_exists('dialecticRenderNarratorRoleplayText')) {
  $value = dialecticRenderNarratorRoleplayText($value);
@@ -737,12 +777,6 @@ function getTimeColor($time) {
  // Generate pagination buttons
  $prevPage = max(1, $page - 1);
  $nextPage = $page + 1;
- 
- // Get total count for pagination
- $countQuery = "SELECT COUNT(*) as total FROM eventlog WHERE $eventLogVisibleWhereClause";
- $countResult = $db->fetchAll($countQuery);
- $totalRecords = $countResult[0]['total'];
- $totalPages = ceil($totalRecords / $limit);
  
  echo "<div class='pagination-buttons' style='margin: 6px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;'>";
  

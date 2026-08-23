@@ -164,6 +164,19 @@ function dialecticNpcManagerHistory(array $input): array
          ORDER BY a.type ASC"
     );
 
+    // Relationship changes are virtual rows read from this NPC's history snapshots.
+    // Fetched regardless of the selected type so the type filter can always offer them.
+    $relationshipRows = dialecticRelationshipTimelineIsVisible('', $hiddenEventTypes)
+        ? dialecticFetchRelationshipTimelineChanges($GLOBALS['db'], [
+            'npc_id' => intval($npc['id'] ?? 0),
+            'limit' => $limit,
+            'scan_limit' => 400,
+        ])
+        : [];
+    $relationshipRowsVisible = dialecticRelationshipTimelineIsVisible($selectedEventType, $hiddenEventTypes)
+        ? $relationshipRows
+        : [];
+
     $events = array_map(static function ($row) {
         $gamets = intval($row['gamets'] ?? 0);
         return [
@@ -174,23 +187,63 @@ function dialecticNpcManagerHistory(array $input): array
             'gamets' => $gamets,
             'fallout_time' => $gamets > 0 ? convert_gamets2fallout_long_date2($gamets) : '',
             'local_time' => !empty($row['localts']) ? gmdate('d-m-Y H:i:s', intval($row['localts'])) : '',
+            'localts' => intval($row['localts'] ?? 0),
+            'ts' => intval($row['ts'] ?? 0),
             'manual_injection' => strtolower((string)($row['type'] ?? '')) === 'inputtext'
                 && (string)($row['sess'] ?? '') === 'npc_editor',
         ];
     }, (array)$rows);
 
+    $relationshipEvents = array_map(static function ($row) {
+        return [
+            'rowid' => 0,
+            'virtual' => true,
+            'type' => (string)($row['type'] ?? 'relationship'),
+            'data' => (string)($row['data'] ?? ''),
+            'detail' => (string)($row['detail'] ?? ''),
+            'history_id' => intval($row['history_id'] ?? 0),
+            'source' => (string)($row['source'] ?? ''),
+            'source_label' => (string)($row['source_label'] ?? ''),
+            'change_count' => intval($row['change_count'] ?? 0),
+            'recipients' => array_values(array_filter(array_merge(
+                [(string)($row['npc_name'] ?? '')],
+                (array)($row['targets'] ?? [])
+            ), 'strlen')),
+            'gamets' => intval($row['gamets'] ?? 0),
+            'fallout_time' => (string)($row['fallout_time'] ?? ''),
+            'local_time' => (string)($row['local_time'] ?? ''),
+            'localts' => intval($row['localts'] ?? 0),
+            'ts' => 0,
+            'manual_injection' => false,
+        ];
+    }, $relationshipRowsVisible);
+
+    $mergedEvents = dialecticMergeRelationshipTimelineRows($events, $relationshipEvents, true, count($events) < $limit);
+
+    $eventTypeOptions = array_map(static function ($row) {
+        return [
+            'type' => (string)($row['type'] ?? ''),
+            'total' => intval($row['total'] ?? 0),
+        ];
+    }, (array)$eventTypes);
+    if ($relationshipRows !== [] && dialecticRelationshipTimelineIsVisible('', $hiddenEventTypes)) {
+        $eventTypeOptions[] = [
+            'type' => dialecticRelationshipTimelineEventType(),
+            'total' => count($relationshipRows),
+        ];
+        usort($eventTypeOptions, static function ($a, $b) {
+            return strcasecmp((string)($a['type'] ?? ''), (string)($b['type'] ?? ''));
+        });
+    }
+
     return [
         'npc' => ['id' => intval($npc['id'] ?? 0), 'name' => $npcName],
-        'events' => $events,
+        'events' => $mergedEvents,
+        'relationship_change_count' => count($relationshipEvents),
         'filters' => [
             'selected_event_type' => $selectedEventType,
             'hidden_event_types' => $hiddenEventTypes,
-            'event_types' => array_map(static function ($row) {
-                return [
-                    'type' => (string)($row['type'] ?? ''),
-                    'total' => intval($row['total'] ?? 0),
-                ];
-            }, (array)$eventTypes),
+            'event_types' => $eventTypeOptions,
         ],
     ];
 }

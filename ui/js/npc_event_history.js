@@ -18,6 +18,30 @@
         return node;
     }
 
+    // Relationship rows are derived from NPC history snapshots: the concise summary stays
+    // in the table and the full before/after breakdown is revealed on hover or focus.
+    function relationshipCell(event, index) {
+        const cell = element('td', 'npc-event-history-data');
+        const detail = String(event.detail || '').trim();
+        if (!detail) {
+            cell.appendChild(element('span', 'rel-timeline-summary', event.data || ''));
+            return cell;
+        }
+
+        const tooltipId = 'npc-rel-tip-' + (Number(event.history_id) || index);
+        const tip = element('span', 'rel-timeline-tip');
+        tip.tabIndex = 0;
+        tip.setAttribute('role', 'note');
+        tip.setAttribute('aria-describedby', tooltipId);
+        tip.appendChild(element('span', 'rel-timeline-summary', event.data || ''));
+        const body = element('span', 'rel-timeline-detail', detail);
+        body.id = tooltipId;
+        body.setAttribute('role', 'tooltip');
+        tip.appendChild(body);
+        cell.appendChild(tip);
+        return cell;
+    }
+
     function mount(root, options) {
         const npcId = Number(options.npcId || 0);
         const npcName = String(options.npcName || '').trim();
@@ -46,7 +70,7 @@
                 </section>
                 <section class="npc-event-history-section">
                     <div class="npc-event-history-heading">
-                        <div><h3>Recent Events</h3><p>The latest events routed to this NPC. Deleting a shared event removes it for every listed recipient.</p></div>
+                        <div><h3>Recent Events</h3><p>The latest events routed to this NPC, plus read-only relationship changes from their history. Deleting a shared event removes it for every listed recipient.</p></div>
                         <button type="button" class="btn-cancel" data-history-refresh>Refresh</button>
                     </div>
                     <div class="npc-event-history-filterbar">
@@ -163,8 +187,30 @@
             });
             thead.appendChild(headerRow);
             const tbody = document.createElement('tbody');
-            events.forEach(function (event) {
+            events.forEach(function (event, index) {
                 const row = document.createElement('tr');
+                if (event.virtual) {
+                    row.className = 'npc-event-history-virtual';
+                    const typeCell = element('td', 'npc-event-history-type');
+                    typeCell.appendChild(element('span', 'rel-timeline-type', event.type || 'relationship'));
+                    row.appendChild(typeCell);
+                    row.appendChild(relationshipCell(event, index));
+                    row.appendChild(element(
+                        'td',
+                        'npc-event-history-audience',
+                        Array.isArray(event.recipients) ? event.recipients.join(', ') : ''
+                    ));
+                    row.appendChild(element('td', '', event.fallout_time || ''));
+                    row.appendChild(element('td', '', event.local_time || ''));
+                    const readOnly = document.createElement('td');
+                    const marker = element('span', 'rel-timeline-virtual-id', '—');
+                    marker.title = 'Read-only relationship timeline entry';
+                    marker.setAttribute('aria-label', 'Read-only relationship timeline entry');
+                    readOnly.appendChild(marker);
+                    row.appendChild(readOnly);
+                    tbody.appendChild(row);
+                    return;
+                }
                 row.appendChild(element('td', 'npc-event-history-type', event.type || 'Event'));
                 row.appendChild(element('td', 'npc-event-history-data', event.data || ''));
                 row.appendChild(element(

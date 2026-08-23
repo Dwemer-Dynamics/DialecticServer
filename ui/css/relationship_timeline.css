@@ -1,0 +1,118 @@
+/* Read-only relationship timeline rows shared by the Event Log, dashboard and NPC profile. */
+
+.rel-timeline-type {
+    color: rgb(255, 182, 65);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.rel-timeline-tip {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    border-bottom: 1px dotted rgba(255, 182, 65, .55);
+    cursor: help;
+}
+
+.rel-timeline-tip:focus-visible {
+    outline: 2px solid rgb(255, 182, 65);
+    outline-offset: 2px;
+}
+
+.rel-timeline-summary {
+    color: #f1dcb4;
+    overflow-wrap: anywhere;
+}
+
+/* Long-form explanation stays out of the way until hover or keyboard focus. */
+.rel-timeline-detail {
+    display: none;
+    position: absolute;
+    left: 0;
+    top: calc(100% + 4px);
+    z-index: 60;
+    min-width: 220px;
+    max-width: min(420px, 78vw);
+    padding: 7px 9px;
+    border: 1px solid rgba(255, 182, 65, .45);
+    border-radius: 6px;
+    background: #151515;
+    color: #e8e0cf;
+    font-size: .74rem;
+    line-height: 1.4;
+    max-height: 180px;
+    overflow: auto;
+    white-space: pre-line;
+    text-align: left;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, .55);
+}
+
+.rel-timeline-tip:hover > .rel-timeline-detail,
+.rel-timeline-tip:focus > .rel-timeline-detail,
+.rel-timeline-tip:focus-within > .rel-timeline-detail {
+    display: block;
+}
+
+.rel-timeline-readonly {
+    display: inline-block;
+    font-size: .8em;
+    line-height: 1;
+    opacity: .75;
+}
+
+.rel-timeline-virtual-id {
+    color: #8c8c8c;
+}
+
+/* Compact dashboard summary */
+.rel-timeline-feed {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.rel-timeline-feed li {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 6px;
+    border-left: 2px solid rgba(255, 182, 65, .35);
+    background: rgba(255, 182, 65, .05);
+    border-radius: 0 4px 4px 0;
+    font-size: .8rem;
+}
+
+.rel-timeline-feed-when {
+    flex: 0 0 auto;
+    color: #929dab;
+    font-size: .72rem;
+    white-space: nowrap;
+}
+
+.rel-timeline-feed-change {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+@media (max-width: 640px) {
+    .rel-timeline-detail {
+        position: static;
+        max-width: none;
+        margin-top: 4px;
+        box-shadow: none;
+    }
+
+    .rel-timeline-feed li {
+        flex-direction: column;
+        gap: 2px;
+    }
+}
+
+.rel-timeline-note {
+    margin: 6px 0 0;
+    color: #929dab;
+    font-size: .72rem;
+    line-height: 1.35;
+}
