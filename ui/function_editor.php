@@ -2561,6 +2561,7 @@ if (!$isEmbed) {
         }
         .editor-actionbar {
             align-items: stretch;
+            position: relative;
         }
         .actionbar-group {
             width: 100%;
@@ -2572,13 +2573,14 @@ if (!$isEmbed) {
         .help-tip {
             max-width: min(280px, calc(100vw - 32px));
         }
-        .actionbar-group:not(.actionbar-group-end) .help-tip {
-            right: auto;
-            left: 0;
+        .editor-actionbar .help-hint {
+            position: static;
         }
-        .actionbar-group-end .help-tip {
-            right: 0;
-            left: auto;
+        .editor-actionbar .help-tip {
+            right: 12px;
+            left: 12px;
+            width: auto;
+            max-width: none;
         }
         .bulk-field-list {
             grid-template-columns: 1fr;
