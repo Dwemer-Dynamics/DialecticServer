@@ -1633,6 +1633,9 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
 .modal-inline-actions .btn-toggle.active{color:#ffd700; font-weight:700;}
 .modal-inline-actions .btn-toggle[data-lock]{color:#e9efff;}
 .modal-inline-actions .btn-toggle.active[data-lock]{color: rgb(255, 182, 65);}
+.modal-inline-actions .btn-toggle[data-favorite]:hover,
+.modal-inline-actions .btn-toggle[data-favorite]:focus-visible{color:#ffd700 !important; text-shadow:0 0 8px rgba(255,215,0,.7),0 0 14px rgba(255,215,0,.45) !important;}
+.modal-inline-actions .btn-toggle.active[data-favorite]{color:#ffd700 !important;}
 </style><div data-npc-profile-loaded="1" data-npc-id="<?= htmlspecialchars((string)($editItem['id'] ?? '')) ?>" hidden></div><form method="post" onsubmit='return false' style='display:block'><?php } else { ?><form method="post" onsubmit='return consolidation()' style='<?= $editItem!=null?"":"display:none"?>'><?php } ?><script src="<?php echo $webRoot; ?>/ui/js/npc_event_history.js"></script><style>
  .form-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px 16px; }
  @media (max-width: 900px){ .form-grid { grid-template-columns: 1fr; } }
@@ -2658,10 +2661,10 @@ document.addEventListener('DOMContentLoaded', () => {
 .btn-toggle[data-lock-id]:focus-visible,
 .btn-toggle[data-pick-picture-id]:hover,
 .btn-toggle[data-pick-picture-id]:focus-visible { color: rgb(255, 182, 65); background:transparent; text-decoration:none; text-shadow: 0 0 6px rgba(255, 182, 65, 0.6), 0 0 12px rgba(255, 182, 65, 0.35); }
-.btn-toggle[data-favorite-id]:hover,
-.btn-toggle[data-favorite-id]:focus-visible { color:#ffd700; text-shadow: 0 0 8px rgba(255, 215, 0, 0.7), 0 0 14px rgba(255, 215, 0, 0.45); }
+.npc-title-actions .btn-toggle[data-favorite-id]:hover,
+.npc-title-actions .btn-toggle[data-favorite-id]:focus-visible { color:#ffd700 !important; text-shadow: 0 0 8px rgba(255, 215, 0, 0.7), 0 0 14px rgba(255, 215, 0, 0.45) !important; }
 .btn-toggle.active { color: rgb(255, 182, 65); font-weight:700; text-decoration:none; }
-.btn-toggle.active[data-favorite-id] { color:#ffd700; }
+.npc-title-actions .btn-toggle.active[data-favorite-id] { color:#ffd700 !important; }
 .btn-trash { background:transparent; border:none; padding:6px; color:#e9efff; font-size:20px; line-height:1; text-decoration:none; transition: color .15s ease, text-shadow .15s ease; }
 .btn-trash:hover, .btn-trash:focus-visible { color:#ff6b6b; text-shadow: 0 0 6px rgba(255, 107, 107, 0.7), 0 0 12px rgba(255, 107, 107, 0.45); }
 .btn-toggle[data-lock-id] {
