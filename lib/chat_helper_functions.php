@@ -3469,6 +3469,37 @@ function dialecticRechatActorBlockReason($actorName, $npcData = null)
     return "";
 }
 
+function dialecticRechatActivityBlockReason($npcData, bool $explicitlyAddressed = false): string
+{
+    if (!is_array($npcData)) {
+        return "";
+    }
+
+    require_once __DIR__ . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPARATOR . "activity_status.php";
+    $metadata = $npcData["metadata"] ?? [];
+    if (is_string($metadata) && trim($metadata) !== "") {
+        $metadata = json_decode($metadata, true);
+    }
+    if (!is_array($metadata)) {
+        return "";
+    }
+
+    $status = dialecticNormalizeActivityStatus($metadata);
+    if (empty($status["available"]) || empty($status["fresh"])) {
+        return "";
+    }
+
+    $action = strtolower(trim((string)($status["current_action"] ?? "")));
+    if (!empty($status["is_unconscious"]) || $action === "unconscious") {
+        return "fresh activity status marks actor unconscious";
+    }
+    if ((!empty($status["is_sleeping"]) || $action === "sleeping") && !$explicitlyAddressed) {
+        return "fresh activity status marks actor sleeping";
+    }
+
+    return "";
+}
+
 function dialecticParseServerSideRechatPayload($rawData)
 {
     $payload = [
@@ -3788,6 +3819,15 @@ function dialecticResolveServerSideRechatTarget(array $payload)
     $selected = "";
     $nearbyStatusMap = dialecticLatestNearbyActorStatusMapForRechat();
 
+    if ($speakerName !== "" && !isPlayerDialogueListenerName($speakerName)) {
+        $speakerNpcData = $npcMaster->getByName($speakerName);
+        $speakerActivityBlock = dialecticRechatActivityBlockReason($speakerNpcData, false);
+        if ($speakerActivityBlock !== "") {
+            Logger::info("[RECHAT_SELECT] Stopping autonomous continuation from {$speakerName}: {$speakerActivityBlock}");
+            $candidates = [];
+        }
+    }
+
     foreach ($candidates as $candidate) {
         if ($candidate === "") {
             continue;
@@ -3808,6 +3848,14 @@ function dialecticResolveServerSideRechatTarget(array $payload)
         $blockReason = dialecticRechatActorBlockReason($candidate, $candidateNpcData);
         if ($blockReason !== "") {
             Logger::info("[RECHAT_SELECT] Skipping {$candidate}: {$blockReason}");
+            continue;
+        }
+        $explicitlyAddressed =
+            ($listenerHint !== "" && strcasecmp($candidate, $listenerHint) === 0) ||
+            ($rechatTargetHint !== "" && strcasecmp($candidate, $rechatTargetHint) === 0);
+        $activityBlockReason = dialecticRechatActivityBlockReason($candidateNpcData, $explicitlyAddressed);
+        if ($activityBlockReason !== "") {
+            Logger::info("[RECHAT_SELECT] Skipping {$candidate}: {$activityBlockReason}");
             continue;
         }
         $nearbyBlockReason = dialecticRechatNearbyActorBlockReason(
