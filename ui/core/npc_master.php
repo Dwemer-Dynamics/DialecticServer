@@ -499,7 +499,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create"])) {
  if (dialecticNpcRelationshipSaveRequested()) {
   $createdNpcId = dialecticResolveNpcIdAfterCreate($_POST["npc_name"] ?? '');
   if ($createdNpcId > 0) {
-   dialecticRelationshipTimelineStamp($createdNpcId);
+   dialecticRelationshipTimelineStamp($createdNpcId, 'relationship_profile_editor');
   }
  }
  header("Location: npc_master.php");
@@ -518,7 +518,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["update"])) {
   throw new RuntimeException($npc->getLastError());
  }
  if (dialecticNpcRelationshipSaveRequested()) {
-  dialecticRelationshipTimelineStamp((int)($_POST["id"] ?? 0));
+  dialecticRelationshipTimelineStamp((int)($_POST["id"] ?? 0), 'relationship_profile_editor');
  }
  header("Location: npc_master.php");
  exit;
@@ -606,7 +606,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
  $newId = dialecticResolveNpcIdAfterCreate($_POST["npc_name"] ?? '');
  if ($newId <= 0) { echo json_encode(["ok"=>false, "error"=>"Insert failed"]); exit; }
  if (dialecticNpcRelationshipSaveRequested()) {
-  dialecticRelationshipTimelineStamp($newId);
+  dialecticRelationshipTimelineStamp($newId, 'relationship_profile_editor');
  }
  echo json_encode(["ok"=>true, "id"=>$newId]);
  } else {
@@ -616,7 +616,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
  echo json_encode(["ok"=>false, "error"=>$npc->getLastError()]);
  } else {
  if (dialecticNpcRelationshipSaveRequested()) {
-  dialecticRelationshipTimelineStamp($id);
+  dialecticRelationshipTimelineStamp($id, 'relationship_profile_editor');
  }
  if ($npc->backupNpcById($id) === false) {
   Logger::warn("[NPC SAVE] Profile {$id} was updated, but its history backup failed.");

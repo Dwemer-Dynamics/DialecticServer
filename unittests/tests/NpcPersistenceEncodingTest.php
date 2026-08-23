@@ -187,6 +187,71 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
         $this->assertSame(['Gecko meat'], $disabledExtended['inventory']);
     }
 
+    public function testRelationshipTimelineSnapshotsChangedStateAndRestoresByGameTime(): void
+    {
+        $this->assertTrue($this->npcMaster->create([
+            'npc_name' => 'Veronica Relationship Timeline Test',
+            'extended_data' => [
+                'relationships' => ['Player' => ['aff' => 10, 'type' => 'platonic']],
+            ],
+        ]));
+        $this->assertTrue($this->npcMaster->backupAllNpcs(100));
+
+        $row = $this->npcMaster->getByName('Veronica Relationship Timeline Test');
+        $this->assertNotFalse($this->npcMaster->update((int)$row['id'], [
+            'extended_data' => [
+                'relationships' => ['Player' => ['aff' => 35, 'type' => 'platonic']],
+                'relationships_last_eval' => 'volatile timestamp',
+            ],
+        ]));
+
+        $hadGameRequest = array_key_exists('gameRequest', $GLOBALS);
+        $savedGameRequest = $GLOBALS['gameRequest'] ?? null;
+        try {
+            $GLOBALS['gameRequest'] = ['rechat', '', 110];
+            $this->assertTrue(dialecticRelationshipTimelineStamp((int)$row['id'], 'relationship_evaluation'));
+
+            $GLOBALS['gameRequest'] = ['rechat', '', 111];
+            $this->assertTrue(dialecticRelationshipTimelineStamp((int)$row['id'], 'relationship_evaluation'));
+        } finally {
+            if ($hadGameRequest) {
+                $GLOBALS['gameRequest'] = $savedGameRequest;
+            } else {
+                unset($GLOBALS['gameRequest']);
+            }
+        }
+
+        $snapshotCount = $GLOBALS['db']->fetchOne(
+            "SELECT COUNT(*)::int AS count
+             FROM core_npc_master_history
+             WHERE npc_id = " . (int)$row['id'] . "
+               AND extended_data->>'_dialectic_history_source' = 'relationship_evaluation'"
+        );
+        $this->assertSame(1, (int)$snapshotCount['count']);
+
+        $this->assertTrue($this->npcMaster->restoreNPC(100));
+        $atSave = $this->npcMaster->getByName('Veronica Relationship Timeline Test');
+        $atSaveExtended = json_decode((string)$atSave['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(10, $atSaveExtended['relationships']['Player']['aff']);
+
+        $this->assertTrue($this->npcMaster->restoreNPC(110));
+        $afterChange = $this->npcMaster->getByName('Veronica Relationship Timeline Test');
+        $afterChangeExtended = json_decode((string)$afterChange['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(35, $afterChangeExtended['relationships']['Player']['aff']);
+        $this->assertArrayNotHasKey('_dialectic_history_source', $afterChangeExtended);
+    }
+
+    public function testRelationshipRestoreIndexExists(): void
+    {
+        $index = $GLOBALS['db']->fetchOne(
+            "SELECT indexname FROM pg_indexes
+             WHERE schemaname = 'public'
+               AND indexname = 'idx_core_npc_master_history_restore'"
+        );
+
+        $this->assertSame('idx_core_npc_master_history_restore', $index['indexname'] ?? null);
+    }
+
     public function testInvalidJsonDoesNotOverwriteExistingExtendedData(): void
     {
         $this->assertTrue($this->npcMaster->create([
