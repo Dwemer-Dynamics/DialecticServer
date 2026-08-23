@@ -493,6 +493,9 @@ PROMPT;
                 'id' => $npcId,
                 'extended_data' => json_encode($extended, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
             ]);
+            if ($result) {
+                dialecticRelationshipTimelineStamp($npcId, 'relationship_analysis');
+            }
 
             $this->releaseNpcLock($npcId);
             return $result;
@@ -665,10 +668,13 @@ PROMPT;
                 $extended['relationships'] = $myRels;
                 $extended['relationships_inferred'] = date('Y-m-d H:i:s');
 
-                $npcMaster->updateByArray([
+                $saved = $npcMaster->updateByArray([
                     'id' => $npcId,
                     'extended_data' => json_encode($extended, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
                 ]);
+                if ($saved) {
+                    dialecticRelationshipTimelineStamp($npcId, 'relationship_inference');
+                }
 
                 $this->releaseNpcLock($npcId);
                 Logger::info("[REL-LLM] Inferred " . count($inferred) . " relationships for " . $npc['npc_name']);
@@ -1379,6 +1385,9 @@ PROMPT;
                     'id' => $npcId,
                     'extended_data' => $jsonData
                 ]);
+                if ($result) {
+                    dialecticRelationshipTimelineStamp($npcId, 'relationship_evaluation');
+                }
 
                 $this->releaseNpcLock($npcId);
                 Logger::debug("[REL-LLM] Database update for NPC {$npcId}: " . ($result ? "SUCCESS" : "FAILED") . " - relationships: " . json_encode($existingRels));

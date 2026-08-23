@@ -2,8 +2,21 @@
 
 class CoreProfile
 {
+    /** Default used when a profile has no Bored Event chance. */
+    const BORED_EVENT_DEFAULT = 30;
+
     private $table     = "core_profiles";
     private $lastError = '';
+
+    /** Clamp a stored profile value to 0-100, falling back to the fixed default. */
+    public static function normalizeBoredEventChance($raw): int
+    {
+        if (is_bool($raw) || !is_numeric($raw)) {
+            return self::BORED_EVENT_DEFAULT;
+        }
+
+        return max(0, min(100, intval($raw)));
+    }
 
     public static function defaultMetadata(): array
     {
@@ -20,6 +33,7 @@ class CoreProfile
             'RPG_COMMENTS_CHANCE' => 20,
             'LLM_FALLBACK_ENABLED' => true,
             'COMBAT_BARK_COOLDOWN' => 30,
+            'BORED_EVENT' => self::BORED_EVENT_DEFAULT,
             'DIARY_PROMPT' => "Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#'s recent dialogues and events into #DIALECTIC_NAME#'s diary. WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.",
             'DIARY_COOLDOWN' => 120,
             'CONTEXT_HISTORY_DIARY' => 100,
@@ -344,6 +358,11 @@ class CoreProfile
                 }
             }
         }
+        // Replace the removed global setting with the selected profile value before NPC overrides.
+        $GLOBALS["BORED_EVENT"] = self::normalizeBoredEventChance(
+            is_array($metadata) ? ($metadata['BORED_EVENT'] ?? null) : null
+        );
+
         $GLOBALS["ENFORCE_ACTIONS_PROMPT"] = false;
         if (isset($currentProfileData["prompt"])) {
             $GLOBALS["PROFILE_PROMPT"] = $currentProfileData["prompt"];

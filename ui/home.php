@@ -14,6 +14,8 @@ require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "runtime_bootstrap.php"
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "logger.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "background_processor.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "fallout_stats.php");
+require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "eventlog_helper.php");
+require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "utils_game_timestamp.php");
 
 dialecticRuntimeBootstrap($enginePath, [
     'load_general_settings' => true,
@@ -264,6 +266,22 @@ $worldGameTime = dialectic_home_json_object($worldContext['game_time'] ?? []);
 $activeQuests = $hasQuests ? dialectic_home_rows($db, "SELECT name, id_quest, briefing, briefing2, status FROM quests ORDER BY CASE WHEN status='selected' THEN 0 ELSE 1 END, gamets DESC LIMIT 6") : [];
 $latestDiaryRows = $hasDiary ? dialectic_home_rows($db, "SELECT rowid, topic, content, people, location, localts, gamets FROM diarylog ORDER BY gamets DESC, rowid DESC LIMIT 1") : [];
 $latestDiary = $latestDiaryRows[0] ?? [];
+
+// Read-only relationship activity derived from core_npc_master_history snapshots.
+$hasNpcHistory = dialectic_home_table_exists($db, 'core_npc_master_history');
+$relationshipActivity = [];
+if ($hasNpcHistory) {
+    try {
+        $relationshipActivity = dialecticFetchRelationshipTimelineChanges($db, [
+            'limit' => 5,
+            'scan_limit' => 400,
+            'visible_limit' => 2,
+        ]);
+    } catch (Throwable $e) {
+        Logger::warn("Home dashboard relationship activity failed: " . $e->getMessage());
+        $relationshipActivity = [];
+    }
+}
 $llmStats = [
     '24h' => ['success' => 0, 'total' => 0],
     '72h' => ['success' => 0, 'total' => 0],
@@ -361,6 +379,7 @@ ob_start();
 include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.html");
 ?>
 <link rel="stylesheet" href="<?php echo dialectic_home_h($webRoot); ?>/ui/css/main.css">
+<link rel="stylesheet" href="<?php echo dialectic_home_h($webRoot); ?>/ui/css/relationship_timeline.css">
 <style>
     :root {
         --dialectic-accent: rgb(255, 182, 65);
@@ -943,6 +962,33 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
                             <?php endforeach; ?>
                         </table>
                     </div>
+                <?php endif; ?>
+            </div>
+        </article>
+
+        <article class="widget">
+            <div class="widget-header">
+                <h3><i class="bi bi-people"></i> Relationship Activity</h3>
+            </div>
+            <div class="widget-content">
+                <?php if (empty($relationshipActivity)): ?>
+                    <p class="empty-state">No relationship changes have been recorded yet.</p>
+                <?php else: ?>
+                    <ul class="rel-timeline-feed" aria-label="Recent NPC relationship changes">
+                        <?php foreach ($relationshipActivity as $relationshipRow): ?>
+                            <?php
+                            $relationshipWhen = trim((string)($relationshipRow['fallout_time'] ?? ''));
+                            if ($relationshipWhen === '') {
+                                $relationshipWhen = trim((string)($relationshipRow['local_time'] ?? ''));
+                            }
+                            ?>
+                            <li>
+                                <span class="rel-timeline-feed-when"><?php echo dialectic_home_h($relationshipWhen !== '' ? $relationshipWhen : 'Unknown time'); ?></span>
+                                <span class="rel-timeline-feed-change"><?php echo dialecticRelationshipTimelineTooltipHtml($relationshipRow, 'home-rel'); ?></span>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <p class="rel-timeline-note">Read-only, derived from NPC history. Hover or focus an entry for the full before/after detail.</p>
                 <?php endif; ?>
             </div>
         </article>

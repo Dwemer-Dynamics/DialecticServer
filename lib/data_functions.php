@@ -3294,7 +3294,8 @@ function DataSpeechJournal($topic,$limit=50)
 
 function dialecticGetLatestTravelingPartyMemberNames(): array
 {
-    $party = json_decode(DataGetCurrentPartyConf(), true);
+    $partyJson = $GLOBALS["CACHE_PARTY"] ?? DataGetCurrentPartyConf();
+    $party = json_decode($partyJson, true);
     if (!is_array($party)) {
         return [];
     }
@@ -3331,6 +3332,11 @@ function dialecticIsActorInCurrentTravelingParty(string $actorName): bool
 function DataGetCurrentTask()
 {
     global $db;
+
+    $actorName = trim((string)($GLOBALS["DIALECTIC_NAME"] ?? ''));
+    if (!dialecticIsActorInCurrentTravelingParty($actorName)) {
+        return "";
+    }
 
     $includeActiveQuests = function_exists('dialecticPromptContextOptionEnabled')
         ? dialecticPromptContextOptionEnabled('enabled_general_subsections', 'active_quests')

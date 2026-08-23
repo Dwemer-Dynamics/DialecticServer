@@ -25,16 +25,17 @@ if (!$isEmbedded) {
 
 <link rel="stylesheet" href="<?php echo htmlspecialchars($webRoot, ENT_QUOTES, 'UTF-8'); ?>/ui/css/main.css">
 <style>
-main { padding: <?php echo $isEmbedded ? '24px' : '80px 12px 32px'; ?>; }
+main { padding: <?php echo $isEmbedded ? '10px 12px 24px' : '80px 12px 24px'; ?>; }
 .plugin-shell { max-width: 1080px; margin: 0 auto; }
-.plugin-heading { margin-bottom: 18px; border-bottom: 1px solid #3a3a3a; padding-bottom: 14px; }
-.plugin-heading h1 { margin: 0 0 6px; color: rgb(255, 182, 65) !important; font-family: 'Gothic821', sans-serif; font-weight: normal; font-size: 1.8rem; }
+/* Compact inline heading row (.dialectic-page-head in dialectic-theme.css) plus the existing rule. */
+body .plugin-heading { margin: 0 0 10px; padding: 0 0 8px; border-bottom: 1px solid #3a3a3a; }
+.plugin-heading h1 { margin: 0; color: rgb(255, 182, 65) !important; font-family: 'Gothic821', sans-serif; font-weight: normal; font-size: 1.3rem; }
 .plugin-heading p { margin: 0; color: #bdbdbd; }
-.plugin-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.plugin-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .plugin-toolbar h2 { margin: 0; font-family: 'Gothic821', sans-serif; font-weight: normal; font-size: 1.15rem; }
 .plugin-refresh { border: 1px solid rgb(255, 182, 65) !important; background: rgb(255, 182, 65) !important; color: #171717 !important; padding: 8px 12px; border-radius: 5px; cursor: pointer; }
 .plugin-refresh:hover { background: rgb(224, 151, 40) !important; border-color: rgb(224, 151, 40) !important; }
-.plugin-status { min-height: 54px; border: 1px solid #3a3a3a; background: #242424; border-radius: 6px; padding: 14px; color: #ddd; }
+.plugin-status { min-height: 54px; border: 1px solid #3a3a3a; background: #242424; border-radius: 6px; padding: 10px 12px; color: #ddd; }
 .plugin-list { display: grid; gap: 8px; }
 .plugin-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 18px; align-items: center; border: 1px solid #3a3a3a; background: #242424; border-radius: 6px; padding: 12px 14px; }
 .plugin-name { color: #fff; font-weight: 600; }
@@ -46,9 +47,9 @@ main { padding: <?php echo $isEmbedded ? '24px' : '80px 12px 32px'; ?>; }
 
 <main>
     <div class="plugin-shell">
-        <header class="plugin-heading">
-            <h1>Server Plugins</h1>
-            <p>DIALECTIC installs bundled server-plugin packages when the game loads. Existing settings and package data are preserved during updates.</p>
+        <header class="plugin-heading dialectic-page-head">
+            <h1 class="dialectic-page-head-title">Server Plugins</h1>
+            <p class="dialectic-page-head-note">DIALECTIC installs bundled server-plugin packages when the game loads. Existing settings and package data are preserved during updates.</p>
         </header>
         <div class="plugin-toolbar">
             <h2>Installed Packages</h2>

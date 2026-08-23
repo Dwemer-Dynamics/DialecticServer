@@ -47,7 +47,6 @@ $use_emotions_expression = false; //Add emotions support. Changes the affect con
 //[Advanced Configuration]
 $RECHAT_H=2; //Rechat Rounds. Higher values will increase the amount of rounds NPC's will talk amongst themselves.
 $RECHAT_P=50; //Rechat Probability.
-$BORED_EVENT=30; //Bored Event Probability. Chance of an NPC starting a random conversation after a set period of time.
 $CONTEXT_HISTORY="50"; //Amount of context history (dialogue and events) that will be sent to LLM.
 $CONTEXT_HISTORY_DIARY="100"; //Amount of context history specifically for diary entries. Set to 0 to use regular CONTEXT_HISTORY value.
 $CONTEXT_HISTORY_DYNAMIC_PROFILE="50"; //Amount of context history specifically for dynamic profile updates. Set to 0 to use regular CONTEXT_HISTORY value.
@@ -148,6 +147,7 @@ $CORE_CONNECTOR_SCENECLASSIFIER=7; // Gemma 3N E4B
 $SCENE_CLASSIFIER_ENABLED=true; // Enable post-request scene tone/genre classification.
 $CORE_CONNECTOR_PROFILES=1;
 $RELLLM_CONNECTOR=5; // Relationship Management default (Mistral Small 3.2 24B)
+$RELATIONSHIP_UPDATE_CHANCE=50; // Percent chance (0-100) an eligible completed NPC response queues a Relationship Management evaluation. 0 disables automatic evaluations.
 
 ;
 //[AI/LLM Connectors]

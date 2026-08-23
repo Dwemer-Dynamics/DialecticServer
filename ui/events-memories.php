@@ -31,7 +31,7 @@ ob_start();
 include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
 ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><style>
  main.events-memories-page {
- padding: 20px 12px 40px;
+ padding: 0 12px 8px;
  }
  
  /* Override footer styles */
@@ -60,13 +60,13 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
 
  /* Tab styles */
  .tab-container {
- margin: 20px 0;
+ margin: 0 0 6px;
  }
 
  .tab-buttons {
  display: flex;
  flex-wrap: wrap;
- margin-bottom: 20px;
+ margin-bottom: 10px;
  border-bottom: 2px solid rgba(255, 182, 65, 0.2);
  gap: 5px;
  word-spacing: 5px;
@@ -109,7 +109,7 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
  .tab-content {
  display: none;
  background: linear-gradient(135deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
- padding: 20px;
+ padding: 10px 12px 12px;
  border-radius: 8px;
  border-top-left-radius: 0;
  border: 1px solid #3a3a3a;
@@ -122,8 +122,8 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
 
  /* Table Container Styles */
  .table-container {
- max-height: calc(100vh - 450px) !important;
- margin-top: 20px;
+ max-height: calc(100vh - 310px) !important;
+ margin-top: 8px;
  width: 100%;
  overflow-x: auto;
  background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
@@ -131,7 +131,35 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
  border: 1px solid #3a3a3a;
  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15),
  inset 0 1px rgba(255, 255, 255, 0.03);
- padding: 12px;
+ padding: 8px;
+ }
+
+ .event-log-intro,
+ .event-log-note {
+ padding: 9px 12px;
+ border-radius: 5px;
+ margin: 0 0 6px;
+ font-size: 0.88em;
+ line-height: 1.4;
+ }
+
+ .event-log-intro {
+ background: #2a2a2a;
+ border-left: 4px solid rgb(255, 182, 65);
+ }
+
+ .event-log-note {
+ background: #1a4d6d;
+ border-left: 4px solid #3b82f6;
+ color: #e0f2ff;
+ }
+
+ .event-log-toolbar {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 8px;
+ margin: 8px 0 6px;
  }
 
  /* Table Styles */
@@ -333,10 +361,11 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
 </style>
 <style>
  .tab-content.embed-tab { padding: 0; overflow: hidden; }
- .embed-frame { width: 100%; height: calc(100vh - 245px); min-height: 520px; border: 0; background: #202020; }
+ .embed-frame { width: 100%; height: calc(100vh - 185px); min-height: 520px; border: 0; background: #202020; }
  @media (max-height: 800px) { .embed-frame { min-height: 420px; } }
 </style>
 <link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'hub-navigation.css'); ?>">
+<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/relationship_timeline.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'relationship_timeline.css'); ?>">
 <?php
 
 include(__DIR__.DIRECTORY_SEPARATOR."tmpl/navbar.php");
@@ -411,8 +440,14 @@ if (isset($_GET['clear_hidden_event_types']) && $_GET['clear_hidden_event_types'
 }
 
 $eventLogHiddenTypes = dialecticNormalizeEventLogTypeList($eventLogHiddenTypes);
-$eventLogTypeOptions = dialecticGetVisibleEventLogTypes($db, $eventLogHiddenTypes);
 $eventLogVisibleWhereClause = dialecticBuildVisibleEventLogWhereClause($db, '', $eventLogHiddenTypes);
+
+// Read-only relationship changes derived from core_npc_master_history snapshots.
+// They are virtual rows: nothing is written back into the eventlog table.
+$eventLogRelationshipRows = dialecticRelationshipTimelineIsVisible('', $eventLogHiddenTypes)
+ ? dialecticFetchRelationshipTimelineChanges($db, ['limit' => 200, 'scan_limit' => 800])
+ : [];
+$eventLogTypeOptions = dialecticGetEventLogTypeOptions($db, $eventLogHiddenTypes, count($eventLogRelationshipRows));
 
 $eventLogBaseParams = [
  'tab' => 'eventlog',
@@ -576,9 +611,17 @@ function getTimeColor($time) {
  include(__DIR__ . DIRECTORY_SEPARATOR . 'tmpl' . DIRECTORY_SEPARATOR . 'events_memories_navigation.php');
 ?><!-- Event Log Tab --><div id="eventlog-tab" class="tab-content <?php echo $activeTab === 'eventlog' ? 'active' : ''; ?>"><?php
  // Add subtitle description
- echo "<div style='background: #2a2a2a; border-left: 4px solid rgb(255, 182, 65); padding: 12px 15px; border-radius: 5px; margin: 15px 0; font-size: 0.9em;'>";
+ echo "<div class='event-log-intro'>";
  echo "<span style='color: rgb(255, 182, 65); font-weight: bold;'> Events:</span> ";
  echo "<span style='color: #f8f9fa;'>Raw log of in-game events (combat, deaths, location changes, etc.) that provide context to the AI. These events are filtered and selectively added to AI prompts based on relevance.</span>";
+ echo "</div>";
+
+ // Keep context guidance directly below the description so both scan as one compact introduction.
+ echo "<div class='event-log-note'>";
+ echo " <strong>Note:</strong> Not all events will show up in AI context. Any blacklist settings will not be used for context. This is a raw log of some of the more relevant events.";
+ if (!empty($eventLogRelationshipRows)) {
+ echo " <strong>relationship</strong> rows are read-only, derived from NPC history snapshots; hover or focus one for the full before/after breakdown.";
+ }
  echo "</div>";
  
  // Show success message if events were deleted
@@ -592,7 +635,7 @@ function getTimeColor($time) {
  $eventLogUrlBuilder = function(array $overrides = []) use ($eventLogBaseParams) {
  return 'events-memories.php?' . http_build_query(array_merge($eventLogBaseParams, $overrides));
  };
- echo "<div style='display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 20px 0;'>";
+ echo "<div class='event-log-toolbar'>";
  
  echo "<button id='live-toggle-btn-eventlog' onclick=\"toggleAutoRefreshEventLog()\" class='btn-base " . ($isAutoRefresh ? "btn-secondary" : "btn-primary") . "' style='padding: 8px 12px; font-size: 0.9em;' title='Toggle live monitoring'>";
  echo $isAutoRefresh ? " Stop Live" : "Auto Refresh";
@@ -620,15 +663,16 @@ function getTimeColor($time) {
  echo "</div>";
  echo "</div>";
  
- // Add informational note about blacklist settings
- echo "<div style='background: #1a4d6d; color: #e0f2ff; padding: 12px 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #3b82f6; font-size: 0.9em;'>";
- echo " <strong>Note:</strong> Not all events will show up in AI context. Any blacklist settings will not be used for context. This is a raw log of some of the more relevant events.";
- echo "</div>";
-
  $limit = $eventLogLimit;
  $page = $eventLogPage;
  $offset = ($page - 1) * $limit;
- 
+
+ // Total/pagination still describes the physical eventlog table only.
+ $countQuery = "SELECT COUNT(*) as total FROM eventlog WHERE $eventLogVisibleWhereClause";
+ $countResult = $db->fetchAll($countQuery);
+ $totalRecords = $countResult[0]['total'];
+ $totalPages = ceil($totalRecords / $limit);
+
  $results = $db->fetchAll(
  "SELECT type, data, people, gamets, localts, ts, rowid
  FROM eventlog a
@@ -636,7 +680,16 @@ function getTimeColor($time) {
  ORDER BY " . dialecticGetEventLogUiOrderBy() . "
  LIMIT $limit OFFSET $offset"
  );
- 
+
+ // Virtual relationship rows join the page whose time window contains them, so
+ // offsets, page counts and raw event rows are all left untouched.
+ $results = dialecticMergeRelationshipTimelineRows(
+ is_array($results) ? $results : [],
+ $eventLogRelationshipRows,
+ $page <= 1,
+ $page >= max(1, (int)$totalPages)
+ );
+
  $columnHeaders = [
  'type' => 'Event',
  'data' => 'Events',
@@ -645,10 +698,25 @@ function getTimeColor($time) {
  ];
  
  $mappedResults = array_map(function ($row) use ($columnHeaders) {
+ // Relationship rows are derived from NPC history snapshots: read-only, never deletable.
+ if (!empty($row['virtual'])) {
+ $relationshipPeople = array_merge([(string)($row['npc_name'] ?? '')], (array)($row['targets'] ?? []));
+ $relationshipPeople = array_values(array_filter(array_map('trim', $relationshipPeople), 'strlen'));
+ return [
+ '' => dialecticRelationshipTimelineReadOnlyHtml(),
+ 'Event' => '<span class="rel-timeline-type">' . htmlspecialchars((string)($row['type'] ?? '')) . '</span>',
+ 'Events' => dialecticRelationshipTimelineTooltipHtml($row, 'eventlog-rel'),
+ 'People Present' => htmlspecialchars(implode(', ', $relationshipPeople)),
+ $columnHeaders['gamets'] => htmlspecialchars((string)($row['fallout_time'] ?? '')),
+ 'Time (UTC)' => htmlspecialchars((string)($row['local_time'] ?? '')),
+ 'rowid' => '<span class="rel-timeline-virtual-id" title="Derived from NPC history, not stored in the event log">&mdash;</span>',
+ ];
+ }
+
  $mappedRow = [];
  // Add checkbox column first (PostgreSQL returns rowid in lowercase)
  $mappedRow[''] = '<input type="checkbox" class="event-checkbox" data-rowid="' . htmlspecialchars($row['rowid'] ?? '') . '" style="cursor: pointer; width: 18px; height: 18px;">';
- 
+
  foreach ($row as $key => $value) {
  if ($key === 'data' && function_exists('dialecticRenderNarratorRoleplayText')) {
  $value = dialecticRenderNarratorRoleplayText($value);
@@ -710,13 +778,7 @@ function getTimeColor($time) {
  $prevPage = max(1, $page - 1);
  $nextPage = $page + 1;
  
- // Get total count for pagination
- $countQuery = "SELECT COUNT(*) as total FROM eventlog WHERE $eventLogVisibleWhereClause";
- $countResult = $db->fetchAll($countQuery);
- $totalRecords = $countResult[0]['total'];
- $totalPages = ceil($totalRecords / $limit);
- 
- echo "<div class='pagination-buttons' style='margin: 10px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;'>";
+ echo "<div class='pagination-buttons' style='margin: 6px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;'>";
  
  if ($page > 1) {
  echo "<button onclick=\"window.location.href='" . htmlspecialchars($eventLogUrlBuilder(['page' => $prevPage]), ENT_QUOTES) . "'\" class='btn-base btn-primary'>Previous</button> ";

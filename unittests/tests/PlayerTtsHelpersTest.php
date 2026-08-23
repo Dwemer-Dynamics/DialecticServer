@@ -132,6 +132,41 @@ final class PlayerTtsHelpersTest extends TestCase
         $this->assertSame('0x0002F586', $payload['target_formid']);
     }
 
+    public function testRechatActivityBlocksFreshUnconsciousAndSleepingBystanders(): void
+    {
+        $now = (int)round(microtime(true) * 1000);
+        $unconscious = ['metadata' => json_encode([
+            'activity_status' => ['is_unconscious' => true, 'timestamp' => $now],
+        ])];
+        $sleeping = ['metadata' => json_encode([
+            'activity_status' => ['is_sleeping' => true, 'timestamp' => $now],
+        ])];
+
+        $this->assertSame(
+            'fresh activity status marks actor unconscious',
+            dialecticRechatActivityBlockReason($unconscious, true)
+        );
+        $this->assertSame(
+            'fresh activity status marks actor sleeping',
+            dialecticRechatActivityBlockReason($sleeping, false)
+        );
+        $this->assertSame('', dialecticRechatActivityBlockReason($sleeping, true));
+    }
+
+    public function testRechatActivityFailsOpenForMissingOrStaleStatus(): void
+    {
+        $stale = ['metadata' => [
+            'activity_status' => [
+                'is_unconscious' => true,
+                'timestamp' => (int)round(microtime(true) * 1000) - 60000,
+            ],
+        ]];
+
+        $this->assertSame('', dialecticRechatActivityBlockReason(null));
+        $this->assertSame('', dialecticRechatActivityBlockReason(['metadata' => []]));
+        $this->assertSame('', dialecticRechatActivityBlockReason($stale));
+    }
+
     public function testTextOnlyPlayerLineHasNoTtsCacheKey(): void
     {
         $GLOBALS['PLAYER_NAME'] = 'Graussy';

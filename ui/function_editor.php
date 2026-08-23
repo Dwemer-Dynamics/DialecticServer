@@ -284,6 +284,123 @@ function functionEditorRowHasConfig($row)
     return count(functionEditorGetEditableConfigFieldsForRow($row)) > 0;
 }
 
+function functionEditorGetBulkConfigFieldKeys()
+{
+    return [
+        'followup_enabled',
+        'followup_arg_name',
+        'followup_prompt',
+        'followup_use_functions_again',
+    ];
+}
+
+/**
+ * The follow-up fields every action shares, in canonical order. Used by the bulk editor so a
+ * single submitted value set can be written to many actions at once.
+ */
+function functionEditorGetBulkConfigFields($rows = [])
+{
+    $allowedKeys = functionEditorGetBulkConfigFieldKeys();
+
+    $candidates = [];
+    foreach ((is_array($rows) ? $rows : []) as $row) {
+        $rowFields = functionEditorGetEditableConfigFieldsForRow($row);
+        if (count($rowFields) === 0) {
+            continue;
+        }
+
+        foreach ($rowFields as $rowField) {
+            $candidates[] = $rowField;
+        }
+        break;
+    }
+
+    if (count($candidates) === 0 && function_exists('dialecticActionCatalogGetSharedEditorFields')) {
+        $candidates = dialecticActionCatalogGetSharedEditorFields();
+    }
+
+    $byKey = [];
+    foreach ($candidates as $candidate) {
+        $normalized = function_exists('dialecticActionCatalogNormalizeEditorField')
+            ? dialecticActionCatalogNormalizeEditorField($candidate)
+            : (is_array($candidate) ? $candidate : null);
+        if (!is_array($normalized)) {
+            continue;
+        }
+
+        $key = strval($normalized['key'] ?? '');
+        if ($key === '' || !in_array($key, $allowedKeys, true) || isset($byKey[$key])) {
+            continue;
+        }
+
+        $byKey[$key] = $normalized;
+    }
+
+    $ordered = [];
+    foreach ($allowedKeys as $key) {
+        if (isset($byKey[$key])) {
+            $ordered[] = $byKey[$key];
+        }
+    }
+
+    return $ordered;
+}
+
+function functionEditorNormalizeSubmittedCodeNameList($values)
+{
+    if (!is_array($values)) {
+        return [];
+    }
+
+    $unique = [];
+    foreach ($values as $value) {
+        if (is_array($value)) {
+            continue;
+        }
+
+        $codeName = functionEditorTrim($value);
+        if ($codeName === '') {
+            continue;
+        }
+
+        $codeKey = strtolower($codeName);
+        if (!isset($unique[$codeKey])) {
+            $unique[$codeKey] = $codeName;
+        }
+    }
+
+    return array_values($unique);
+}
+
+function functionEditorGetExistingCustomOverrideCodeSet($codeNames)
+{
+    $codeNames = is_array($codeNames) ? $codeNames : [];
+    if (count($codeNames) === 0 || !function_exists('dialecticActionCatalogSqlText')) {
+        return [];
+    }
+
+    $literals = [];
+    foreach ($codeNames as $codeName) {
+        $literals[] = 'LOWER(' . dialecticActionCatalogSqlText($codeName) . ')';
+    }
+
+    $rows = $GLOBALS["db"]->fetchAll("
+        SELECT LOWER(code_name) AS code_key
+        FROM public.core_action_custom
+        WHERE LOWER(code_name) IN (" . implode(', ', $literals) . ")
+    ");
+
+    $existing = [];
+    foreach ((is_array($rows) ? $rows : []) as $row) {
+        $key = strval($row['code_key'] ?? '');
+        if ($key !== '') {
+            $existing[$key] = true;
+        }
+    }
+
+    return $existing;
+}
+
 function functionEditorFormatConfigValue($field, $value)
 {
     $field = function_exists('dialecticActionCatalogNormalizeEditorField')
@@ -526,6 +643,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"])) {
     if ($_POST["action"] === "toggle_action") {
         $codeName = functionEditorTrim($_POST["code_name"] ?? "");
         $targetEnabled = functionEditorToBool($_POST["target_enabled"] ?? "0");
+        $shouldSaveText = functionEditorToBool($_POST["save_text"] ?? "0");
+        $stateLabel = $targetEnabled ? "enabled" : "disabled";
 
         if ($codeName === "") {
             $message = "Missing action code name.";
@@ -533,11 +652,60 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"])) {
         } elseif (!function_exists("dialecticActionCatalogDbReady") || !dialecticActionCatalogDbReady()) {
             $message = "Action catalog tables are not available yet. Run database updates first.";
             $messageType = "err";
-        } elseif (dialecticActionCatalogUpsertCustomToggle($codeName, $targetEnabled)) {
-            $message = sprintf("%s is now %s.", $codeName, $targetEnabled ? "enabled" : "disabled");
-        } else {
-            $message = "Could not update action toggle.";
+        } elseif (!$shouldSaveText) {
+            if (dialecticActionCatalogUpsertCustomToggle($codeName, $targetEnabled)) {
+                functionEditorRedirectWithNotice(sprintf("%s is now %s.", $codeName, $stateLabel), "ok", $isEmbed);
+            } else {
+                $message = "Could not update action toggle.";
+                $messageType = "err";
+            }
+        } elseif (!function_exists("dialecticActionCatalogUpsertCustomTextFields")) {
+            $message = "Action catalog text override support is not available in this build.";
             $messageType = "err";
+        } else {
+            // The row carried unsaved name/description edits and the editor asked to keep them.
+            $submittedName = functionEditorNormalizeSubmittedActionTextValue($_POST["action_name"] ?? "", "Action name", false);
+            $submittedDescription = functionEditorNormalizeSubmittedActionTextValue($_POST["description"] ?? "", "Description", true);
+            $errorMessage = trim(implode(' ', array_filter([
+                $submittedName['error'] ?? '',
+                $submittedDescription['error'] ?? '',
+            ])));
+
+            if ($errorMessage === '' && function_exists("dialecticFindActionCatalogActionNameConflict")) {
+                $conflictingRow = dialecticFindActionCatalogActionNameConflict($submittedName['value'], $codeName);
+                if (is_array($conflictingRow) && !empty($conflictingRow['code_name'])) {
+                    $conflictingActionName = trim(strval($conflictingRow['action_name'] ?? ''));
+                    $conflictingActionName = $conflictingActionName !== '' ? $conflictingActionName : trim(strval($conflictingRow['code_name'] ?? ''));
+                    $errorMessage = "Action name conflicts with " . $conflictingActionName . " (" . trim(strval($conflictingRow['code_name'] ?? '')) . "). Keep action names unique.";
+                }
+            }
+
+            if ($errorMessage !== '') {
+                $message = $errorMessage;
+                $messageType = "err";
+            } else {
+                $transactionStarted = $GLOBALS["db"]->execQuery("BEGIN") !== false;
+                $saved = false;
+                if ($transactionStarted) {
+                    $saved = dialecticActionCatalogUpsertCustomTextFields($codeName, [
+                        'action_name' => $submittedName['value'],
+                        'description' => functionEditorNormalizeSubmittedActionTextForStorage($submittedDescription['value']),
+                    ]);
+                    if ($saved) {
+                        $saved = dialecticActionCatalogUpsertCustomToggle($codeName, $targetEnabled);
+                    }
+                }
+
+                if ($saved && $GLOBALS["db"]->execQuery("COMMIT") !== false) {
+                    functionEditorRedirectWithNotice(sprintf("%s saved and is now %s.", $codeName, $stateLabel), "ok", $isEmbed);
+                } else {
+                    if ($transactionStarted) {
+                        $GLOBALS["db"]->execQuery("ROLLBACK");
+                    }
+                    $message = "Could not save edits while changing the action toggle. Nothing was changed.";
+                    $messageType = "err";
+                }
+            }
         }
     } elseif ($_POST["action"] === "update_action_basic_fields") {
         $codeName = functionEditorTrim($_POST["code_name"] ?? "");
@@ -775,6 +943,255 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"])) {
                 $messageType = "err";
             }
         }
+    } elseif ($_POST["action"] === "bulk_update_action_config") {
+        $bulkCodeNames = functionEditorNormalizeSubmittedCodeNameList($_POST["code_names"] ?? []);
+        $bulkApplyMap = is_array($_POST["bulk_apply"] ?? null) ? $_POST["bulk_apply"] : [];
+        $submittedConfig = is_array($_POST["config"] ?? null) ? $_POST["config"] : [];
+        $bulkFields = functionEditorGetBulkConfigFields();
+
+        $selectedFields = [];
+        foreach ($bulkFields as $bulkField) {
+            if (functionEditorToBool($bulkApplyMap[strval($bulkField['key'] ?? '')] ?? false)) {
+                $selectedFields[] = $bulkField;
+            }
+        }
+
+        if (!function_exists("dialecticActionCatalogDbReady") || !dialecticActionCatalogDbReady()) {
+            $message = "Action catalog tables are not available yet. Run database updates first.";
+            $messageType = "err";
+        } elseif (!function_exists("dialecticActionCatalogUpsertCustomConfig")) {
+            $message = "Action catalog custom config support is not available in this build.";
+            $messageType = "err";
+        } elseif (count($bulkCodeNames) === 0) {
+            $message = "Select at least one visible action before applying a bulk update.";
+            $messageType = "err";
+        } elseif (count($selectedFields) === 0) {
+            $message = "Tick at least one follow-up field to apply.";
+            $messageType = "err";
+        } else {
+            $errorMessage = "";
+            $configValues = [];
+            foreach ($selectedFields as $selectedField) {
+                $normalizedValue = functionEditorNormalizeSubmittedConfigValue($selectedField, $submittedConfig, $errorMessage);
+                if ($errorMessage !== "") {
+                    break;
+                }
+
+                $configValues[strval($selectedField['key'])] = $normalizedValue;
+            }
+
+            $targetRows = [];
+            $unknownCodeNames = [];
+            if ($errorMessage === "") {
+                foreach ($bulkCodeNames as $bulkCodeName) {
+                    $bulkRow = function_exists('dialecticGetActionCatalogRow') ? dialecticGetActionCatalogRow($bulkCodeName) : null;
+                    if (!is_array($bulkRow)) {
+                        $unknownCodeNames[] = $bulkCodeName;
+                        continue;
+                    }
+
+                    $targetRows[] = $bulkRow;
+                }
+
+                if (count($unknownCodeNames) > 0) {
+                    $errorMessage = "Unknown action code name: " . implode(', ', array_slice($unknownCodeNames, 0, 5)) . ".";
+                }
+            }
+
+            if ($errorMessage !== "") {
+                $message = $errorMessage;
+                $messageType = "err";
+            } else {
+                $existingOverrides = functionEditorGetExistingCustomOverrideCodeSet($bulkCodeNames);
+                $transactionStarted = $GLOBALS["db"]->execQuery("BEGIN") !== false;
+                $saved = $transactionStarted;
+                $updatedCount = 0;
+                $createdOverrideCount = 0;
+                $skippedCodeNames = [];
+
+                if ($transactionStarted) {
+                    foreach ($targetRows as $targetRow) {
+                        $targetCodeName = strval($targetRow['code_name'] ?? '');
+                        $targetFieldKeys = [];
+                        foreach (functionEditorGetEditableConfigFieldsForRow($targetRow) as $targetField) {
+                            $targetFieldKey = strval($targetField['key'] ?? '');
+                            if ($targetFieldKey !== '') {
+                                $targetFieldKeys[$targetFieldKey] = true;
+                            }
+                        }
+
+                        $targetValues = array_intersect_key($configValues, $targetFieldKeys);
+                        if (count($targetValues) === 0) {
+                            $skippedCodeNames[] = $targetCodeName;
+                            continue;
+                        }
+
+                        if (!dialecticActionCatalogUpsertCustomConfig($targetCodeName, $targetValues)) {
+                            $saved = false;
+                            break;
+                        }
+
+                        $updatedCount++;
+                        if (!isset($existingOverrides[strtolower($targetCodeName)])) {
+                            $createdOverrideCount++;
+                        }
+                    }
+                }
+
+                $skippedEverything = $saved && $updatedCount === 0;
+                if ($skippedEverything) {
+                    $saved = false;
+                }
+
+                if ($saved && $GLOBALS["db"]->execQuery("COMMIT") !== false) {
+                    $noticeParts = [sprintf(
+                        "Applied %d follow-up field%s to %d action%s.",
+                        count($selectedFields),
+                        count($selectedFields) === 1 ? "" : "s",
+                        $updatedCount,
+                        $updatedCount === 1 ? "" : "s"
+                    )];
+                    if ($createdOverrideCount > 0) {
+                        $noticeParts[] = sprintf(
+                            "%d factory action%s now %s a custom override.",
+                            $createdOverrideCount,
+                            $createdOverrideCount === 1 ? "" : "s",
+                            $createdOverrideCount === 1 ? "has" : "have"
+                        );
+                    }
+                    if (count($skippedCodeNames) > 0) {
+                        $noticeParts[] = sprintf(
+                            "%d selected action%s skipped because they do not expose these fields.",
+                            count($skippedCodeNames),
+                            count($skippedCodeNames) === 1 ? "" : "s"
+                        );
+                    }
+
+                    functionEditorRedirectWithNotice(implode(' ', $noticeParts), "ok", $isEmbed);
+                } else {
+                    if ($transactionStarted) {
+                        $GLOBALS["db"]->execQuery("ROLLBACK");
+                    }
+                    $message = $skippedEverything
+                        ? "None of the selected actions expose the chosen follow-up fields. Nothing was changed."
+                        : "Could not apply the bulk update. No actions were changed.";
+                    $messageType = "err";
+                }
+            }
+        }
+    } elseif ($_POST["action"] === "save_all_action_basic_fields") {
+        $submittedRows = is_array($_POST["rows"] ?? null) ? $_POST["rows"] : [];
+
+        if (!function_exists("dialecticActionCatalogDbReady") || !dialecticActionCatalogDbReady()) {
+            $message = "Action catalog tables are not available yet. Run database updates first.";
+            $messageType = "err";
+        } elseif (!function_exists("dialecticActionCatalogUpsertCustomTextFields")) {
+            $message = "Action catalog text override support is not available in this build.";
+            $messageType = "err";
+        } elseif (count($submittedRows) === 0) {
+            $message = "There were no unsaved changes to save.";
+            $messageType = "err";
+        } else {
+            $errorMessage = "";
+            $pendingRows = [];
+            $submittedNamesByCode = [];
+
+            foreach ($submittedRows as $submittedRow) {
+                if (!is_array($submittedRow)) {
+                    continue;
+                }
+
+                $rowCodeName = functionEditorTrim($submittedRow["code_name"] ?? "");
+                if ($rowCodeName === "") {
+                    $errorMessage = "Missing action code name.";
+                    break;
+                }
+
+                $catalogRow = function_exists('dialecticGetActionCatalogRow') ? dialecticGetActionCatalogRow($rowCodeName) : null;
+                if (!is_array($catalogRow)) {
+                    $errorMessage = "Unknown action code name: " . $rowCodeName . ".";
+                    break;
+                }
+
+                $rowName = functionEditorNormalizeSubmittedActionTextValue($submittedRow["action_name"] ?? "", "Action name for " . $rowCodeName, false);
+                $rowDescription = functionEditorNormalizeSubmittedActionTextValue($submittedRow["description"] ?? "", "Description for " . $rowCodeName, true);
+                $errorMessage = trim(implode(' ', array_filter([
+                    $rowName['error'] ?? '',
+                    $rowDescription['error'] ?? '',
+                ])));
+                if ($errorMessage !== "") {
+                    break;
+                }
+
+                $nameKey = strtolower(trim(strval($rowName['value'])));
+                if (isset($submittedNamesByCode[$nameKey])) {
+                    $errorMessage = "Two edited actions share the action name " . trim(strval($rowName['value']))
+                        . " (" . $submittedNamesByCode[$nameKey] . " and " . $rowCodeName . "). Keep action names unique.";
+                    break;
+                }
+
+                $submittedNamesByCode[$nameKey] = $rowCodeName;
+                $pendingRows[] = [
+                    'code_name' => $rowCodeName,
+                    'action_name' => $rowName['value'],
+                    'description' => $rowDescription['value'],
+                ];
+            }
+
+            if ($errorMessage === "" && count($pendingRows) === 0) {
+                $errorMessage = "There were no unsaved changes to save.";
+            }
+
+            if ($errorMessage === "" && function_exists("dialecticFindActionCatalogActionNameConflict")) {
+                foreach ($pendingRows as $pendingRow) {
+                    $conflictingRow = dialecticFindActionCatalogActionNameConflict($pendingRow['action_name'], $pendingRow['code_name']);
+                    if (!is_array($conflictingRow) || empty($conflictingRow['code_name'])) {
+                        continue;
+                    }
+
+                    $conflictingCodeName = trim(strval($conflictingRow['code_name']));
+                    $conflictingActionName = trim(strval($conflictingRow['action_name'] ?? ''));
+                    $conflictingActionName = $conflictingActionName !== '' ? $conflictingActionName : $conflictingCodeName;
+                    $errorMessage = "Action name for " . $pendingRow['code_name'] . " conflicts with " . $conflictingActionName
+                        . " (" . $conflictingCodeName . "). Keep action names unique.";
+                    break;
+                }
+            }
+
+            if ($errorMessage !== "") {
+                $message = $errorMessage;
+                $messageType = "err";
+            } else {
+                $transactionStarted = $GLOBALS["db"]->execQuery("BEGIN") !== false;
+                $saved = $transactionStarted;
+
+                if ($transactionStarted) {
+                    foreach ($pendingRows as $pendingRow) {
+                        $saved = dialecticActionCatalogUpsertCustomTextFields($pendingRow['code_name'], [
+                            'action_name' => $pendingRow['action_name'],
+                            'description' => functionEditorNormalizeSubmittedActionTextForStorage($pendingRow['description']),
+                        ]);
+                        if (!$saved) {
+                            break;
+                        }
+                    }
+                }
+
+                if ($saved && $GLOBALS["db"]->execQuery("COMMIT") !== false) {
+                    functionEditorRedirectWithNotice(sprintf(
+                        "Saved %d edited action%s.",
+                        count($pendingRows),
+                        count($pendingRows) === 1 ? "" : "s"
+                    ), "ok", $isEmbed);
+                } else {
+                    if ($transactionStarted) {
+                        $GLOBALS["db"]->execQuery("ROLLBACK");
+                    }
+                    $message = "Could not save all edited actions. No changes were applied.";
+                    $messageType = "err";
+                }
+            }
+        }
     } elseif ($_POST["action"] === "reset_action_override") {
         $codeName = functionEditorTrim($_POST["code_name"] ?? "");
 
@@ -964,45 +1381,30 @@ if (!$isEmbed) {
         font-style: normal;
     }
     main {
-        padding-top: <?php echo $isEmbed ? "30px" : "80px"; ?>;
-        padding-bottom: 40px;
+        padding-top: <?php echo $isEmbed ? "10px" : "80px"; ?>;
+        padding-bottom: 24px;
         padding-left: 5px;
         padding-right: 5px;
         width: 100%;
         margin: 0;
     }
-    .page-header {
-        text-align: center;
-        margin-bottom: 30px;
-        padding: 20px;
-        background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
-        border-radius: 10px;
-        border: 1px solid #3a3a3a;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 1px rgba(255, 255, 255, 0.03);
-    }
+    /* Page header is the shared compact inline row (.dialectic-page-head in dialectic-theme.css). */
     .page-header h1.api-title {
-        margin-bottom: 8px;
-    }
-    h1.api-title {
-        margin: 0 0 20px 0;
         font-family: "Monofonto", serif;
-        word-spacing: 8px;
-        font-size: 2.2em;
-        color: #e6b76c;
-        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-        text-align: center;
-    }
-    .page-subtitle {
-        margin: 0;
-        color: #bbb;
-        font-size: 1.1em;
-        line-height: 1.6;
     }
     .content-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 30px;
-        margin-bottom: 30px;
+        gap: 14px;
+        margin-bottom: 12px;
+    }
+    /* Summary / How It Works cards sit directly under the header, so keep them low. */
+    .content-grid > .content-section {
+        padding: 12px 16px;
+    }
+    .content-grid > .content-section h2 {
+        margin-bottom: 8px;
+        font-size: 1.2em;
     }
     .content-section {
         background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
@@ -1108,8 +1510,8 @@ if (!$isEmbed) {
     }
     .action-container {
         display: grid;
-        gap: 16px;
-        margin-bottom: 20px;
+        gap: 12px;
+        margin-bottom: 14px;
     }
     .filter-toolbar {
         display: grid;
@@ -1627,10 +2029,10 @@ if (!$isEmbed) {
         border: 0;
     }
     .action-name-column {
-        width: 28%;
+        width: 26%;
     }
     .action-description-column {
-        width: 52%;
+        width: 50%;
     }
     .action-controls-column {
         width: 20%;
@@ -1825,6 +2227,293 @@ if (!$isEmbed) {
         margin: 0;
         color: #c8ced8;
     }
+    /* Bulk selection + unsaved-changes action bar. */
+    .editor-actionbar {
+        display: flex;
+        align-items: center;
+        gap: 8px 14px;
+        flex-wrap: wrap;
+        padding: 8px 12px;
+        border: 1px solid #3a3a3a;
+        border-radius: 10px;
+        background: linear-gradient(180deg, rgba(38, 38, 38, 0.95), rgba(30, 30, 30, 0.98));
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 1px rgba(255, 255, 255, 0.03);
+    }
+    .editor-actionbar form {
+        display: contents;
+    }
+    .editor-actionbar .action-button,
+    .editor-actionbar .btn-save {
+        width: auto;
+        margin: 0;
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 0.86em;
+        white-space: nowrap;
+    }
+    .actionbar-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+    .actionbar-group-end {
+        margin-left: auto;
+    }
+    .actionbar-status {
+        color: #c9d3e5;
+        font-size: 0.86em;
+        line-height: 1.35;
+    }
+    .actionbar-status strong {
+        color: #f3d8a0;
+    }
+    .actionbar-status.has-unsaved {
+        color: rgb(255, 182, 65);
+        font-weight: 700;
+    }
+    .actionbar-note {
+        color: #e6b76c;
+        font-size: 0.8em;
+        line-height: 1.35;
+    }
+    .actionbar-note:empty {
+        display: none;
+    }
+    /* Detailed guidance stays on hover/focus so the dense bar keeps no permanent copy. */
+    .help-hint {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+    }
+    .help-dot {
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border-radius: 50%;
+        border: 1px solid rgba(216, 165, 76, 0.5);
+        background: rgba(98, 73, 27, 0.28);
+        color: #f3d8a0;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1;
+        cursor: help;
+        transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .help-dot:hover {
+        background: rgba(98, 73, 27, 0.5);
+        border-color: rgba(216, 165, 76, 0.8);
+        color: #ffe3ad;
+    }
+    .help-dot:focus-visible {
+        outline: 2px solid rgba(255, 182, 65, 0.65);
+        outline-offset: 2px;
+    }
+    .help-tip {
+        position: absolute;
+        z-index: 40;
+        top: calc(100% + 8px);
+        right: 0;
+        width: max-content;
+        max-width: min(340px, 74vw);
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(216, 165, 76, 0.42);
+        background: rgba(19, 24, 31, 0.98);
+        color: #e9efff;
+        font-size: 0.82em;
+        font-weight: 400;
+        line-height: 1.45;
+        text-align: left;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+        opacity: 0;
+        transform: translateY(-4px);
+        transition: opacity 0.14s ease, transform 0.14s ease;
+        pointer-events: none;
+    }
+    .help-hint:hover .help-tip,
+    .help-hint:focus-within .help-tip {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    /* Row selection column. */
+    .action-select-column {
+        width: 46px;
+    }
+    .table-container thead th.select-header,
+    .table-container td.action-select-cell {
+        padding-left: 10px;
+        padding-right: 4px;
+        text-align: left;
+    }
+    .action-select-checkbox,
+    .action-select-all {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        accent-color: rgb(255, 182, 65);
+        cursor: pointer;
+    }
+    .action-select-checkbox:focus-visible,
+    .action-select-all:focus-visible {
+        outline: 2px solid rgba(255, 182, 65, 0.7);
+        outline-offset: 2px;
+    }
+    .table-container tbody tr.action-row.is-selected {
+        background: rgba(255, 182, 65, 0.07);
+    }
+    .action-row.is-dirty > td:first-child {
+        box-shadow: inset 3px 0 0 rgb(255, 182, 65);
+    }
+    .row-dirty-flag {
+        display: inline-block;
+        flex: 0 0 auto;
+        padding: 3px 8px;
+        border: 1px solid rgba(255, 182, 65, 0.6);
+        border-radius: 12px;
+        background: rgba(98, 73, 27, 0.34);
+        color: rgb(255, 182, 65);
+        font-size: 0.75em;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .row-dirty-flag[hidden] {
+        display: none;
+    }
+    /* Bulk follow-up editor modal. */
+    .bulk-options-panel {
+        width: min(860px, 100%);
+    }
+    .bulk-options-form {
+        display: grid;
+        gap: 14px;
+    }
+    .bulk-options-form input[type="text"],
+    .bulk-options-form input[type="number"],
+    .bulk-options-form textarea,
+    .bulk-options-form select {
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #3a3a3a;
+        border-radius: 4px;
+        background: #1a1a1a;
+        color: #cccccc;
+        padding: 9px 10px;
+    }
+    .bulk-options-form input:focus,
+    .bulk-options-form textarea:focus,
+    .bulk-options-form select:focus {
+        outline: 2px solid rgba(255, 182, 65, 0.48);
+        outline-offset: 1px;
+        border-color: rgb(255, 182, 65);
+    }
+    .bulk-warning {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 10px 12px;
+        border: 1px solid rgba(216, 165, 76, 0.45);
+        border-radius: 8px;
+        background: rgba(98, 73, 27, 0.22);
+        color: #f3d8a0;
+        font-size: 0.9em;
+        line-height: 1.45;
+    }
+    .bulk-target-summary {
+        color: #c9d3e5;
+        font-size: 0.88em;
+        line-height: 1.45;
+    }
+    .bulk-target-summary strong {
+        color: #f3d8a0;
+    }
+    .bulk-field-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+    .bulk-config-field {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid rgba(138, 155, 182, 0.25);
+        border-radius: 8px;
+        background: rgba(25, 30, 38, 0.6);
+    }
+    .bulk-config-field.is-active {
+        border-color: rgba(216, 165, 76, 0.5);
+        background: rgba(45, 39, 25, 0.6);
+    }
+    .bulk-field-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .bulk-field-head input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        accent-color: rgb(255, 182, 65);
+        cursor: pointer;
+    }
+    .bulk-field-head label {
+        margin: 0;
+        color: #e4e9f2;
+        font-weight: 650;
+        cursor: pointer;
+    }
+    .bulk-field-control {
+        display: grid;
+        gap: 7px;
+    }
+    .bulk-field-control.is-disabled {
+        opacity: 0.5;
+    }
+    .bulk-checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 36px;
+        color: #c9d3e5;
+    }
+    .bulk-checkbox-row input[type="checkbox"] {
+        width: 20px;
+        height: 20px;
+        accent-color: rgb(255, 182, 65);
+    }
+    .bulk-modal-footer,
+    .dirty-choice-buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .bulk-modal-footer button,
+    .dirty-choice-buttons button {
+        width: auto;
+        min-width: 160px;
+        margin: 0;
+    }
+    /* Unsaved-edit choice dialog shown before a toggle would drop row edits. */
+    .dirty-choice-panel {
+        width: min(560px, 100%);
+    }
+    .dirty-choice-body {
+        display: grid;
+        gap: 14px;
+    }
+    .dirty-choice-summary {
+        margin: 0;
+        color: #d0d6df;
+        font-size: 0.94em;
+        line-height: 1.5;
+    }
+    .dirty-choice-summary strong {
+        color: #f3d8a0;
+    }
     @media (max-width: 1024px) {
         main {
             padding-left: 4%;
@@ -1857,11 +2546,61 @@ if (!$isEmbed) {
             grid-template-columns: 1fr;
             gap: 4px;
         }
-        .advanced-field-grid {
+        .advanced-field-grid,
+        .bulk-field-list {
             grid-template-columns: 1fr;
         }
     }
     @media (max-width: 720px) {
+        .toast-notification {
+            left: 16px;
+            right: 16px;
+            min-width: 0;
+            max-width: none;
+            box-sizing: border-box;
+        }
+        .editor-actionbar {
+            align-items: stretch;
+            position: relative;
+        }
+        .actionbar-group {
+            width: 100%;
+            justify-content: space-between;
+        }
+        .actionbar-group-end {
+            margin-left: 0;
+        }
+        .help-tip {
+            max-width: min(280px, calc(100vw - 32px));
+        }
+        .editor-actionbar .help-hint {
+            position: static;
+        }
+        .editor-actionbar .help-tip {
+            right: 12px;
+            left: 12px;
+            width: auto;
+            max-width: none;
+        }
+        .bulk-field-list {
+            grid-template-columns: 1fr;
+        }
+        .bulk-modal-footer button,
+        .dirty-choice-buttons button {
+            width: 100%;
+        }
+        .table-container tbody tr.action-row.is-selected {
+            border-color: rgba(255, 182, 65, 0.55);
+            background: rgba(48, 41, 26, 0.99);
+        }
+        .table-container td.action-select-cell {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .table-container td.action-select-cell::before {
+            margin-bottom: 0;
+        }
         .table-container {
             overflow: visible;
             max-height: none;
@@ -1924,9 +2663,9 @@ if (!$isEmbed) {
 <main>
     <div id="toast" class="toast-notification"><span class="message"></span></div>
 
-    <div class="page-header">
-        <h1 class="api-title">Action Editor</h1>
-        <p class="page-subtitle">Configure available actions exposed to AI prompting and execution</p>
+    <div class="page-header dialectic-page-head">
+        <h1 class="api-title dialectic-page-head-title">Action Editor</h1>
+        <p class="page-subtitle dialectic-page-head-note">Configure available actions exposed to AI prompting and execution</p>
     </div>
 
     <?php if (!$catalogReady): ?>
@@ -2087,17 +2826,48 @@ if (!$isEmbed) {
                             </div>
                         </div>
                     </div>
+
+                    <div class="editor-actionbar" role="group" aria-label="Bulk edit and save controls">
+                        <div class="actionbar-group">
+                            <button type="button" class="action-button secondary" id="bulkSelectVisible">Select Visible</button>
+                            <button type="button" class="action-button secondary" id="bulkClearSelection" disabled>Clear Selection</button>
+                            <span class="actionbar-status" id="bulkSelectionStatus" role="status" aria-live="polite"><strong>0</strong> selected</span>
+                            <button type="button" class="action-button secondary" id="bulkEditOpen" aria-haspopup="dialog" disabled>Bulk Edit Follow-up</button>
+                            <span class="help-hint">
+                                <button type="button" class="help-dot" aria-label="How bulk selection works" aria-describedby="bulkSelectionHelpTip">?</button>
+                                <span class="help-tip" id="bulkSelectionHelpTip" role="tooltip">Selection only covers rows that are visible after filtering. Rows a filter hides are deselected and are never changed by a bulk update. Applying follow-up settings to a factory action creates or updates a custom override for it.</span>
+                            </span>
+                            <span class="actionbar-note" id="bulkSelectionNote" role="status" aria-live="polite"></span>
+                        </div>
+                        <div class="actionbar-group actionbar-group-end">
+                            <span class="actionbar-status" id="unsavedStatus" role="status" aria-live="polite">No unsaved changes</span>
+                            <form id="saveAllActionsForm" method="post" action="<?php echo h(functionEditorBuildUrl($currentFilterParams, $isEmbed, "entries")); ?>">
+                                <?php if ($isEmbed): ?><input type="hidden" name="embed" value="1"><?php endif; ?>
+                                <input type="hidden" name="action" value="save_all_action_basic_fields">
+                                <div id="saveAllPayload" hidden></div>
+                                <button type="submit" class="btn-save" id="saveAllButton" disabled>Save All</button>
+                            </form>
+                            <span class="help-hint">
+                                <button type="button" class="help-dot" aria-label="How Save All works" aria-describedby="saveAllHelpTip">?</button>
+                                <span class="help-tip" id="saveAllHelpTip" role="tooltip">Save All writes every edited action name and description in one database transaction, including rows currently hidden by a filter. Return messages, follow-up settings and parameters are saved from Advanced Options instead.</span>
+                            </span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="table-container">
                     <table>
                         <colgroup>
+                            <col class="action-select-column">
                             <col class="action-name-column">
                             <col class="action-description-column">
                             <col class="action-controls-column">
                         </colgroup>
                         <thead>
                             <tr>
+                                <th class="select-header">
+                                    <input type="checkbox" id="actionSelectAllVisible" class="action-select-all" aria-label="Select every action currently visible after filtering">
+                                </th>
                                 <th>Name</th>
                                 <th>Description</th>
                                 <th>Action</th>
@@ -2105,7 +2875,7 @@ if (!$isEmbed) {
                         </thead>
                         <tbody>
                             <?php if (count($rows) === 0): ?>
-                                <tr><td colspan="3">No actions found.</td></tr>
+                                <tr><td colspan="4">No actions found.</td></tr>
                             <?php endif; ?>
                             <?php foreach ($rows as $row): ?>
                                 <?php
@@ -2173,6 +2943,15 @@ if (!$isEmbed) {
                                     data-dispatch="<?php echo $isGameFunction ? 'game' : 'server'; ?>"
                                     data-source="<?php echo $isCustom ? 'custom' : 'base'; ?>"
                                 >
+                                    <td data-label="Select" class="action-select-cell">
+                                        <input
+                                            type="checkbox"
+                                            class="action-select-checkbox"
+                                            data-code-name="<?php echo h($codeName); ?>"
+                                            data-source="<?php echo $isCustom ? 'custom' : 'base'; ?>"
+                                            aria-label="Select <?php echo h($actionNameValue !== '' ? $actionNameValue : $codeName); ?> for bulk follow-up edits"
+                                        >
+                                    </td>
                                     <td data-label="Name">
                                         <label class="sr-only" for="<?php echo h('name-' . $rowDomId); ?>">Action name for <?php echo h($codeName); ?></label>
                                         <div class="action-name-title">
@@ -2188,6 +2967,7 @@ if (!$isEmbed) {
                                             <span class="action-row-status <?php echo $enabled ? 'state-enabled' : 'state-disabled'; ?>">
                                                 <?php echo $enabled ? 'Enabled' : 'Disabled'; ?>
                                             </span>
+                                            <span class="row-dirty-flag" data-row-dirty-flag hidden>Unsaved</span>
                                         </div>
                                         <code class="action-code-hint"><?php echo h($codeName); ?></code>
                                     </td>
@@ -2369,6 +3149,129 @@ if (!$isEmbed) {
                         <div class="action-modal-body" id="advancedOptionsModalBody"></div>
                     </div>
                 </div>
+
+                <?php $bulkConfigFields = functionEditorGetBulkConfigFields($rows); ?>
+                <div id="bulkEditModal" class="action-modal" hidden>
+                    <div class="action-modal-panel bulk-options-panel" role="dialog" aria-modal="true" aria-labelledby="bulkEditModalTitle">
+                        <div class="action-modal-header">
+                            <div>
+                                <h3 class="action-modal-title" id="bulkEditModalTitle">Bulk Edit Follow-up</h3>
+                                <p class="action-modal-subtitle">Tick a field to include it, then apply the value to every selected visible action in one transaction.</p>
+                            </div>
+                            <button type="button" class="action-modal-close" data-bulk-modal-close aria-label="Close bulk follow-up editor">&times;</button>
+                        </div>
+                        <div class="action-modal-body">
+                            <?php if (count($bulkConfigFields) === 0): ?>
+                                <p class="helper-text" style="margin:0;">Shared follow-up fields are not available in this build.</p>
+                            <?php else: ?>
+                                <form
+                                    class="bulk-options-form"
+                                    id="bulkEditForm"
+                                    method="post"
+                                    action="<?php echo h(functionEditorBuildUrl($currentFilterParams, $isEmbed, "entries")); ?>"
+                                >
+                                    <?php if ($isEmbed): ?><input type="hidden" name="embed" value="1"><?php endif; ?>
+                                    <input type="hidden" name="action" value="bulk_update_action_config">
+                                    <div id="bulkTargetInputs" hidden></div>
+
+                                    <p class="bulk-target-summary" id="bulkTargetSummary" role="status" aria-live="polite"></p>
+                                    <div class="bulk-warning" role="note">
+                                        <span aria-hidden="true">&#9888;</span>
+                                        <span>Applying these fields saves a custom override for every selected action. Factory actions without an override yet will gain one, so they stop tracking future shipped defaults until the override is reset.</span>
+                                    </div>
+
+                                    <div class="bulk-field-list">
+                                        <?php foreach ($bulkConfigFields as $bulkField): ?>
+                                            <?php
+                                            $bulkKey = strval($bulkField['key'] ?? '');
+                                            $bulkType = strval($bulkField['type'] ?? 'text');
+                                            $bulkLabel = strval($bulkField['label'] ?? $bulkKey);
+                                            $bulkHelp = trim(strval($bulkField['help'] ?? ''));
+                                            $bulkSlug = preg_replace('/[^a-zA-Z0-9_-]/', '-', $bulkKey);
+                                            $bulkApplyId = 'bulk-apply-' . $bulkSlug;
+                                            $bulkControlId = 'bulk-config-' . $bulkSlug;
+                                            $bulkHelpId = 'bulk-help-' . $bulkSlug;
+                                            $bulkValue = function_exists('dialecticActionCatalogGetEditorFieldDefaultValue')
+                                                ? dialecticActionCatalogGetEditorFieldDefaultValue($bulkField, null)
+                                                : ($bulkField['default'] ?? '');
+                                            ?>
+                                            <div class="config-field bulk-config-field" data-bulk-field="<?php echo h($bulkKey); ?>">
+                                                <div class="bulk-field-head">
+                                                    <input type="checkbox" class="bulk-apply-toggle" id="<?php echo h($bulkApplyId); ?>" name="bulk_apply[<?php echo h($bulkKey); ?>]" value="1">
+                                                    <label for="<?php echo h($bulkApplyId); ?>"><?php echo h($bulkLabel); ?></label>
+                                                    <?php if ($bulkHelp !== ''): ?>
+                                                        <span class="help-hint">
+                                                            <button type="button" class="help-dot" aria-label="About <?php echo h($bulkLabel); ?>" aria-describedby="<?php echo h($bulkHelpId); ?>">?</button>
+                                                            <span class="help-tip" id="<?php echo h($bulkHelpId); ?>" role="tooltip"><?php echo h($bulkHelp); ?></span>
+                                                        </span>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <div class="bulk-field-control is-disabled">
+                                                    <?php if ($bulkType === 'boolean'): ?>
+                                                        <div class="bulk-checkbox-row">
+                                                            <input type="hidden" name="config[<?php echo h($bulkKey); ?>]" value="0" disabled>
+                                                            <input type="checkbox" id="<?php echo h($bulkControlId); ?>" name="config[<?php echo h($bulkKey); ?>]" value="1" aria-label="<?php echo h($bulkLabel); ?> value to apply" <?php echo functionEditorToBool($bulkValue) ? 'checked' : ''; ?> disabled>
+                                                            <span><?php echo functionEditorToBool($bulkValue) ? 'Enabled' : 'Disabled'; ?></span>
+                                                        </div>
+                                                    <?php elseif ($bulkType === 'textarea'): ?>
+                                                        <textarea id="<?php echo h($bulkControlId); ?>" name="config[<?php echo h($bulkKey); ?>]" rows="3" aria-label="<?php echo h($bulkLabel); ?> value to apply" placeholder="<?php echo h($bulkField['placeholder'] ?? ''); ?>" disabled><?php echo h($bulkValue); ?></textarea>
+                                                    <?php elseif ($bulkType === 'select'): ?>
+                                                        <select id="<?php echo h($bulkControlId); ?>" name="config[<?php echo h($bulkKey); ?>]" aria-label="<?php echo h($bulkLabel); ?> value to apply" disabled>
+                                                            <?php foreach (($bulkField['options'] ?? []) as $bulkOption): ?>
+                                                                <?php $bulkOptionValue = strval($bulkOption['value'] ?? ''); ?>
+                                                                <option value="<?php echo h($bulkOptionValue); ?>" <?php echo $bulkOptionValue === strval($bulkValue) ? 'selected' : ''; ?>><?php echo h($bulkOption['label'] ?? $bulkOptionValue); ?></option>
+                                                            <?php endforeach; ?>
+                                                        </select>
+                                                    <?php else: ?>
+                                                        <input
+                                                            type="<?php echo $bulkType === 'integer' || $bulkType === 'number' ? 'number' : 'text'; ?>"
+                                                            id="<?php echo h($bulkControlId); ?>"
+                                                            name="config[<?php echo h($bulkKey); ?>]"
+                                                            aria-label="<?php echo h($bulkLabel); ?> value to apply"
+                                                            <?php if (is_numeric($bulkField['minimum'] ?? null)): ?>min="<?php echo h($bulkField['minimum']); ?>"<?php endif; ?>
+                                                            <?php if (is_numeric($bulkField['maximum'] ?? null)): ?>max="<?php echo h($bulkField['maximum']); ?>"<?php endif; ?>
+                                                            <?php if (is_numeric($bulkField['step'] ?? null)): ?>step="<?php echo h($bulkField['step']); ?>"<?php elseif ($bulkType === 'integer'): ?>step="1"<?php endif; ?>
+                                                            placeholder="<?php echo h($bulkField['placeholder'] ?? ''); ?>"
+                                                            value="<?php echo h($bulkValue); ?>"
+                                                            disabled
+                                                        >
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+
+                                    <div class="bulk-modal-footer">
+                                        <button type="button" class="action-button secondary" data-bulk-modal-close>Cancel</button>
+                                        <button type="submit" class="btn-save" id="bulkApplyButton" disabled>Apply to 0 actions</button>
+                                    </div>
+                                </form>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="dirtyToggleModal" class="action-modal" hidden>
+                    <div class="action-modal-panel dirty-choice-panel" role="dialog" aria-modal="true" aria-labelledby="dirtyToggleModalTitle" aria-describedby="dirtyToggleModalSummary">
+                        <div class="action-modal-header">
+                            <div>
+                                <h3 class="action-modal-title" id="dirtyToggleModalTitle">Unsaved Changes</h3>
+                                <p class="action-modal-subtitle" id="dirtyToggleModalSubtitle"></p>
+                            </div>
+                            <button type="button" class="action-modal-close" data-dirty-modal-close aria-label="Cancel and keep editing">&times;</button>
+                        </div>
+                        <div class="action-modal-body">
+                            <div class="dirty-choice-body">
+                                <p class="dirty-choice-summary" id="dirtyToggleModalSummary"></p>
+                                <div class="dirty-choice-buttons">
+                                    <button type="button" class="action-button secondary" data-dirty-modal-close>Keep Editing</button>
+                                    <button type="button" class="btn-danger" id="dirtyToggleDiscardButton">Discard Edits</button>
+                                    <button type="button" class="btn-save" id="dirtyToggleSaveButton">Save Edits</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     <?php endif; ?>
@@ -2389,6 +3292,93 @@ document.addEventListener("DOMContentLoaded", function() {
     showToast(<?= json_encode($message) ?>);
 });
 <?php endif; ?>
+
+function functionEditorFocusableElements(container) {
+    return Array.from(container.querySelectorAll('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'))
+        .filter((element) => element.offsetParent !== null);
+}
+
+// Shared open/close plumbing for the dialogs added alongside the bulk editor: focus is
+// captured on open, trapped while open, and restored on close. `confirmClose` lets a dialog
+// refuse to close so edits are never dropped without the editor saying so.
+function functionEditorCreateModal(modal, options) {
+    const settings = options || {};
+    let previousFocus = null;
+
+    function open(trigger) {
+        previousFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
+        modal.hidden = false;
+        document.body.style.overflow = "hidden";
+        window.requestAnimationFrame(() => {
+            const preferred = typeof settings.initialFocus === "function" ? settings.initialFocus() : null;
+            const target = (preferred instanceof HTMLElement ? preferred : null) || functionEditorFocusableElements(modal)[0];
+            if (target) {
+                target.focus();
+            }
+        });
+    }
+
+    function close(force) {
+        if (force !== true && typeof settings.confirmClose === "function" && settings.confirmClose() !== true) {
+            return false;
+        }
+
+        modal.hidden = true;
+        document.body.style.overflow = "";
+        if (typeof settings.onClose === "function") {
+            settings.onClose();
+        }
+        if (previousFocus instanceof HTMLElement && document.contains(previousFocus) && !previousFocus.disabled) {
+            previousFocus.focus();
+        }
+        previousFocus = null;
+        return true;
+    }
+
+    modal.addEventListener("click", function(event) {
+        if (event.target === modal) {
+            close(false);
+        }
+    });
+
+    document.addEventListener("keydown", function(event) {
+        if (modal.hidden) {
+            return;
+        }
+        if (event.key === "Escape") {
+            event.preventDefault();
+            close(false);
+            return;
+        }
+        if (event.key !== "Tab") {
+            return;
+        }
+
+        const focusable = functionEditorFocusableElements(modal);
+        if (!focusable.length) {
+            event.preventDefault();
+            return;
+        }
+
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    });
+
+    return {
+        open: open,
+        close: close,
+        isOpen: function() {
+            return !modal.hidden;
+        },
+    };
+}
 
 document.addEventListener("DOMContentLoaded", function() {
     const rows = Array.from(document.querySelectorAll(".action-row"));
@@ -2435,6 +3425,8 @@ document.addEventListener("DOMContentLoaded", function() {
         if (emptyState) {
             emptyState.style.display = shown === 0 ? "block" : "none";
         }
+
+        document.dispatchEvent(new CustomEvent("action-rows-filtered"));
     }
 
     if (searchInput) {
@@ -2504,6 +3496,567 @@ document.addEventListener("DOMContentLoaded", function() {
 });
 
 document.addEventListener("DOMContentLoaded", function() {
+    const rows = Array.from(document.querySelectorAll(".action-row"));
+    const selectAllVisible = document.getElementById("actionSelectAllVisible");
+    const selectVisibleButton = document.getElementById("bulkSelectVisible");
+    const clearSelectionButton = document.getElementById("bulkClearSelection");
+    const selectionStatus = document.getElementById("bulkSelectionStatus");
+    const selectionNote = document.getElementById("bulkSelectionNote");
+    const bulkOpenButton = document.getElementById("bulkEditOpen");
+    const unsavedStatus = document.getElementById("unsavedStatus");
+    const saveAllForm = document.getElementById("saveAllActionsForm");
+    const saveAllButton = document.getElementById("saveAllButton");
+    const saveAllPayload = document.getElementById("saveAllPayload");
+    const bulkModal = document.getElementById("bulkEditModal");
+    const bulkForm = document.getElementById("bulkEditForm");
+    const bulkTargetInputs = document.getElementById("bulkTargetInputs");
+    const bulkTargetSummary = document.getElementById("bulkTargetSummary");
+    const bulkApplyButton = document.getElementById("bulkApplyButton");
+    const dirtyModal = document.getElementById("dirtyToggleModal");
+    const dirtySubtitle = document.getElementById("dirtyToggleModalSubtitle");
+    const dirtySummary = document.getElementById("dirtyToggleModalSummary");
+    const dirtySaveButton = document.getElementById("dirtyToggleSaveButton");
+    const dirtyDiscardButton = document.getElementById("dirtyToggleDiscardButton");
+
+    if (!rows.length) {
+        [selectAllVisible, selectVisibleButton, clearSelectionButton, bulkOpenButton, saveAllButton]
+            .forEach((control) => {
+                if (control) {
+                    control.disabled = true;
+                }
+            });
+        return;
+    }
+
+    let allowUnload = false;
+    let pendingToggleRow = null;
+    let selectionNoteTimer = null;
+    let bulkFormSnapshot = "";
+
+    const rowState = new Map();
+    rows.forEach((row) => {
+        const checkbox = row.querySelector(".action-select-checkbox");
+        const toggleMarker = row.querySelector('form input[name="action"][value="toggle_action"]');
+        const toggleForm = toggleMarker ? toggleMarker.closest("form") : null;
+        rowState.set(row, {
+            checkbox: checkbox,
+            codeName: checkbox ? (checkbox.dataset.codeName || "") : "",
+            source: checkbox ? (checkbox.dataset.source || "base") : "base",
+            nameInput: row.querySelector(".basic-action-input"),
+            descriptionInput: row.querySelector(".basic-action-description"),
+            dirtyFlag: row.querySelector("[data-row-dirty-flag]"),
+            toggleForm: toggleForm,
+            toggleButton: toggleForm ? toggleForm.querySelector('button[type="submit"]') : null,
+            targetEnabled: toggleForm
+                ? (toggleForm.querySelector('input[name="target_enabled"]') || {}).value === "1"
+                : false,
+        });
+    });
+
+    function hiddenInput(name, value) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = value;
+        return input;
+    }
+
+    function rowIsVisible(row) {
+        return row.style.display !== "none";
+    }
+
+    function visibleRows() {
+        return rows.filter(rowIsVisible);
+    }
+
+    // Only rows that survived the current filter can ever be a bulk target.
+    function selectedVisibleRows() {
+        return rows.filter((row) => {
+            const state = rowState.get(row);
+            return !!(state && state.checkbox && state.checkbox.checked && rowIsVisible(row));
+        });
+    }
+
+    function rowIsDirty(row) {
+        const state = rowState.get(row);
+        if (!state) {
+            return false;
+        }
+
+        const nameDirty = !!state.nameInput && state.nameInput.value !== state.nameInput.defaultValue;
+        const descriptionDirty = !!state.descriptionInput && state.descriptionInput.value !== state.descriptionInput.defaultValue;
+        return nameDirty || descriptionDirty;
+    }
+
+    function dirtyRows() {
+        return rows.filter(rowIsDirty);
+    }
+
+    function setSelectionNote(text) {
+        if (!selectionNote) {
+            return;
+        }
+
+        selectionNote.textContent = text;
+        if (selectionNoteTimer) {
+            window.clearTimeout(selectionNoteTimer);
+            selectionNoteTimer = null;
+        }
+        if (text) {
+            selectionNoteTimer = window.setTimeout(() => {
+                selectionNote.textContent = "";
+            }, 6000);
+        }
+    }
+
+    function hasBulkFieldSelected() {
+        if (!bulkForm) {
+            return false;
+        }
+
+        return Array.from(bulkForm.querySelectorAll(".bulk-apply-toggle")).some((toggle) => toggle.checked);
+    }
+
+    function refreshBulkTargets(selected) {
+        if (!bulkForm || !bulkTargetInputs) {
+            return;
+        }
+
+        const targets = selected || selectedVisibleRows();
+        const fragment = document.createDocumentFragment();
+        let customCount = 0;
+
+        targets.forEach((row) => {
+            const state = rowState.get(row);
+            if (!state || !state.codeName) {
+                return;
+            }
+
+            fragment.append(hiddenInput("code_names[]", state.codeName));
+            if (state.source === "custom") {
+                customCount += 1;
+            }
+        });
+        bulkTargetInputs.replaceChildren(fragment);
+
+        const total = targets.length;
+        const factoryCount = total - customCount;
+        if (bulkTargetSummary) {
+            const count = document.createElement("strong");
+            count.textContent = String(total);
+            bulkTargetSummary.replaceChildren(
+                document.createTextNode("Applies to "),
+                count,
+                document.createTextNode(` visible selected action${total === 1 ? "" : "s"} — ${factoryCount} factory, ${customCount} already customised.`)
+            );
+        }
+        if (bulkApplyButton) {
+            bulkApplyButton.textContent = `Apply to ${total} action${total === 1 ? "" : "s"}`;
+            bulkApplyButton.disabled = total === 0 || !hasBulkFieldSelected();
+        }
+    }
+
+    function refreshSelectionState() {
+        const visible = visibleRows();
+        const selected = selectedVisibleRows();
+
+        rows.forEach((row) => {
+            const state = rowState.get(row);
+            row.classList.toggle("is-selected", !!(state && state.checkbox && state.checkbox.checked));
+        });
+
+        if (selectionStatus) {
+            const count = document.createElement("strong");
+            count.textContent = String(selected.length);
+            selectionStatus.replaceChildren(
+                count,
+                document.createTextNode(` selected of ${visible.length} visible`)
+            );
+        }
+        if (selectAllVisible) {
+            selectAllVisible.disabled = visible.length === 0;
+            selectAllVisible.checked = visible.length > 0 && selected.length === visible.length;
+            selectAllVisible.indeterminate = selected.length > 0 && selected.length < visible.length;
+        }
+        if (selectVisibleButton) {
+            selectVisibleButton.disabled = visible.length === 0;
+        }
+        if (clearSelectionButton) {
+            clearSelectionButton.disabled = selected.length === 0;
+        }
+        if (bulkOpenButton) {
+            bulkOpenButton.disabled = selected.length === 0 || !bulkForm;
+        }
+
+        refreshBulkTargets(selected);
+        return selected;
+    }
+
+    function refreshDirtyState() {
+        let count = 0;
+        rows.forEach((row) => {
+            const dirty = rowIsDirty(row);
+            const state = rowState.get(row);
+            row.classList.toggle("is-dirty", dirty);
+            if (state && state.dirtyFlag) {
+                state.dirtyFlag.hidden = !dirty;
+            }
+            if (dirty) {
+                count += 1;
+            }
+        });
+
+        if (unsavedStatus) {
+            unsavedStatus.textContent = count === 0
+                ? "No unsaved changes"
+                : `${count} action${count === 1 ? "" : "s"} with unsaved edits`;
+            unsavedStatus.classList.toggle("has-unsaved", count > 0);
+        }
+        if (saveAllButton) {
+            saveAllButton.disabled = count === 0;
+            saveAllButton.textContent = count === 0 ? "Save All" : `Save All (${count})`;
+        }
+
+        return count;
+    }
+
+    function setSelectionForRows(targetRows, checked) {
+        targetRows.forEach((row) => {
+            const state = rowState.get(row);
+            if (state && state.checkbox) {
+                state.checkbox.checked = checked;
+            }
+        });
+    }
+
+    rows.forEach((row) => {
+        const state = rowState.get(row);
+        if (state.checkbox) {
+            state.checkbox.addEventListener("change", function() {
+                setSelectionNote("");
+                refreshSelectionState();
+            });
+        }
+
+        [state.nameInput, state.descriptionInput].forEach((field) => {
+            if (!field) {
+                return;
+            }
+            field.addEventListener("input", refreshDirtyState);
+            field.addEventListener("change", refreshDirtyState);
+        });
+    });
+
+    if (selectAllVisible) {
+        selectAllVisible.addEventListener("change", function() {
+            setSelectionForRows(visibleRows(), selectAllVisible.checked);
+            setSelectionNote("");
+            refreshSelectionState();
+        });
+    }
+
+    if (selectVisibleButton) {
+        selectVisibleButton.addEventListener("click", function() {
+            setSelectionForRows(visibleRows(), true);
+            setSelectionNote("");
+            refreshSelectionState();
+        });
+    }
+
+    if (clearSelectionButton) {
+        clearSelectionButton.addEventListener("click", function() {
+            setSelectionForRows(rows, false);
+            setSelectionNote("");
+            refreshSelectionState();
+            if (selectVisibleButton && !selectVisibleButton.disabled) {
+                selectVisibleButton.focus();
+            }
+        });
+    }
+
+    // A row hidden by a filter drops out of the selection, so a visible-only bulk update can
+    // never reach it.
+    document.addEventListener("action-rows-filtered", function() {
+        let dropped = 0;
+        rows.forEach((row) => {
+            const state = rowState.get(row);
+            if (!state || !state.checkbox || !state.checkbox.checked || rowIsVisible(row)) {
+                return;
+            }
+
+            state.checkbox.checked = false;
+            dropped += 1;
+        });
+
+        if (dropped > 0) {
+            setSelectionNote(`${dropped} hidden ${dropped === 1 ? "row was" : "rows were"} deselected.`);
+        }
+
+        refreshSelectionState();
+    });
+
+    function serializeBulkForm() {
+        if (!bulkForm) {
+            return "";
+        }
+
+        return JSON.stringify(
+            Array.from(new FormData(bulkForm).entries()).filter((entry) => entry[0] !== "code_names[]")
+        );
+    }
+
+    const bulkModalController = (bulkModal && bulkForm)
+        ? functionEditorCreateModal(bulkModal, {
+            initialFocus: function() {
+                return bulkForm.querySelector(".bulk-apply-toggle");
+            },
+            confirmClose: function() {
+                if (serializeBulkForm() === bulkFormSnapshot) {
+                    return true;
+                }
+
+                return window.confirm("Discard the bulk follow-up values you entered? The selected actions will not be changed.");
+            },
+        })
+        : null;
+
+    if (bulkModal && bulkModalController) {
+        bulkModal.querySelectorAll("[data-bulk-modal-close]").forEach((button) => {
+            button.addEventListener("click", function() {
+                bulkModalController.close(false);
+            });
+        });
+    }
+
+    if (bulkOpenButton && bulkModalController) {
+        bulkOpenButton.addEventListener("click", function() {
+            const selected = refreshSelectionState();
+            if (!selected.length) {
+                showToast("Select at least one visible action before opening the bulk editor.");
+                return;
+            }
+
+            bulkFormSnapshot = serializeBulkForm();
+            bulkModalController.open(bulkOpenButton);
+        });
+    }
+
+    if (bulkForm) {
+        bulkForm.addEventListener("change", function(event) {
+            const target = event.target;
+            if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement) && !(target instanceof HTMLTextAreaElement)) {
+                return;
+            }
+
+            if (target instanceof HTMLInputElement && target.classList.contains("bulk-apply-toggle")) {
+                const field = target.closest(".bulk-config-field");
+                const control = field ? field.querySelector(".bulk-field-control") : null;
+                if (field) {
+                    field.classList.toggle("is-active", target.checked);
+                }
+                if (control) {
+                    control.classList.toggle("is-disabled", !target.checked);
+                    control.querySelectorAll("input, textarea, select").forEach((element) => {
+                        element.disabled = !target.checked;
+                    });
+                }
+
+                refreshBulkTargets();
+                return;
+            }
+
+            const checkboxRow = target.closest(".bulk-checkbox-row");
+            if (checkboxRow && target instanceof HTMLInputElement && target.type === "checkbox") {
+                const stateLabel = checkboxRow.querySelector("span");
+                if (stateLabel) {
+                    stateLabel.textContent = target.checked ? "Enabled" : "Disabled";
+                }
+            }
+        });
+
+        bulkForm.addEventListener("submit", function(event) {
+            const selected = refreshSelectionState();
+            if (!selected.length) {
+                event.preventDefault();
+                showToast("Select at least one visible action before applying a bulk update.");
+                return;
+            }
+            if (!hasBulkFieldSelected()) {
+                event.preventDefault();
+                showToast("Tick at least one follow-up field to apply.");
+                return;
+            }
+
+            allowUnload = true;
+        });
+    }
+
+    if (saveAllForm && saveAllPayload) {
+        saveAllForm.addEventListener("submit", function(event) {
+            const pending = dirtyRows();
+            if (!pending.length) {
+                event.preventDefault();
+                showToast("There are no unsaved changes to save.");
+                return;
+            }
+
+            const blankRow = pending.find((row) => {
+                const state = rowState.get(row);
+                return !!(state && state.nameInput && state.nameInput.value.trim() === "");
+            });
+            if (blankRow) {
+                event.preventDefault();
+                showToast("Every edited action needs a name before Save All can run.");
+                const blankState = rowState.get(blankRow);
+                if (blankState && blankState.nameInput) {
+                    blankState.nameInput.focus();
+                }
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+            pending.forEach((row, index) => {
+                const state = rowState.get(row);
+                if (!state) {
+                    return;
+                }
+
+                fragment.append(
+                    hiddenInput(`rows[${index}][code_name]`, state.codeName),
+                    hiddenInput(`rows[${index}][action_name]`, state.nameInput ? state.nameInput.value : ""),
+                    hiddenInput(`rows[${index}][description]`, state.descriptionInput ? state.descriptionInput.value : "")
+                );
+            });
+            saveAllPayload.replaceChildren(fragment);
+            allowUnload = true;
+        });
+    }
+
+    const dirtyModalController = (dirtyModal && dirtySaveButton && dirtyDiscardButton)
+        ? functionEditorCreateModal(dirtyModal, {
+            initialFocus: function() {
+                return dirtySaveButton;
+            },
+            onClose: function() {
+                pendingToggleRow = null;
+            },
+        })
+        : null;
+
+    function openDirtyToggleDialog(row) {
+        const state = rowState.get(row);
+        if (!state || !dirtyModalController) {
+            return;
+        }
+
+        const toggleLabel = state.targetEnabled ? "Enable" : "Disable";
+        const displayName = (state.nameInput ? state.nameInput.value : "").trim() || state.codeName;
+
+        pendingToggleRow = row;
+        if (dirtySubtitle) {
+            dirtySubtitle.textContent = `${displayName} (${state.codeName})`;
+        }
+        if (dirtySummary) {
+            dirtySummary.textContent = `This action has unsaved name or description edits. Save them and ${toggleLabel.toLowerCase()} the action, discard them and ${toggleLabel.toLowerCase()} anyway, or keep editing.`;
+        }
+        dirtySaveButton.textContent = `Save Edits and ${toggleLabel}`;
+        dirtyDiscardButton.textContent = `Discard Edits and ${toggleLabel}`;
+        dirtyModalController.open(state.toggleButton);
+    }
+
+    if (dirtyModal && dirtyModalController) {
+        dirtyModal.querySelectorAll("[data-dirty-modal-close]").forEach((button) => {
+            button.addEventListener("click", function() {
+                dirtyModalController.close(false);
+            });
+        });
+
+        dirtySaveButton.addEventListener("click", function() {
+            const row = pendingToggleRow;
+            const state = row ? rowState.get(row) : null;
+            if (!state || !state.toggleForm) {
+                return;
+            }
+
+            if (state.nameInput && state.nameInput.value.trim() === "") {
+                dirtyModalController.close(true);
+                showToast("Give this action a name before saving.");
+                state.nameInput.focus();
+                return;
+            }
+
+            state.toggleForm.querySelectorAll("[data-dirty-payload]").forEach((element) => element.remove());
+            [
+                hiddenInput("save_text", "1"),
+                hiddenInput("action_name", state.nameInput ? state.nameInput.value : ""),
+                hiddenInput("description", state.descriptionInput ? state.descriptionInput.value : ""),
+            ].forEach((element) => {
+                element.setAttribute("data-dirty-payload", "");
+                state.toggleForm.append(element);
+            });
+
+            allowUnload = true;
+            dirtyModalController.close(true);
+            state.toggleForm.submit();
+        });
+
+        dirtyDiscardButton.addEventListener("click", function() {
+            const row = pendingToggleRow;
+            const state = row ? rowState.get(row) : null;
+            if (!state || !state.toggleForm) {
+                return;
+            }
+
+            if (state.nameInput) {
+                state.nameInput.value = state.nameInput.defaultValue;
+            }
+            if (state.descriptionInput) {
+                state.descriptionInput.value = state.descriptionInput.defaultValue;
+            }
+            refreshDirtyState();
+
+            allowUnload = true;
+            dirtyModalController.close(true);
+            state.toggleForm.submit();
+        });
+    }
+
+    rows.forEach((row) => {
+        const state = rowState.get(row);
+        if (!state.toggleForm || !dirtyModalController) {
+            return;
+        }
+
+        state.toggleForm.addEventListener("submit", function(event) {
+            if (!rowIsDirty(row)) {
+                return;
+            }
+
+            event.preventDefault();
+            openDirtyToggleDialog(row);
+        });
+    });
+
+    document.addEventListener("submit", function(event) {
+        if (!event.defaultPrevented) {
+            allowUnload = true;
+        }
+    });
+
+    window.addEventListener("beforeunload", function(event) {
+        if (allowUnload || dirtyRows().length === 0) {
+            return;
+        }
+
+        event.preventDefault();
+        event.returnValue = "";
+    });
+
+    refreshSelectionState();
+    refreshDirtyState();
+});
+
+document.addEventListener("DOMContentLoaded", function() {
     const modal = document.getElementById("advancedOptionsModal");
     const modalBody = document.getElementById("advancedOptionsModalBody");
     const modalTitle = document.getElementById("advancedOptionsModalTitle");
@@ -2511,6 +4064,7 @@ document.addEventListener("DOMContentLoaded", function() {
     const closeButton = modal?.querySelector("[data-advanced-modal-close]");
     const openButtons = Array.from(document.querySelectorAll("[data-advanced-template]"));
     let previousFocus = null;
+    let advancedSnapshot = "";
 
     if (!modal || !modalBody || !modalTitle || !modalSubtitle || !closeButton || !openButtons.length) {
         return;
@@ -2519,6 +4073,15 @@ document.addEventListener("DOMContentLoaded", function() {
     function focusableElements() {
         return Array.from(modal.querySelectorAll('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'))
             .filter((element) => element.offsetParent !== null);
+    }
+
+    function serializeAdvancedForm() {
+        const form = modalBody.querySelector(".advanced-options-form");
+        if (!form) {
+            return "";
+        }
+
+        return JSON.stringify(Array.from(new FormData(form).entries()));
     }
 
     function openAdvancedOptions(button) {
@@ -2533,6 +4096,7 @@ document.addEventListener("DOMContentLoaded", function() {
         modalSubtitle.textContent = `${button.dataset.actionName || button.dataset.codeName || "Action"} (${button.dataset.codeName || ""})`;
         modal.hidden = false;
         document.body.style.overflow = "hidden";
+        advancedSnapshot = serializeAdvancedForm();
 
         window.requestAnimationFrame(() => {
             const focusable = focusableElements();
@@ -2540,7 +4104,14 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    function closeAdvancedOptions() {
+    function closeAdvancedOptions(force) {
+        if (force !== true && serializeAdvancedForm() !== advancedSnapshot) {
+            if (!window.confirm("Discard the unsaved advanced option changes for this action?")) {
+                return;
+            }
+        }
+
+        advancedSnapshot = "";
         modal.hidden = true;
         modalBody.replaceChildren();
         document.body.style.overflow = "";
@@ -2556,7 +4127,9 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     });
 
-    closeButton.addEventListener("click", closeAdvancedOptions);
+    closeButton.addEventListener("click", function() {
+        closeAdvancedOptions();
+    });
     modal.addEventListener("click", function(event) {
         if (event.target === modal) {
             closeAdvancedOptions();

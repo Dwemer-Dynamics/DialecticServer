@@ -49,3 +49,5 @@
     .npc-event-history-table th,
     .npc-event-history-table td { padding:7px 8px; }
 }
+.npc-event-history-table tbody tr.npc-event-history-virtual td { background:rgba(255,182,65,.05); }
+.npc-event-history-table tbody tr.npc-event-history-virtual:hover td { background:rgba(255,182,65,.1); }
