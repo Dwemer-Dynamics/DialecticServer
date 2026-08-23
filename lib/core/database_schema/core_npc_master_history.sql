@@ -97,6 +97,16 @@ ALTER TABLE ONLY public.core_npc_master_history
     ADD CONSTRAINT core_npc_master_history_pkey PRIMARY KEY (history_id);
 
 
+-- Supports the per-NPC latest eligible save/relationship snapshot lookup used during restores.
+CREATE INDEX IF NOT EXISTS idx_core_npc_master_history_restore
+    ON public.core_npc_master_history (
+        npc_id,
+        gamets_last_updated DESC NULLS LAST,
+        created DESC,
+        history_id DESC
+    );
+
+
 --
 -- PostgreSQL database dump complete
 --

@@ -719,10 +719,13 @@ class RelationshipManager {
         // Save if changed
         if ($changed) {
             $extended['relationships'] = $rels;
-            $npcMaster->updateByArray([
+            $saved = $npcMaster->updateByArray([
                 'id' => $npcData['id'],
                 'extended_data' => json_encode($extended, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
             ]);
+            if ($saved) {
+                dialecticRelationshipTimelineStamp($npcData['id'], 'relationship_inline');
+            }
         }
 
         // Strip commands before TTS
@@ -764,10 +767,15 @@ class RelationshipManager {
         }
 
         $extended['relationships'] = $rels;
-        $npcMaster->updateByArray([
+        $saved = $npcMaster->updateByArray([
             'id' => $npcData['id'],
             'extended_data' => json_encode($extended, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
         ]);
+
+        if (!$saved) {
+            return false;
+        }
+        dialecticRelationshipTimelineStamp($npcData['id'], 'relationship_admin');
 
         error_log("[REL] Set $npcName -> $targetName: " . $rels[$targetName]['aff'] .
                   " (" . $rels[$targetName]['type'] . ")");

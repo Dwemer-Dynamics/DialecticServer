@@ -1219,6 +1219,16 @@ if ($checkTableExists("core_npc_master_history") == -1) {
 } else
     Logger::info(__FILE__." core_npc_master_history exists");
 
+$db->execQuery(
+    "CREATE INDEX IF NOT EXISTS idx_core_npc_master_history_restore
+     ON public.core_npc_master_history (
+         npc_id,
+         gamets_last_updated DESC NULLS LAST,
+         created DESC,
+         history_id DESC
+     )"
+);
+
 if ($checkTableExists("core_stt_connector") == -1) {
     $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/core_stt_connector.sql"));
 } else

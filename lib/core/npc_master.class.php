@@ -103,13 +103,123 @@ if (!function_exists('dialecticResolveNpcRolemasterState')) {
     }
 }
 
+if (!function_exists('dialecticRelationshipTimelineState')) {
+    function dialecticRelationshipTimelineState($extendedData)
+    {
+        if (is_string($extendedData) && trim($extendedData) !== '') {
+            $extendedData = json_decode($extendedData, true);
+        }
+        if (!is_array($extendedData)) {
+            return null;
+        }
+
+        return ['relationships' => $extendedData['relationships'] ?? []];
+    }
+}
+
+if (!function_exists('dialecticRelationshipRestoreQuery')) {
+    function dialecticRelationshipRestoreQuery($timestamp, $schema = 'public')
+    {
+        if (!is_numeric($timestamp) || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', (string) $schema)) {
+            throw new InvalidArgumentException('Invalid relationship restore query input.');
+        }
+        $timestamp = (float) $timestamp;
+
+        return "WITH restore AS (
+            SELECT c.id AS npc_id, h.extended_data
+            FROM {$schema}.core_npc_master c
+            JOIN LATERAL (
+                SELECT h.extended_data
+                FROM {$schema}.core_npc_master_history h
+                WHERE h.npc_id = c.id
+                  AND (h.gamets_last_updated <= {$timestamp} OR h.gamets_last_updated IS NULL)
+                ORDER BY
+                    h.gamets_last_updated DESC NULLS LAST,
+                    CASE
+                        WHEN h.extended_data ->> '_dialectic_history_source' LIKE 'relationship%' THEN 2
+                        WHEN h.extended_data ->> '_dialectic_history_source' = 'infosave' THEN 1
+                        ELSE 0
+                    END DESC,
+                    h.created DESC,
+                    h.history_id DESC
+                LIMIT 1
+            ) h ON true
+            WHERE c.npc_name <> 'The Narrator'
+              AND NOT COALESCE((c.extended_data->>'relationships_locked')::boolean, false)
+        ),
+        updated AS (
+            UPDATE {$schema}.core_npc_master c
+            SET extended_data = (
+                (
+                    COALESCE(c.extended_data, '{}'::jsonb)
+                    - 'relationships'
+                    - 'relationships_analyzed'
+                    - 'relationships_inferred'
+                    - 'relationships_last_eval'
+                    - 'relationships_model'
+                    - 'relationships_updated'
+                    - '_dialectic_history_source'
+                )
+                || jsonb_strip_nulls(jsonb_build_object(
+                    'relationships', restore.extended_data -> 'relationships',
+                    'relationships_analyzed', restore.extended_data -> 'relationships_analyzed',
+                    'relationships_inferred', restore.extended_data -> 'relationships_inferred',
+                    'relationships_last_eval', restore.extended_data -> 'relationships_last_eval',
+                    'relationships_model', restore.extended_data -> 'relationships_model',
+                    'relationships_updated', restore.extended_data -> 'relationships_updated'
+                ))
+            )
+            FROM restore
+            WHERE c.id = restore.npc_id
+            RETURNING c.id
+        )
+        SELECT COUNT(*)::int AS affected FROM updated";
+    }
+}
+
+if (!function_exists('dialecticRelationshipFutureClearQuery')) {
+    function dialecticRelationshipFutureClearQuery($timestamp, $schema = 'public')
+    {
+        if (!is_numeric($timestamp) || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', (string) $schema)) {
+            throw new InvalidArgumentException('Invalid relationship clear query input.');
+        }
+        $timestamp = (float) $timestamp;
+
+        return "WITH cleared AS (
+                UPDATE {$schema}.core_npc_master
+                SET extended_data = extended_data
+                    - 'relationships'
+                    - 'relationships_analyzed'
+                    - 'relationships_inferred'
+                    - 'relationships_last_eval'
+                    - 'relationships_model'
+                    - 'relationships_updated'
+                    - '_dialectic_history_source'
+                WHERE npc_name <> 'The Narrator'
+                  AND (gamets_last_updated > {$timestamp} OR gamets_last_updated IS NULL)
+                  AND extended_data IS NOT NULL
+                  AND extended_data ? 'relationships'
+                  AND NOT COALESCE((extended_data->>'relationships_locked')::boolean, false)
+                RETURNING npc_name
+            ),
+            sample AS (
+                SELECT npc_name FROM cleared ORDER BY npc_name LIMIT 10
+            )
+            SELECT
+                (SELECT COUNT(*)::int FROM cleared) AS affected,
+                COALESCE((SELECT string_agg(npc_name, ', ') FROM sample), '') AS sample_names";
+    }
+}
+
 if (!function_exists('dialecticRelationshipTimelineStamp')) {
-    function dialecticRelationshipTimelineStamp($npcId)
+    // Snapshot every changed relationship state on the game timeline. Identical state is
+    // deduplicated without a real-time throttle so reconnects cannot restore stale data.
+    function dialecticRelationshipTimelineStamp($npcId, $source = 'relationship')
     {
         try {
             $npcId = (int) $npcId;
             if ($npcId <= 0 || !isset($GLOBALS['db'])) {
-                return;
+                return false;
             }
 
             $gamets = 0;
@@ -122,36 +232,74 @@ if (!function_exists('dialecticRelationshipTimelineStamp')) {
                 $gamets = (float) ($row['gamets'] ?? 0);
             }
 
-            if ($gamets > 0) {
-                $GLOBALS['db']->execQuery(
-                    "UPDATE core_npc_master SET gamets_last_updated = {$gamets} WHERE id = {$npcId}"
-                );
+            if ($gamets > 0 && $GLOBALS['db']->execQuery(
+                "UPDATE core_npc_master SET gamets_last_updated = {$gamets} WHERE id = {$npcId}"
+            ) === false) {
+                throw new RuntimeException('failed to stamp game timestamp');
             }
 
-            static $lastSnapshot = [];
-            $now = time();
-            if (($lastSnapshot[$npcId] ?? 0) > $now - 1800) {
-                return;
-            }
-
-            $row = $GLOBALS['db']->fetchOne(
-                "SELECT EXTRACT(EPOCH FROM created) AS epoch
-                 FROM core_npc_master_history
-                 WHERE npc_id = {$npcId}
-                 ORDER BY created DESC
-                 LIMIT 1"
+            $current = $GLOBALS['db']->fetchOne(
+                "SELECT extended_data FROM core_npc_master WHERE id = {$npcId} LIMIT 1"
             );
-            if ($row && (float) ($row['epoch'] ?? 0) > $now - 1800) {
-                $lastSnapshot[$npcId] = $now;
-                return;
+            if (!$current) {
+                throw new RuntimeException('NPC row not found after relationship write');
+            }
+            $currentState = dialecticRelationshipTimelineState($current['extended_data'] ?? null);
+            if ($currentState === null) {
+                throw new RuntimeException('live extended_data is not valid relationship JSON');
+            }
+
+            $eligibleClause = $gamets > 0
+                ? "AND (gamets_last_updated <= {$gamets} OR gamets_last_updated IS NULL)"
+                : '';
+            $historyQuery = "SELECT extended_data
+                FROM core_npc_master_history
+                WHERE npc_id = {$npcId}
+                  {$eligibleClause}
+                ORDER BY
+                    gamets_last_updated DESC NULLS LAST,
+                    CASE
+                        WHEN extended_data ->> '_dialectic_history_source' LIKE 'relationship%' THEN 2
+                        WHEN extended_data ->> '_dialectic_history_source' = 'infosave' THEN 1
+                        ELSE 0
+                    END DESC,
+                    created DESC,
+                    history_id DESC
+                LIMIT 1";
+            $history = $GLOBALS['db']->fetchOne($historyQuery);
+            $historyState = $history
+                ? dialecticRelationshipTimelineState($history['extended_data'] ?? null)
+                : null;
+
+            if ($history && $historyState !== null && $currentState == $historyState) {
+                error_log("[REL] Timeline snapshot skipped for npc_id {$npcId} (relationship state unchanged)");
+                return true;
+            }
+
+            $normalizedSource = strtolower(trim((string) $source));
+            $normalizedSource = preg_replace('/[^a-z0-9_-]+/', '_', $normalizedSource);
+            if ($normalizedSource === '' || strpos($normalizedSource, 'relationship') !== 0) {
+                $normalizedSource = 'relationship';
             }
 
             $npcMaster = new NpcMaster();
-            $npcMaster->backupNpcById($npcId);
-            $lastSnapshot[$npcId] = $now;
-            error_log("[REL] Timeline snapshot for npc_id {$npcId} (relationship progress persisted to history)");
+            if (!$npcMaster->backupNpcById($npcId, $normalizedSource)) {
+                throw new RuntimeException('relationship history insert failed');
+            }
+
+            $verified = $GLOBALS['db']->fetchOne($historyQuery);
+            $verifiedState = $verified
+                ? dialecticRelationshipTimelineState($verified['extended_data'] ?? null)
+                : null;
+            if ($verifiedState === null || $currentState != $verifiedState) {
+                throw new RuntimeException('relationship history snapshot verification failed');
+            }
+
+            error_log("[REL] Timeline snapshot for npc_id {$npcId} ({$normalizedSource})");
+            return true;
         } catch (Throwable $e) {
             error_log("[REL] Timeline stamp failed for npc_id " . (int) $npcId . ": " . $e->getMessage());
+            return false;
         }
     }
 }
@@ -1087,7 +1235,7 @@ class NpcMaster
         return $this->lastError !== '' ? $this->lastError : 'Database operation failed.';
     }
 
-    public function backupNpcById($id)
+    public function backupNpcById($id, $source = null)
     {
         $id = (int) $id;
 
@@ -1105,6 +1253,15 @@ class NpcMaster
 
         // Add the current timestamp for tracking purposes (optional)
         $npc['created'] = date('Y-m-d H:i:s');
+
+        if (is_string($source) && trim($source) !== '') {
+            $extended = json_decode((string) ($npc['extended_data'] ?? '{}'), true);
+            if (!is_array($extended)) {
+                $extended = [];
+            }
+            $extended['_dialectic_history_source'] = trim($source);
+            $npc['extended_data'] = json_encode($extended, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
 
         // Insert the data into the history table
         return $this->db->insert('core_npc_master_history', $npc);
@@ -1137,7 +1294,8 @@ class NpcMaster
                 id, npc_name, npc_favorite, lock_profile, prompt_head, npc_static_bio,
                 worldknowledge_tags, emote_moods, personality, relationships,
                 occupation, skills, speechstyle, goals, voiceid, metadata,
-                gender, race, refid, profile_id, dynamic_profile, extended_data,
+                gender, race, refid, profile_id, dynamic_profile,
+                jsonb_set(COALESCE(extended_data, '{}'::jsonb), '{_dialectic_history_source}', '\"infosave\"'::jsonb, true),
                 md5, $timestamp, core, base, tags, appearance, '{$createdTimestamp}'
             FROM core_npc_master
         ";
@@ -1179,7 +1337,7 @@ persistent AS (
     FROM deleted d
 ),
 restore AS (
-    SELECT DISTINCT ON (h.npc_id)
+    SELECT
         h.npc_id AS id,
         h.npc_name,
         h.npc_favorite,
@@ -1202,7 +1360,7 @@ restore AS (
         h.profile_id,
         h.dynamic_profile,
         (
-            COALESCE(h.extended_data, '{}'::jsonb) - ARRAY[
+            (COALESCE(h.extended_data, '{}'::jsonb) - '_dialectic_history_source') - ARRAY[
                 'individual_memory_enabled',
                 'middle_term_enabled',
                 'auto_diary_enabled',
@@ -1224,10 +1382,19 @@ restore AS (
         h.base,
         h.tags,
         h.appearance
-    FROM core_npc_master_history h
-    JOIN persistent d ON h.npc_id = d.id
-    WHERE h.gamets_last_updated <= $timestamp OR h.gamets_last_updated IS NULL
-    ORDER BY h.npc_id, h.gamets_last_updated DESC NULLS LAST,h.created DESC
+    FROM persistent d
+    JOIN LATERAL (
+        SELECT h.*
+        FROM core_npc_master_history h
+        WHERE h.npc_id = d.id
+          AND (h.gamets_last_updated <= $timestamp OR h.gamets_last_updated IS NULL)
+        ORDER BY
+            h.gamets_last_updated DESC NULLS LAST,
+            CASE WHEN h.extended_data ->> '_dialectic_history_source' = 'infosave' THEN 1 ELSE 0 END DESC,
+            h.created DESC,
+            h.history_id DESC
+        LIMIT 1
+    ) h ON true
 )
 INSERT INTO core_npc_master (
     id, npc_name, npc_favorite, lock_profile, prompt_head, npc_static_bio,
@@ -1248,22 +1415,35 @@ FROM restore
         error_log("[NPC RESTORE] using gamets: $timestamp.. " . date('Y-m-d H:i:s'));
         $GLOBALS["db"]->query($query);
 
+        $relationshipRestoreSucceeded = false;
+        try {
+            $relationshipRestoreResult = $GLOBALS['db']->fetchOne(dialecticRelationshipRestoreQuery($timestamp));
+            if (!is_array($relationshipRestoreResult) || !array_key_exists('affected', $relationshipRestoreResult)) {
+                throw new RuntimeException('relationship restore query did not return a result');
+            }
+            $relationshipRestoreCount = (int) ($relationshipRestoreResult['affected'] ?? 0);
+            $relationshipRestoreSucceeded = true;
+            error_log("[NPC RESTORE] Restored relationship timeline data for {$relationshipRestoreCount} NPCs at gamets $timestamp");
+        } catch (Throwable $e) {
+            error_log("[NPC RESTORE] Failed to restore NPC relationships: " . $e->getMessage());
+        }
+
         // RELATIONSHIP SYSTEM: Clear "future" relationship data from NPCs that weren't restored
         // NPCs added AFTER the save timestamp don't have history entries, so they keep their
         // current (future) state. We need to clear their relationship data to prevent paradoxes.
-        $rel_reset_q = "UPDATE public.core_npc_master
-            SET extended_data = extended_data - 'relationships' - 'relationships_updated' - 'relationships_model' - 'relationships_inferred'
-            WHERE npc_name <> 'The Narrator'
-              AND (gamets_last_updated > $timestamp OR gamets_last_updated IS NULL)
-              AND extended_data IS NOT NULL
-              AND NOT COALESCE((extended_data->>'relationships_locked')::boolean, false)
-              AND extended_data ? 'relationships'";
-
-        try {
-            $GLOBALS["db"]->execQuery($rel_reset_q);
-            error_log("[NPC RESTORE] Cleared future relationship data for NPCs with gamets > $timestamp");
-        } catch (Exception $e) {
-            error_log("[NPC RESTORE] Failed to clear future relationships: " . $e->getMessage());
+        if ($relationshipRestoreSucceeded) {
+            try {
+                $clearResult = $GLOBALS['db']->fetchOne(dialecticRelationshipFutureClearQuery($timestamp));
+                if (!is_array($clearResult) || !array_key_exists('affected', $clearResult)) {
+                    throw new RuntimeException('future relationship clear query did not return a result');
+                }
+                $clearCount = (int) ($clearResult['affected'] ?? 0);
+                error_log("[NPC RESTORE] Cleared future relationship data for {$clearCount} NPCs with gamets > $timestamp");
+            } catch (Throwable $e) {
+                error_log("[NPC RESTORE] Failed to clear future relationships: " . $e->getMessage());
+            }
+        } else {
+            error_log('[NPC RESTORE] Skipped future relationship clear because timeline restore failed');
         }
 
         error_log("[NPC RESTORE] " . date('Y-m-d H:i:s') . ", NPCs restore made in " . (time() - $startTime) . " secs ");
