@@ -135,6 +135,23 @@ class RelationshipManager {
         'job', 'fam', 'debt', 'awe', 'fear', 'ty', 'meh', 'ex', 'svc', 'cart', 'crown'
     ];
 
+    public static function shouldRunAutomaticEvaluation($chance = null, $roll = null) {
+        if ($chance === null) {
+            $chance = $GLOBALS['RELATIONSHIP_UPDATE_CHANCE'] ?? 50;
+        }
+
+        $chance = is_numeric($chance) ? max(0, min(100, (int)$chance)) : 50;
+        if ($chance === 0) {
+            return false;
+        }
+        if ($chance === 100) {
+            return true;
+        }
+
+        $roll = $roll === null ? random_int(1, 100) : max(1, min(100, (int)$roll));
+        return $roll <= $chance;
+    }
+
     /**
      * Relationship storage uses "Player" as the canonical player target.
      * Prompts may expose the detected Fallout character name, but persisting
