@@ -440,13 +440,13 @@ $F_DESCRIPTIONS_LOCAL["DecreaseWalkSpeed"] = "Decrease #DIALECTIC_NAME#'s speed 
 $F_DESCRIPTIONS_LOCAL["StopWalk"] = "Stop all of #DIALECTIC_NAME#'s actions immediately.";
 $F_DESCRIPTIONS_LOCAL["WaitHere"] = "#DIALECTIC_NAME# waits and loiters at the current location.";
 $F_DESCRIPTIONS_LOCAL["TakeCapsFromPlayer"] = "#DIALECTIC_NAME# takes the specified amount of caps from #PLAYER_NAME# once #PLAYER_NAME# agrees. Infer the amount from context.";
-$F_DESCRIPTIONS_LOCAL["FollowPlayer"] = "#DIALECTIC_NAME# follows #PLAYER_NAME#.";
+$F_DESCRIPTIONS_LOCAL["FollowPlayer"] = "#DIALECTIC_NAME# temporarily follows #PLAYER_NAME# without joining the party or follower roster. Do not use for requests to join the party or become a companion; use Join_#PLAYER_NAME#_Party.";
 $F_DESCRIPTIONS_LOCAL["StopFollowing"] = "#DIALECTIC_NAME# stops following #PLAYER_NAME# and leaves the current follower role.";
 $F_DESCRIPTIONS_LOCAL["ComeCloser"] = "#DIALECTIC_NAME# approaches #PLAYER_NAME#.";
 $F_DESCRIPTIONS_LOCAL["GiveCapsTo"] = "#DIALECTIC_NAME# gives caps to another actor or #PLAYER_NAME#. REQUIRED: include the recipient in 'target' and the caps amount in 'amount' or 'item'.";
 $F_DESCRIPTIONS_LOCAL["GiveItemTo"] = "#DIALECTIC_NAME# gives a specific item from inventory to another actor or #PLAYER_NAME#. REQUIRED: Must include 'item' field with exact item name from <inventory> tag, and 'target' field with recipient name.";
 $F_DESCRIPTIONS_LOCAL["PickupItem"] = "#DIALECTIC_NAME# picks up a specific item from the ground. Use the exact RefID:ItemName format from nearby_items or from the representative RefID shown in ITEM DESCRIPTIONS when the nearby item list is grouped (e.g. 0x12345:9mm Pistol).";
-$F_DESCRIPTIONS_LOCAL["MakeFollower"] = "#DIALECTIC_NAME# joins #PLAYER_NAME#, forming a squad or adventuring party.";
+$F_DESCRIPTIONS_LOCAL["MakeFollower"] = "#DIALECTIC_NAME# joins #PLAYER_NAME# as a recruited follower and party member, and begins following. Use for requests to join the party, become a follower or companion, join the squad, or travel as an ally.";
 
 $F_DESCRIPTIONS_LOCAL["Consume"] = "#DIALECTIC_NAME# consumes food, drink, chems, or another aid item from inventory. Use the exact inventory item name in the target field.";
 $F_DESCRIPTIONS_LOCAL["EquipItem"] = "#DIALECTIC_NAME# equips a weapon or wearable item already present in their inventory. Use the exact item name from <inventory>.";

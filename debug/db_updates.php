@@ -3582,6 +3582,37 @@ if ($checkVersion("core_action") < 20260719001) {
     }
 }
 
+if ($checkVersion("core_action") < 20260823001) {
+    Logger::debug("Applying core_action 20260823001 - distinguish temporary follow from party recruitment");
+
+    $followPlayerDescription = '#DIALECTIC_NAME# temporarily follows #PLAYER_NAME# without joining the party or follower roster. Do not use for requests to join the party or become a companion; use Join_#PLAYER_NAME#_Party.';
+    $makeFollowerDescription = '#DIALECTIC_NAME# joins #PLAYER_NAME# as a recruited follower and party member, and begins following. Use for requests to join the party, become a follower or companion, join the squad, or travel as an ally.';
+    $followPlayerDescriptionLiteral = $db->escapeLiteral($followPlayerDescription);
+    $makeFollowerDescriptionLiteral = $db->escapeLiteral($makeFollowerDescription);
+
+    $db->execQuery("UPDATE public.core_action SET description = {$followPlayerDescriptionLiteral}, updated_at = NOW() WHERE code_name = 'FollowPlayer'");
+    $db->execQuery("UPDATE public.core_action SET description = {$makeFollowerDescriptionLiteral}, updated_at = NOW() WHERE code_name = 'MakeFollower'");
+
+    $db->execQuery("
+        UPDATE public.core_action_custom
+           SET description = {$followPlayerDescriptionLiteral}, updated_at = NOW()
+         WHERE code_name = 'FollowPlayer'
+           AND description = '#DIALECTIC_NAME# follows #PLAYER_NAME#.'
+    ");
+    $db->execQuery("
+        UPDATE public.core_action_custom
+           SET description = {$makeFollowerDescriptionLiteral}, updated_at = NOW()
+         WHERE code_name = 'MakeFollower'
+           AND description IN (
+               '#DIALECTIC_NAME# joins #PLAYER_NAME#, forming a squad or adventuring party.',
+               '#DIALECTIC_NAME# joins #PLAYER_NAME# as a follower.'
+           )
+    ");
+
+    $updateVersion("core_action", 20260823001);
+    Logger::info("Applied patch core_action 20260823001");
+}
+
 if ($checkVersion("core_tts_connector_metadata") < 20260626001) {
     Logger::debug("Applying core_tts_connector_metadata 20260626001 - remove copied connector metadata references");
 
