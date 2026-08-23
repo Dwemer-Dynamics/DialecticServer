@@ -1025,7 +1025,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_npc"])) {
 }
 
 // Fetch Data
-$perPage = 12;
+$npcPageSizeOptions = [12, 24, 48, 96];
+$npcDefaultPageSize = 12;
+$perPage = isset($_GET["page_size"]) ? intval($_GET["page_size"]) : $npcDefaultPageSize;
+if (!in_array($perPage, $npcPageSizeOptions, true)) { $perPage = $npcDefaultPageSize; }
 $page = isset($_GET["page"]) ? intval($_GET["page"]) : 1;
 if ($page < 1) $page = 1;
 
@@ -1159,6 +1162,12 @@ if ($page > $totalPages) $page = $totalPages;
 $offset = ($page - 1) * $perPage;
 error_log("{$where} {$order} limit {$perPage} offset {$offset}");
 $data = $npc->getAll("{$where} {$order} limit {$perPage} offset {$offset}");
+// Authoritative result window; the toolbar and status line publish these values so the
+// client never persists a requested page the server already clamped.
+$shownRows = is_array($data) ? count($data) : 0;
+$rangeStart = ($totalRows > 0 && $shownRows > 0) ? ($offset + 1) : 0;
+$rangeEnd = ($rangeStart > 0) ? ($offset + $shownRows) : 0;
+$listFiltered = ($q !== '' || $nameLetterFilter !== '' || $profileIdFilter !== '' || $favOnly || $dynOnly || $mtmOnly || $lockOnly || $salOnly);
 $editItem = null;
 
 if (!function_exists('renderNpcLetterFilter')) {
@@ -1196,11 +1205,45 @@ if (!function_exists('renderNpcToolbar')) {
  $mtmOnly = !empty($args['mtmOnly']);
  $lockOnly = !empty($args['lockOnly']);
  $salOnly = !empty($args['salOnly']);
+ $alpha = strtolower((string)($args['alpha'] ?? 'asc'));
+ if (!in_array($alpha, ['asc','desc'], true)) { $alpha = 'asc'; }
+ $pageSizeOptions = (is_array($args['pageSizeOptions'] ?? null) && count($args['pageSizeOptions']) > 0)
+  ? array_values(array_map('intval', $args['pageSizeOptions']))
+  : [12, 24, 48, 96];
+ $pageSize = (int)($args['pageSize'] ?? $pageSizeOptions[0]);
+ if (!in_array($pageSize, $pageSizeOptions, true)) { $pageSize = (int)$pageSizeOptions[0]; }
+ $rangeStart = max(0, (int)($args['rangeStart'] ?? 0));
+ $rangeEnd = max(0, (int)($args['rangeEnd'] ?? 0));
  $pageWindow = min(10, $totalPages);
  $pageStart = max(1, min($page - 4, $totalPages - $pageWindow + 1));
  $pageEnd = min($totalPages, $pageStart + $pageWindow - 1);
 
-?><div class="pagination npc-toolbar"><div class="npc-toolbar-main"><div class="npc-toolbar-actions"><button id="npc_create_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action">+ Create NPC</button><button id="npc_import_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action" title="Import NPC from JSON file">&#x1F4E5; Import NPC</button><button id="npc_bulk_switch_profile_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action npc-toolbar-btn-switch" title="Switch all NPCs from one profile to another">&#x1F500; Mass Switch Profile</button><button id="npc_bulk_unlock_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action" title="Unlock every NPC profile">&#x1F513; Unlock All Profiles</button><button id="npc_bulk_delete_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-danger" title="Delete all unlocked NPCs (excludes The Narrator and locked)">❌ Delete All Profiles</button></div><div class="npc-toolbar-tools"><input id="npc_search" type="text" placeholder="Search..." value="<?= htmlspecialchars($q) ?>" /><select id="npc_profile_filter" title="Filter by profile"><option value="">All Profiles</option><?php foreach ($profileRows as $pr): ?><?php $pid = (string)($pr['id'] ?? ''); $lbl = $pr['label'] ?? ('Profile #' . $pid); ?><option value="<?= htmlspecialchars($pid) ?>" <?= ($profileIdFilter !== '' && $profileIdFilter === $pid) ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select></div></div><div class="npc-toolbar-subrow"><div class="npc-toolbar-pager"><button type="button" class="npc-letter-btn npc-page-link<?= $page <= 1 ? ' disabled' : '' ?>" data-page="1" <?= $page <= 1 ? 'disabled aria-disabled="true"' : '' ?>>First</button><button type="button" class="npc-letter-btn npc-page-link<?= $page <= 1 ? ' disabled' : '' ?>" data-page="<?= max(1, $page - 1) ?>" <?= $page <= 1 ? 'disabled aria-disabled="true"' : '' ?>>Prev</button><?php for ($p = $pageStart; $p <= $pageEnd; $p++): ?><button type="button" class="npc-letter-btn npc-page-link<?= $p === $page ? ' active' : '' ?>" data-page="<?= $p ?>" <?= $p === $page ? 'disabled aria-current="page"' : '' ?>><?= $p ?></button><?php endfor; ?><button type="button" class="npc-letter-btn npc-page-link<?= $page >= $totalPages ? ' disabled' : '' ?>" data-page="<?= min($totalPages, $page + 1) ?>" <?= $page >= $totalPages ? 'disabled aria-disabled="true"' : '' ?>>Next</button><button type="button" class="npc-letter-btn npc-page-link<?= $page >= $totalPages ? ' disabled' : '' ?>" data-page="<?= $totalPages ?>" <?= $page >= $totalPages ? 'disabled aria-disabled="true"' : '' ?>>Last</button><div class="npc-page-indicator" title="Current page"><?= $page ?>/<?= $totalPages ?></div></div></div><div class="npc-toolbar-letter-row"><?php renderNpcLetterFilter($nameLetterFilter); ?><label class="npc-auto-lock-profile" title="When enabled, saving an NPC profile automatically locks it to prevent history updates from overwriting manual edits."><input id="npc_auto_lock_profile" type="checkbox" <?= dialecticUiAutoLockProfileEnabled() ? 'checked' : '' ?>> Auto Lock Profiles on Edit</label><div class="npc-toolbar-summary"><div class="npc-filter-dropdown"><button type="button" id="npc_filter_btn<?= $suffix ?>" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action npc-toolbar-filter-btn" title="Filters" aria-label="Filters">&#x2699;&#xFE0F; Filters</button><div id="npc_filter_menu<?= $suffix ?>" class="npc-filter-menu" style="display:none;"><label><input type="checkbox" id="npc_filter_fav<?= $suffix ?>" <?= $favOnly ? 'checked' : '' ?>> Favorites</label><label><input type="checkbox" id="npc_filter_dyn<?= $suffix ?>" <?= $dynOnly ? 'checked' : '' ?>> Dynamic profile</label><label><input type="checkbox" id="npc_filter_mtm<?= $suffix ?>" <?= $mtmOnly ? 'checked' : '' ?>> Middle-term memory</label><label><input type="checkbox" id="npc_filter_lock<?= $suffix ?>" <?= $lockOnly ? 'checked' : '' ?>> Locked</label><label><input type="checkbox" id="npc_filter_sal<?= $suffix ?>" <?= $salOnly ? 'checked' : '' ?>> Auto Greeting</label></div></div><div class="npc-total-pill" title="Total NPC profiles"><div class="npc-total-pill-icon"></div><div class="npc-total-pill-value"><?= $totalRows ?></div></div></div></div></div><?php
+?><div class="pagination npc-toolbar" tabindex="-1" data-page="<?= $page ?>" data-total-pages="<?= $totalPages ?>" data-total-rows="<?= $totalRows ?>" data-range-start="<?= $rangeStart ?>" data-range-end="<?= $rangeEnd ?>" data-page-size="<?= $pageSize ?>" data-q="<?= htmlspecialchars($q, ENT_QUOTES) ?>" data-alpha="<?= htmlspecialchars($alpha, ENT_QUOTES) ?>" data-letter="<?= htmlspecialchars($nameLetterFilter, ENT_QUOTES) ?>" data-profile-id="<?= htmlspecialchars($profileIdFilter, ENT_QUOTES) ?>" data-fav="<?= $favOnly ? '1' : '0' ?>" data-dyn="<?= $dynOnly ? '1' : '0' ?>" data-mtm="<?= $mtmOnly ? '1' : '0' ?>" data-lock="<?= $lockOnly ? '1' : '0' ?>" data-sal="<?= $salOnly ? '1' : '0' ?>"><div class="npc-toolbar-main"><div class="npc-toolbar-actions"><button id="npc_create_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action">+ Create NPC</button><button id="npc_import_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action" title="Import NPC from JSON file">&#x1F4E5; Import NPC</button><button id="npc_bulk_switch_profile_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action npc-toolbar-btn-switch" title="Switch all NPCs from one profile to another">&#x1F500; Mass Switch Profile</button><button id="npc_bulk_unlock_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action" title="Unlock every NPC profile">&#x1F513; Unlock All Profiles</button><button id="npc_bulk_delete_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-danger" title="Delete all unlocked NPCs (excludes The Narrator and locked)">❌ Delete All Profiles</button></div><div class="npc-toolbar-tools"><input id="npc_search" type="text" placeholder="Search..." value="<?= htmlspecialchars($q) ?>" /><select id="npc_profile_filter" title="Filter by profile"><option value="">All Profiles</option><?php foreach ($profileRows as $pr): ?><?php $pid = (string)($pr['id'] ?? ''); $lbl = $pr['label'] ?? ('Profile #' . $pid); ?><option value="<?= htmlspecialchars($pid) ?>" <?= ($profileIdFilter !== '' && $profileIdFilter === $pid) ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select></div></div><div class="npc-toolbar-subrow"><div class="npc-toolbar-pager" role="group" aria-label="NPC list pagination" tabindex="-1"><button type="button" class="npc-letter-btn npc-page-link<?= $page <= 1 ? ' disabled' : '' ?>" data-page="1" data-pager-role="first" <?= $page <= 1 ? 'disabled aria-disabled="true"' : '' ?>>First</button><button type="button" class="npc-letter-btn npc-page-link<?= $page <= 1 ? ' disabled' : '' ?>" data-page="<?= max(1, $page - 1) ?>" data-pager-role="prev" <?= $page <= 1 ? 'disabled aria-disabled="true"' : '' ?>>Prev</button><?php for ($p = $pageStart; $p <= $pageEnd; $p++): ?><button type="button" class="npc-letter-btn npc-page-link<?= $p === $page ? ' active' : '' ?>" data-page="<?= $p ?>" <?= $p === $page ? 'disabled aria-current="page"' : '' ?>><?= $p ?></button><?php endfor; ?><button type="button" class="npc-letter-btn npc-page-link<?= $page >= $totalPages ? ' disabled' : '' ?>" data-page="<?= min($totalPages, $page + 1) ?>" data-pager-role="next" <?= $page >= $totalPages ? 'disabled aria-disabled="true"' : '' ?>>Next</button><button type="button" class="npc-letter-btn npc-page-link<?= $page >= $totalPages ? ' disabled' : '' ?>" data-page="<?= $totalPages ?>" data-pager-role="last" <?= $page >= $totalPages ? 'disabled aria-disabled="true"' : '' ?>>Last</button><div class="npc-page-indicator" title="Page <?= $page ?> of <?= $totalPages ?>"><?= $page ?>/<?= $totalPages ?></div><label class="npc-page-size" title="NPC profiles per page"><span>Per page</span><select id="npc_page_size"><?php foreach ($pageSizeOptions as $psOpt): ?><option value="<?= (int)$psOpt ?>"<?= ((int)$psOpt === $pageSize) ? ' selected' : '' ?>><?= (int)$psOpt ?></option><?php endforeach; ?></select></label></div></div><div class="npc-toolbar-letter-row"><?php renderNpcLetterFilter($nameLetterFilter); ?><label class="npc-auto-lock-profile" title="When enabled, saving an NPC profile automatically locks it to prevent history updates from overwriting manual edits."><input id="npc_auto_lock_profile" type="checkbox" <?= dialecticUiAutoLockProfileEnabled() ? 'checked' : '' ?>> Auto Lock Profiles on Edit</label><div class="npc-toolbar-summary"><div class="npc-filter-dropdown"><button type="button" id="npc_filter_btn<?= $suffix ?>" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action npc-toolbar-filter-btn" title="Filters" aria-label="Filters">&#x2699;&#xFE0F; Filters</button><div id="npc_filter_menu<?= $suffix ?>" class="npc-filter-menu" style="display:none;"><label><input type="checkbox" id="npc_filter_fav<?= $suffix ?>" <?= $favOnly ? 'checked' : '' ?>> Favorites</label><label><input type="checkbox" id="npc_filter_dyn<?= $suffix ?>" <?= $dynOnly ? 'checked' : '' ?>> Dynamic profile</label><label><input type="checkbox" id="npc_filter_mtm<?= $suffix ?>" <?= $mtmOnly ? 'checked' : '' ?>> Middle-term memory</label><label><input type="checkbox" id="npc_filter_lock<?= $suffix ?>" <?= $lockOnly ? 'checked' : '' ?>> Locked</label><label><input type="checkbox" id="npc_filter_sal<?= $suffix ?>" <?= $salOnly ? 'checked' : '' ?>> Auto Greeting</label></div></div><div class="npc-total-pill" title="Total NPC profiles"><div class="npc-total-pill-icon"></div><div class="npc-total-pill-value"><?= $totalRows ?></div></div></div></div></div><?php
+ }
+}
+
+if (!function_exists('renderNpcListStatus')) {
+ // Persistent, compact live region for list updates. Rendered once outside the AJAX
+ // partial so screen readers keep announcing into the same node after each refresh.
+ function renderNpcListStatus($args = [])
+ {
+ $totalRows = max(0, (int)($args['totalRows'] ?? 0));
+ $page = max(1, (int)($args['page'] ?? 1));
+ $totalPages = max(1, (int)($args['totalPages'] ?? 1));
+ $rangeStart = max(0, (int)($args['rangeStart'] ?? 0));
+ $rangeEnd = max(0, (int)($args['rangeEnd'] ?? 0));
+ $filtered = !empty($args['filtered']);
+ echo '<div id="npc_list_status" class="npc-list-status" role="status" aria-live="polite" aria-atomic="true">';
+ if ($totalRows === 0) {
+ echo $filtered ? 'No NPC profiles match the current filters.' : 'No NPC profiles found.';
+ } else {
+ echo 'Showing <span class="npc-list-status-count">'.$rangeStart.'&ndash;'.$rangeEnd.'</span>'
+  .' of <span class="npc-list-status-count">'.$totalRows.'</span> profiles'
+  .' &middot; Page <span class="npc-list-status-count">'.$page.'</span>'
+  .' of <span class="npc-list-status-count">'.$totalPages.'</span>';
+ if ($filtered) { echo ' &middot; filters active'; }
+ }
+ echo '</div>';
  }
 }
 
@@ -1249,6 +1292,11 @@ if (isset($_GET['list']) && $_GET['list'] === '1') {
  'mtmOnly' => $mtmOnly,
  'lockOnly' => $lockOnly,
  'salOnly' => $salOnly,
+ 'alpha' => $alpha,
+ 'pageSize' => $perPage,
+ 'pageSizeOptions' => $npcPageSizeOptions,
+ 'rangeStart' => $rangeStart,
+ 'rangeEnd' => $rangeEnd,
  ]);
  ?><div class="npc-grid"><?php foreach ($data as $row): ?><?php
  $pid = (string)($row['profile_id'] ?? '');
@@ -3102,6 +3150,60 @@ document.addEventListener('DOMContentLoaded', () => {
  font-weight:700;
  padding:0 4px;
 }
+.pagination.npc-toolbar:focus {
+ outline:none;
+}
+.pagination.npc-toolbar:focus-visible {
+ outline:2px solid rgba(255, 182, 65, 0.6);
+ outline-offset:2px;
+}
+.pagination.npc-toolbar .npc-toolbar-pager:focus {
+ outline:none;
+}
+.pagination.npc-toolbar .npc-toolbar-pager:focus-visible {
+ outline:2px solid rgba(255, 182, 65, 0.75);
+ outline-offset:3px;
+ border-radius:8px;
+}
+.pagination.npc-toolbar .npc-page-size {
+ display:inline-flex;
+ align-items:center;
+ gap:6px;
+ margin-left:2px;
+ color:#9fb1c9;
+ font-size:12px;
+ font-weight:600;
+ white-space:nowrap;
+ cursor:pointer;
+}
+.pagination.npc-toolbar .npc-page-size select {
+ flex:0 0 auto;
+ width:auto;
+ min-width:0;
+ max-width:none;
+ padding:3px 6px;
+ font-size:12px;
+ line-height:1.2;
+ border-radius:6px;
+ border:1px solid #4a4a4a;
+ background:#2a2a2a;
+ color:#e9efff;
+ cursor:pointer;
+}
+.npc-list-status {
+ margin:6px 2px 0;
+ min-height:15px;
+ font-size:12px;
+ line-height:1.3;
+ color:#9fb1c9;
+}
+.npc-list-status .npc-list-status-count {
+ color:rgb(255, 182, 65);
+ font-weight:700;
+}
+.npc-list-status[data-state="error"] {
+ color:#ffb4b4;
+}
 .pagination.npc-toolbar .npc-total-pill {
  display:flex;
  align-items:center;
@@ -3191,6 +3293,18 @@ document.addEventListener('DOMContentLoaded', () => {
  'mtmOnly' => $mtmOnly,
  'lockOnly' => $lockOnly,
  'salOnly' => $salOnly,
+ 'alpha' => $alpha,
+ 'pageSize' => $perPage,
+ 'pageSizeOptions' => $npcPageSizeOptions,
+ 'rangeStart' => $rangeStart,
+ 'rangeEnd' => $rangeEnd,
+]); renderNpcListStatus([
+ 'totalRows' => $totalRows,
+ 'page' => $page,
+ 'totalPages' => $totalPages,
+ 'rangeStart' => $rangeStart,
+ 'rangeEnd' => $rangeEnd,
+ 'filtered' => $listFiltered,
 ]); ?><div style="margin:8px 0 10px; padding:10px 14px; background:rgba(255, 182, 65,0.08); border:1px solid rgba(255, 182, 65,0.25); border-radius:8px; font-size:12.5px; color:#cfd9ea; line-height:1.5;"><strong style="color:rgb(255, 182, 65);">History Pullback:</strong>
  Every time a save game is loaded, DIALECTIC snapshots all NPC profiles and restores <strong>unlocked</strong> NPCs to their state at the save's game timestamp.
  Loading an older save will roll back unlocked profiles to that point in time. NPCs created <em>after</em> the save's timestamp may disappear entirely.
@@ -4381,6 +4495,161 @@ document.addEventListener('DOMContentLoaded', () => {
  })();
  let listAbort = null;
  let listRequestId = 0;
+ const NPC_DEFAULT_PAGE_SIZE = <?= (int)$npcDefaultPageSize ?>;
+ // Read the state the server actually served (never what was requested), so a clamped
+ // page or normalized filter can be written back to the address bar verbatim.
+ function readNpcListState(root){
+ const el = (root && root.matches && root.matches('.pagination')) ? root : document.querySelector('.pagination.npc-toolbar');
+ if (!el) return null;
+ const asInt = function(name, fallback){ const v = parseInt(el.getAttribute(name) || '', 10); return Number.isFinite(v) ? v : fallback; };
+ const asStr = function(name){ return String(el.getAttribute(name) || ''); };
+ const asBool = function(name){ return el.getAttribute(name) === '1'; };
+ return {
+ page: Math.max(1, asInt('data-page', 1)),
+ totalPages: Math.max(1, asInt('data-total-pages', 1)),
+ totalRows: Math.max(0, asInt('data-total-rows', 0)),
+ rangeStart: Math.max(0, asInt('data-range-start', 0)),
+ rangeEnd: Math.max(0, asInt('data-range-end', 0)),
+ pageSize: Math.max(1, asInt('data-page-size', NPC_DEFAULT_PAGE_SIZE)),
+ q: asStr('data-q'),
+ alpha: asStr('data-alpha') === 'desc' ? 'desc' : 'asc',
+ letter: asStr('data-letter'),
+ profileId: asStr('data-profile-id'),
+ fav: asBool('data-fav'),
+ dyn: asBool('data-dyn'),
+ mtm: asBool('data-mtm'),
+ lock: asBool('data-lock'),
+ sal: asBool('data-sal')
+ };
+ }
+ function npcListStateIsFiltered(st){
+ return !!(st && (st.q || st.letter || st.profileId || st.fav || st.dyn || st.mtm || st.lock || st.sal));
+ }
+ // Mirror the confirmed state into the current history entry so reload and link sharing
+ // reproduce the visible list. replaceState keeps the modal back-guard entry intact.
+ function syncNpcListUrl(st){
+ if (!st) return;
+ try {
+ const url = new URL(window.location.href);
+ const p = url.searchParams;
+ const put = function(key, value){
+ if (value === '' || value === null || value === undefined) p.delete(key);
+ else p.set(key, String(value));
+ };
+ p.delete('list');
+ p.delete('partial');
+ put('q', st.q);
+ put('letter', st.letter);
+ put('profile_id', st.profileId);
+ put('fav', st.fav ? '1' : '');
+ put('dyn', st.dyn ? '1' : '');
+ put('mtm', st.mtm ? '1' : '');
+ put('lock', st.lock ? '1' : '');
+ put('sal', st.sal ? '1' : '');
+ put('alpha', st.alpha === 'desc' ? 'desc' : '');
+ put('page', st.page > 1 ? st.page : '');
+ put('page_size', st.pageSize !== NPC_DEFAULT_PAGE_SIZE ? st.pageSize : '');
+ const query = p.toString();
+ history.replaceState(history.state, document.title, url.pathname + (query ? '?' + query : '') + url.hash);
+ } catch(_e){}
+ }
+ function renderNpcListStatus(st){
+ const el = document.getElementById('npc_list_status');
+ if (!el || !st) return;
+ const filtered = npcListStateIsFiltered(st);
+ let html;
+ if (st.totalRows <= 0){
+ html = filtered ? 'No NPC profiles match the current filters.' : 'No NPC profiles found.';
+ } else {
+ const n = function(v){ return '<span class="npc-list-status-count">' + String(v) + '</span>'; };
+ html = 'Showing ' + n(st.rangeStart + '\u2013' + st.rangeEnd) + ' of ' + n(st.totalRows) + ' profiles'
+ + ' \u00B7 Page ' + n(st.page) + ' of ' + n(st.totalPages)
+ + (filtered ? ' \u00B7 filters active' : '');
+ }
+ el.removeAttribute('data-state');
+ el.innerHTML = html;
+ }
+ function announceNpcListError(){
+ const el = document.getElementById('npc_list_status');
+ if (!el) return;
+ el.setAttribute('data-state', 'error');
+ el.textContent = 'Could not refresh the NPC profile list. The previous results are still shown.';
+ }
+ // Focus survives the partial swap: remember what was focused, then re-focus the
+ // equivalent node in the replacement markup (or the nearest sensible anchor).
+ // The toolbar renders control ids with a "_top" suffix on the full page and without it
+ // in the AJAX partial, so candidates always cover both spellings.
+ function npcFocusIdSelector(id){
+ const esc = function(v){ return (window.CSS && CSS.escape) ? CSS.escape(v) : v; };
+ if (/_top$/.test(id)) return '#' + esc(id) + ', #' + esc(id.replace(/_top$/, ''));
+ return '#' + esc(id) + ', #' + esc(id + '_top');
+ }
+ function captureNpcListFocus(oldPag, oldGrid){
+ try {
+ const active = document.activeElement;
+ if (!active || active === document.body || active === document.documentElement) return null;
+ const inGrid = !!(oldGrid && oldGrid.contains(active));
+ const inPag = !!(oldPag && oldPag.contains(active));
+ if (!inGrid && !inPag) return null;
+ const desc = {
+ selector: '',
+ fallbackSelector: '',
+ group: inGrid ? 'grid' : (active.closest('.npc-toolbar-pager') ? 'pager' : 'toolbar'),
+ caretStart: null,
+ caretEnd: null
+ };
+ if (active.id){
+ desc.selector = npcFocusIdSelector(active.id);
+ } else {
+ const keys = ['data-pager-role','data-page','data-letter','data-favorite-id','data-lock-id','data-pick-picture-id','data-id'];
+ for (let i = 0; i < keys.length; i++){
+ const val = active.getAttribute(keys[i]);
+ if (val !== null){ desc.selector = '[' + keys[i] + '="' + String(val).replace(/["\\]/g, '\\$&') + '"]'; break; }
+ }
+ }
+ // A refreshed toolbar renders the filter menu closed, so hand focus back to the
+ // button that opens it rather than to a now-hidden checkbox.
+ if (active.closest('.npc-filter-menu')) desc.fallbackSelector = '#npc_filter_btn_top, #npc_filter_btn';
+ else if (desc.group === 'pager') desc.fallbackSelector = '.npc-toolbar-pager';
+ try {
+ const tag = active.tagName;
+ const type = String(active.type || '').toLowerCase();
+ if (tag === 'TEXTAREA' || (tag === 'INPUT' && (type === '' || type === 'text' || type === 'search'))){
+ desc.caretStart = active.selectionStart;
+ desc.caretEnd = active.selectionEnd;
+ }
+ } catch(_e){}
+ return desc;
+ } catch(_e){ return null; }
+ }
+ function npcFocusCandidate(selector){
+ if (!selector) return null;
+ let el = null;
+ try { el = document.querySelector(selector); } catch(_e){ return null; }
+ if (!el) return null;
+ if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.isConnected === false) return null;
+ // Skip anything the refreshed markup renders hidden (e.g. a collapsed filter menu).
+ if (typeof el.checkVisibility === 'function'){ if (!el.checkVisibility()) return null; }
+ else if (el.offsetParent === null && el.getClientRects && el.getClientRects().length === 0) return null;
+ return el;
+ }
+ function restoreNpcListFocus(desc){
+ if (!desc) return;
+ const target = npcFocusCandidate(desc.selector)
+ || npcFocusCandidate(desc.fallbackSelector)
+ || npcFocusCandidate('.pagination.npc-toolbar');
+ if (!target) return;
+ try { target.focus({ preventScroll: true }); } catch(_e){ try { target.focus(); } catch(__e){} }
+ if (desc.caretStart != null && typeof target.setSelectionRange === 'function'){
+ try { target.setSelectionRange(desc.caretStart, desc.caretEnd == null ? desc.caretStart : desc.caretEnd); } catch(_e){}
+ }
+ }
+ function bindNpcPageSize(select){
+ if (!select || select.dataset.bound === '1') return;
+ select.dataset.bound = '1';
+ // Changing how many rows fit invalidates the current offset.
+ select.addEventListener('change', function(){ refreshList(1); });
+ }
  function bindNpcLetterButtons(root){
  const scope = root || document;
  scope.querySelectorAll('.npc-letter-btn[data-letter]').forEach(btn=>{
@@ -4436,9 +4705,7 @@ document.addEventListener('DOMContentLoaded', () => {
  async function refreshList(page){
  const params = new URLSearchParams(window.location.search);
  const si = document.getElementById('npc_search');
- const wasFocused = document.activeElement && document.activeElement.id === 'npc_search';
- const caretStart = wasFocused && si && typeof si.selectionStart === 'number' ? si.selectionStart : null;
- const caretEnd = wasFocused && si && typeof si.selectionEnd === 'number' ? si.selectionEnd : null;
+ const focusDesc = captureNpcListFocus(document.querySelector('.pagination'), document.querySelector('.npc-grid'));
  if (si) params.set('q', si.value || '');
  const lf = document.getElementById('npc_letter_filter');
  params.set('letter', lf ? (lf.value || '') : '');
@@ -4457,8 +4724,12 @@ document.addEventListener('DOMContentLoaded', () => {
  params.set('lock', locked && locked.checked ? '1' : '');
  params.set('sal', sal && sal.checked ? '1' : '');
  } catch(_e){}
- params.set('alpha', 'asc');
+ const currentState = readNpcListState();
+ params.set('alpha', (currentState && currentState.alpha) ? currentState.alpha : 'asc');
+ const pageSizeSel = document.getElementById('npc_page_size');
+ if (pageSizeSel && pageSizeSel.value) params.set('page_size', String(pageSizeSel.value));
  if (page) params.set('page', String(page));
+ params.delete('partial');
  params.set('list','1');
  if (listAbort) { try { listAbort.abort(); } catch(_){} }
  const requestId = ++listRequestId;
@@ -4476,6 +4747,9 @@ document.addEventListener('DOMContentLoaded', () => {
  const oldGrid = document.querySelector('.npc-grid');
  if (oldPag && oldPag.parentElement) oldPag.parentElement.replaceChild(newPag, oldPag);
  if (oldGrid && oldGrid.parentElement) oldGrid.parentElement.replaceChild(newGrid, oldGrid);
+ const confirmedState = readNpcListState(newPag);
+ syncNpcListUrl(confirmedState);
+ renderNpcListStatus(confirmedState);
  // rebind events on new elements
  document.querySelectorAll('.npc-card').forEach(card=>{
  card.addEventListener('click', function(ev){
@@ -4533,21 +4807,18 @@ document.addEventListener('DOMContentLoaded', () => {
  bindNpcPageButtons(newPag);
  const newSearch = document.getElementById('npc_search');
  if (newSearch){
- // Rebind with debounce and restore focus/caret
+ // Rebind with debounce; focus and caret are restored by restoreNpcListFocus below.
  newSearch.addEventListener('input', function(){ refreshListDebounced(1); });
- if (wasFocused){
- try {
- newSearch.focus();
- if (caretStart!=null && caretEnd!=null) newSearch.setSelectionRange(caretStart, caretEnd);
- } catch(_e){}
- }
  }
  const newProfileSel = document.getElementById('npc_profile_filter');
  if (newProfileSel){ newProfileSel.addEventListener('change', function(){ refreshList(1); }); }
  bindAutoLockProfile(document.getElementById('npc_auto_lock_profile'));
+ bindNpcPageSize(document.getElementById('npc_page_size'));
+ restoreNpcListFocus(focusDesc);
  } catch(error) {
  if (error && error.name === 'AbortError') return;
  console.error('NPC profile list refresh failed:', error);
+ announceNpcListError();
  try {
  const toast = document.getElementById('toast');
  if (toast) {
@@ -4569,6 +4840,10 @@ document.addEventListener('DOMContentLoaded', () => {
  if (profileSel){ profileSel.addEventListener('change', function(){ refreshList(1); }); }
  bindNpcLetterButtons(document);
  bindNpcPageButtons(document);
+ bindNpcPageSize(document.getElementById('npc_page_size'));
+ // Normalize the address bar to the state the server actually rendered (for example a
+ // page number that was clamped into range) without adding a history entry.
+ try { syncNpcListUrl(readNpcListState()); } catch(_e){}
  // Removed alpha toggle; default remains ascending (favorites first)
  // Toggle buttons
  // Filter dropdown toggles
