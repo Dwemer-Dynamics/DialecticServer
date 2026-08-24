@@ -91,6 +91,43 @@ function dialecticTtsCacheKeyForLine(string $speaker, string $text): string
     return $text;
 }
 
+// Apply Fallout faction-specific pronunciation without changing subtitles or stored dialogue.
+function dialecticApplyLegionTtsPronunciation(string $text, ?array $npcData = null): string
+{
+    if (stripos($text, 'Caesar') === false) {
+        return $text;
+    }
+
+    $npcData = $npcData ?? ($GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA'] ?? null);
+    $speaker = trim(strval($GLOBALS['DIALECTIC_NAME'] ?? ''));
+    $npcName = is_array($npcData) ? trim(strval($npcData['npc_name'] ?? '')) : '';
+    if (!is_array($npcData) || $speaker === '' || $npcName === '' || strcasecmp($speaker, $npcName) !== 0) {
+        return $text;
+    }
+
+    if (!class_exists('NpcMaster')) {
+        require_once(__DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'npc_master.class.php');
+    }
+
+    $npcMaster = new NpcMaster();
+    $caesarsLegionFaction = '0x000EE68A';
+    $knowledgeTags = preg_split(
+        '/[,|\s]+/u',
+        strtolower(strval($npcData['worldknowledge_tags'] ?? '')),
+        -1,
+        PREG_SPLIT_NO_EMPTY
+    );
+    $isLegionNpc = $npcMaster->isNpcInFaction($npcData, $caesarsLegionFaction)
+        || $npcMaster->isNpcInFaction($npcData, substr($caesarsLegionFaction, 2))
+        || in_array('caesars_legion', is_array($knowledgeTags) ? $knowledgeTags : [], true);
+    if (!$isLegionNpc) {
+        return $text;
+    }
+
+    $pronounced = preg_replace('/\bCaesar\b/iu', 'Kaiser', $text);
+    return is_string($pronounced) ? $pronounced : $text;
+}
+
 function canRetryNpcTtsWithFallback(): bool
 {
     $currentNpcData = $GLOBALS["DIALECTIC_CORE_CURRENT_NPC_DATA"] ?? null;
@@ -1543,6 +1580,7 @@ function returnLines($lines,$writeOutput=true)
         $pendingNpcTtsText = "";
         $pendingNpcTtsMood = "";
         $pendingNpcTtsCacheKey = "";
+        $pendingNpcTtsPronunciationApplied = false;
         $npcTtsGeneratedBeforeEmit = false;
 
         if (isset($GLOBALS["FEATURES"]["MISC"]["TTS_RANDOM_PITCH"])&&($GLOBALS["FEATURES"]["MISC"]["TTS_RANDOM_PITCH"])) {
@@ -1683,9 +1721,11 @@ function returnLines($lines,$writeOutput=true)
             }
 
             if ($shouldEmitNpcLine && trim((string)$responseForTTS) !== "") {
-                $pendingNpcTtsText = $responseForTTS;
+                $pendingNpcTtsText = dialecticApplyLegionTtsPronunciation((string)$responseForTTS);
                 $pendingNpcTtsMood = $mood;
-                $pendingNpcTtsCacheKey = dialecticTtsCacheKeyForLine($GLOBALS["DIALECTIC_NAME"], $responseForSubtitles);
+                $pendingNpcTtsPronunciationApplied = $pendingNpcTtsText !== $responseForTTS;
+                $ttsCacheText = $pendingNpcTtsPronunciationApplied ? $pendingNpcTtsText : $responseForSubtitles;
+                $pendingNpcTtsCacheKey = dialecticTtsCacheKeyForLine($GLOBALS["DIALECTIC_NAME"], $ttsCacheText);
 
                 if (trim($responseText)) {
                     $talkedSoFar[] = $responseText;
@@ -1860,7 +1900,9 @@ function returnLines($lines,$writeOutput=true)
                 $currentUtteranceId = dialecticGenerateUtteranceId();
                 $GLOBALS["SCRIPTLINE_UTTERANCE_ID"] = $currentUtteranceId;
 
-                $responseTextPhonetic = "";
+                $responseTextPhonetic = $pendingNpcTtsPronunciationApplied ? $pendingNpcTtsText : "";
+                $responseTtsText = $pendingNpcTtsPronunciationApplied ? $pendingNpcTtsText : "";
+                $responseTtsCacheKey = $pendingNpcTtsPronunciationApplied ? md5($pendingNpcTtsCacheKey) : "";
                 
                 $volumeBoost = 1.0;
 
@@ -1919,7 +1961,9 @@ function returnLines($lines,$writeOutput=true)
                     $responseTextPhonetic,
                     $volumeBoost,
                     (string)$GLOBALS["SCRIPTLINE_RECHAT_TARGET"],
-                    $currentUtteranceId
+                    $currentUtteranceId,
+                    $responseTtsText,
+                    $responseTtsCacheKey
                 );
 
                 $GLOBALS["DEBUG_DATA"]["OUTPUT_LOG"] = json_encode([

@@ -2,6 +2,7 @@
 
 require_once(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."lib".DIRECTORY_SEPARATOR."emote_moods.php");
 require_once(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."lib".DIRECTORY_SEPARATOR."wav_utils.php");
+require_once(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."lib".DIRECTORY_SEPARATOR."voice_clone_resolver.php");
 
 /**
  * Inworld TTS Implementation
@@ -143,10 +144,7 @@ function clearInworldLastError(): void {
 }
 
 function findInworldVoiceSamplePath(string $voiceName): string {
-    $candidate = __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'data' .
-        DIRECTORY_SEPARATOR . 'voices' . DIRECTORY_SEPARATOR . $voiceName . '.wav';
-    $resolved = realpath($candidate);
-    return ($resolved !== false && is_file($resolved) && filesize($resolved) > 44) ? $resolved : '';
+    return dialectic_resolve_voice_clone_wav($voiceName, ['sync_sample' => false]);
 }
 
 function ensureInworldDb() {
@@ -1240,8 +1238,8 @@ $GLOBALS["TTS_IN_USE"] = function($textString, $mood, $stringforhash) {
             
     // pronunciation: 
     $textString = str_ireplace(
-        ['Dialectic',    'Aeter',      'f-f-f' ], // Change from
-        ['/hËˆÉ›É¹Éª.kÉ™/','/ËˆiËÎ¸É™(r)/', 'f... f'], // to this. Could be International Phonetic Alphabet (IPA) format, wrapped in slashes. 
+        ['Aeter', 'f-f-f'], // Change from
+        ['/ËˆiËÎ¸É™(r)/', 'f... f'], // to this. Could be International Phonetic Alphabet (IPA) format, wrapped in slashes.
         $textString
     );
     

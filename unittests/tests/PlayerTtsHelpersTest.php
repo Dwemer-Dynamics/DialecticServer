@@ -6,6 +6,7 @@ require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . ".." .
 require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "dialectic_runtime.php");
 require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "request.php");
 require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "chat_helper_functions.php");
+require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "dialectic_tts.php");
 require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "response.php");
 
 final class PlayerTtsHelpersTest extends TestCase
@@ -181,5 +182,39 @@ final class PlayerTtsHelpersTest extends TestCase
         $this->assertSame('__player_text_only', $line['listener']);
         $this->assertArrayNotHasKey('tts_cache_key', $line);
         $this->assertArrayNotHasKey('tts_text', $line);
+    }
+
+    public function testInworldDialecticLinesUseRevisedCacheVersion(): void
+    {
+        $oldTtsFunction = $GLOBALS['TTSFUNCTION'] ?? null;
+        $hadTtsFunction = array_key_exists('TTSFUNCTION', $GLOBALS);
+        $oldDialecticName = $GLOBALS['DIALECTIC_NAME'] ?? null;
+        $hadDialecticName = array_key_exists('DIALECTIC_NAME', $GLOBALS);
+
+        try {
+            $GLOBALS['DIALECTIC_NAME'] = 'Player';
+            $GLOBALS['TTSFUNCTION'] = 'inworld';
+
+            $affectedSeed = dialectic_tts_cache_seed(dirname(__DIR__, 2), 'Player', 'What is Dialectic anyway?');
+            $unaffectedSeed = dialectic_tts_cache_seed(dirname(__DIR__, 2), 'Player', 'What is synthesis anyway?');
+
+            $GLOBALS['TTSFUNCTION'] = 'pockettts';
+            $otherConnectorSeed = dialectic_tts_cache_seed(dirname(__DIR__, 2), 'Player', 'What is Dialectic anyway?');
+
+            $this->assertStringStartsWith("dialectic.tts.v4.inworld-dialectic-v2\n", $affectedSeed);
+            $this->assertStringStartsWith("dialectic.tts.v4\ninworld\n", $unaffectedSeed);
+            $this->assertStringStartsWith("dialectic.tts.v4\npockettts\n", $otherConnectorSeed);
+        } finally {
+            if ($hadTtsFunction) {
+                $GLOBALS['TTSFUNCTION'] = $oldTtsFunction;
+            } else {
+                unset($GLOBALS['TTSFUNCTION']);
+            }
+            if ($hadDialecticName) {
+                $GLOBALS['DIALECTIC_NAME'] = $oldDialecticName;
+            } else {
+                unset($GLOBALS['DIALECTIC_NAME']);
+            }
+        }
     }
 }

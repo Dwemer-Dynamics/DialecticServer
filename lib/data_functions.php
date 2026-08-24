@@ -4702,31 +4702,25 @@ function FindClosestActorName($actorName)
 
 function FindClosestNPCName($actorName)
 {
+    $actorName = trim((string)$actorName);
+    if ($actorName === "") {
+        return "";
+    }
+
     $beingsArrayCleaned = dialecticNearbyActorNamesFromPayload(true, false);
 
     if (empty($beingsArrayCleaned)) {
         return $actorName;
     }
 
-    // Find the closest match using Levenshtein distance
-    $closest = null;
-    $shortest = -1;
-
     foreach ($beingsArrayCleaned as $name) {
-        $lev = levenshtein($actorName, $name);
-        error_log("Comparing: $actorName, $name");
-
-        if ($lev == 0) {
-            return $name; // Exact match
-        }
-
-        if ($lev < $shortest || $shortest < 0) {
-            $closest = $name;
-            $shortest = $lev;
+        $name = trim((string)$name);
+        if ($name !== "" && strcasecmp($actorName, $name) === 0) {
+            return $name;
         }
     }
 
-    return (!empty(trim($closest)))?$closest:$actorName;
+    return $actorName;
 }
 
 function DirectConversationsWith($actor, $speaker="")
