@@ -77,4 +77,34 @@ final class NearbyActorContextOptionsTest extends TestCase
             $withDescriptions[0]
         );
     }
+
+    public function testAttackTargetResolutionDoesNotGuessAnotherNearbyActor(): void
+    {
+        $previousDb = $GLOBALS['db'] ?? null;
+        $GLOBALS['db'] = new class {
+            public function fetchAll(string $query): array
+            {
+                return [[
+                    'party' => json_encode([
+                        'player' => 'Courier',
+                        'actors' => [
+                            ['name' => 'Swank', 'scene_eligible' => true],
+                            ['name' => 'Chairman', 'scene_eligible' => true],
+                        ],
+                    ]),
+                ]];
+            }
+        };
+
+        try {
+            $this->assertSame('Swank', FindClosestNPCName('swank'));
+            $this->assertSame('Benny', FindClosestNPCName('Benny'));
+        } finally {
+            if ($previousDb === null) {
+                unset($GLOBALS['db']);
+            } else {
+                $GLOBALS['db'] = $previousDb;
+            }
+        }
+    }
 }
