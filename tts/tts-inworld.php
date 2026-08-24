@@ -1238,8 +1238,8 @@ $GLOBALS["TTS_IN_USE"] = function($textString, $mood, $stringforhash) {
             
     // pronunciation: 
     $textString = str_ireplace(
-        ['Dialectic',    'Aeter',      'f-f-f' ], // Change from
-        ['/hËˆÉ›É¹Éª.kÉ™/','/ËˆiËÎ¸É™(r)/', 'f... f'], // to this. Could be International Phonetic Alphabet (IPA) format, wrapped in slashes. 
+        ['Aeter', 'f-f-f'], // Change from
+        ['/ËˆiËÎ¸É™(r)/', 'f... f'], // to this. Could be International Phonetic Alphabet (IPA) format, wrapped in slashes.
         $textString
     );
     
