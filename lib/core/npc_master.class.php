@@ -1563,20 +1563,41 @@ FROM restore
      */
     public function isNpcInFaction($npcData, $factionFormId)
     {
-        if (!isset($npcData['extended_data']) || empty($npcData['extended_data'])) {
-            return false;
+        $decodeArray = static function ($value): array {
+            if (is_array($value)) {
+                return $value;
+            }
+            if (!is_string($value) || trim($value) === '') {
+                return [];
+            }
+            $decoded = json_decode($value, true);
+            return is_array($decoded) ? $decoded : [];
+        };
+
+        $factions = [];
+        $extendedData = $decodeArray($npcData['extended_data'] ?? null);
+        if (isset($extendedData['factions']) && is_array($extendedData['factions'])) {
+            $factions = array_merge($factions, $extendedData['factions']);
         }
 
-        $extendedData = json_decode($npcData['extended_data'], true);
-        
-        if (!is_array($extendedData) || !isset($extendedData['factions']) || !is_array($extendedData['factions'])) {
+        $metadata = $decodeArray($npcData['metadata'] ?? null);
+        if (isset($metadata['factions']) && is_array($metadata['factions'])) {
+            $factions = array_merge($factions, $metadata['factions']);
+        }
+        $actorProfile = $decodeArray($metadata['actor_profile'] ?? null);
+        if (isset($actorProfile['factions']) && is_array($actorProfile['factions'])) {
+            $factions = array_merge($factions, $actorProfile['factions']);
+        }
+
+        if (empty($factions)) {
             return false;
         }
 
         $stableReference = dialecticParseStableFormReference($factionFormId);
         if ($stableReference) {
-            foreach ($extendedData['factions'] as $faction) {
+            foreach ($factions as $faction) {
                 if (
+                    is_array($faction) &&
                     isset($faction['rank']) && $faction['rank'] > -1 &&
                     dialecticFactionEntryMatchesStableFormReference($faction, $stableReference['stable_key'])
                 ) {
@@ -1594,9 +1615,9 @@ FROM restore
         $normalizedSearchFormId = strtoupper($factionFormId);
 
         // Check if any faction in the array matches the formid
-        foreach ($extendedData['factions'] as $faction) {
-            if (isset($faction['formid']) && strtoupper($faction['formid']) === $normalizedSearchFormId) {
-                if ($faction['rank'] > -1) { // Optional: check if rank is greater than 0 to confirm active membership
+        foreach ($factions as $faction) {
+            if (is_array($faction) && isset($faction['formid']) && strtoupper($faction['formid']) === $normalizedSearchFormId) {
+                if (isset($faction['rank']) && $faction['rank'] > -1) { // Optional: check if rank is greater than 0 to confirm active membership
                     return true;
                 }
             }

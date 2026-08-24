@@ -90,9 +90,13 @@ function dialectic_buffer_response_line(string $speaker, string $action, string 
         $line["text"] = $text;
         $line["subtitle"] = $text;
         if (!$textOnly) {
-            $line["tts_text"] = $text;
+            $ttsText = trim(strval($metadata["tts_text"] ?? ""));
+            if ($ttsText === "") {
+                $ttsText = $text;
+            }
+            $line["tts_text"] = $ttsText;
             if (function_exists("dialectic_tts_cache_key")) {
-                $line["tts_cache_key"] = dialectic_tts_cache_key(dirname(__DIR__), $speaker, $text);
+                $line["tts_cache_key"] = dialectic_tts_cache_key(dirname(__DIR__), $speaker, $ttsText);
             }
             $explicitTtsCacheKey = trim(strval($metadata["tts_cache_key"] ?? ""));
             if ($explicitTtsCacheKey !== "") {
@@ -191,7 +195,9 @@ function dialectic_buffer_speech_response_line(
     string $phonetic = "",
     $volume = null,
     string $rechatTarget = "",
-    string $utteranceId = ""
+    string $utteranceId = "",
+    string $ttsText = "",
+    string $ttsCacheKey = ""
 ): void {
     $metadata = [
         "expression" => trim($expression),
@@ -201,6 +207,8 @@ function dialectic_buffer_speech_response_line(
         "volume" => $volume,
         "rechat_target" => trim($rechatTarget),
         "utterance_id" => trim($utteranceId),
+        "tts_text" => trim($ttsText),
+        "tts_cache_key" => trim($ttsCacheKey),
     ];
     if (($GLOBALS["gameRequest"][0] ?? "") === "rechat") {
         $previousSpeakerFormId = trim((string)($GLOBALS["RECHAT_REQUEST_PAYLOAD"]["speaker_formid"] ?? ""));

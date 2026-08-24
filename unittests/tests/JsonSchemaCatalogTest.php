@@ -118,6 +118,34 @@ final class JsonSchemaCatalogTest extends TestCase
         $this->assertSame('0x000E32A9', $line['rechat_target_formid']);
     }
 
+    public function testSpeechResponseKeepsSubtitleSeparateFromHiddenTtsText(): void
+    {
+        $GLOBALS['DIALECTIC_RESPONSE_FORMAT'] = 'json';
+        $GLOBALS['DIALECTIC_RESPONSE_STREAMING'] = false;
+        $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'] = [];
+
+        dialectic_buffer_speech_response_line(
+            'Vulpes Inculta',
+            'Caesar commands it.',
+            '',
+            'Courier',
+            '',
+            'Kaiser commands it.',
+            1.0,
+            'Courier',
+            'utt_legion_pronunciation',
+            'Kaiser commands it.',
+            'legion_tts_cache_key'
+        );
+
+        $this->assertCount(1, $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES']);
+        $line = $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'][0];
+        $this->assertSame('Caesar commands it.', $line['text']);
+        $this->assertSame('Caesar commands it.', $line['subtitle']);
+        $this->assertSame('Kaiser commands it.', $line['tts_text']);
+        $this->assertSame('legion_tts_cache_key', $line['tts_cache_key']);
+    }
+
     public function testStreamRequestedIsIndependentFromJsonEnvelopeMode(): void
     {
         $GLOBALS['DIALECTIC_RESPONSE_FORMAT'] = 'legacy';
