@@ -3582,6 +3582,106 @@ if ($checkVersion("core_action") < 20260719001) {
     }
 }
 
+if ($checkVersion("core_action") < 20260823001) {
+    Logger::debug("Applying core_action 20260823001 - distinguish temporary follow from party recruitment");
+
+    $followPlayerDescription = '#DIALECTIC_NAME# temporarily follows #PLAYER_NAME# without joining the party or follower roster. Do not use for requests to join the party or become a companion; use Join_#PLAYER_NAME#_Party.';
+    $makeFollowerDescription = '#DIALECTIC_NAME# joins #PLAYER_NAME# as a recruited follower and party member, and begins following. Use for requests to join the party, become a follower or companion, join the squad, or travel as an ally.';
+    $followPlayerDescriptionLiteral = $db->escapeLiteral($followPlayerDescription);
+    $makeFollowerDescriptionLiteral = $db->escapeLiteral($makeFollowerDescription);
+
+    $db->execQuery("UPDATE public.core_action SET description = {$followPlayerDescriptionLiteral}, updated_at = NOW() WHERE code_name = 'FollowPlayer'");
+    $db->execQuery("UPDATE public.core_action SET description = {$makeFollowerDescriptionLiteral}, updated_at = NOW() WHERE code_name = 'MakeFollower'");
+
+    $db->execQuery("
+        UPDATE public.core_action_custom
+           SET description = {$followPlayerDescriptionLiteral}, updated_at = NOW()
+         WHERE code_name = 'FollowPlayer'
+           AND description = '#DIALECTIC_NAME# follows #PLAYER_NAME#.'
+    ");
+    $db->execQuery("
+        UPDATE public.core_action_custom
+           SET description = {$makeFollowerDescriptionLiteral}, updated_at = NOW()
+         WHERE code_name = 'MakeFollower'
+           AND description IN (
+               '#DIALECTIC_NAME# joins #PLAYER_NAME#, forming a squad or adventuring party.',
+               '#DIALECTIC_NAME# joins #PLAYER_NAME# as a follower.'
+           )
+    ");
+
+    $updateVersion("core_action", 20260823001);
+    Logger::info("Applied patch core_action 20260823001");
+}
+
+if ($checkVersion("core_action") < 20260823002) {
+    Logger::debug("Applying core_action 20260823002 - keep generic follow separate from party recruitment");
+
+    $followDescription = 'Temporarily move to and follow the specified target actor without joining the party or follower roster. Do not use for requests to join the party or become a companion; use Join_#PLAYER_NAME#_Party.';
+    $followDescriptionLiteral = $db->escapeLiteral($followDescription);
+
+    $db->execQuery("UPDATE public.core_action SET description = {$followDescriptionLiteral}, updated_at = NOW() WHERE code_name = 'Follow'");
+    $db->execQuery("
+        UPDATE public.core_action_custom
+           SET description = {$followDescriptionLiteral}, updated_at = NOW()
+         WHERE code_name = 'Follow'
+           AND description IN (
+               'Move to and follow the specified target actor',
+               'Move to and follow the specified target actor.'
+           )
+    ");
+
+    $updateVersion("core_action", 20260823002);
+    Logger::info("Applied patch core_action 20260823002");
+}
+
+if ($checkVersion("core_action") < 20260823003) {
+    Logger::debug("Applying core_action 20260823003 - simplify follower controls");
+
+    $followDescription = '#DIALECTIC_NAME# joins #PLAYER_NAME#\'s party and follows #PLAYER_NAME# permanently.';
+    $followReturnMessage = '#DIALECTIC_NAME# joins #PLAYER_NAME#\'s party and follows #PLAYER_NAME#.';
+    $stopDescription = '#DIALECTIC_NAME# leaves #PLAYER_NAME#\'s party and stops following #PLAYER_NAME#.';
+    $followDescriptionLiteral = $db->escapeLiteral($followDescription);
+    $followReturnMessageLiteral = $db->escapeLiteral($followReturnMessage);
+    $stopDescriptionLiteral = $db->escapeLiteral($stopDescription);
+    $emptyParameters = '{"type":"object","required":[],"properties":{}}';
+
+    foreach (['public.core_action', 'public.core_action_custom'] as $tableName) {
+        $db->execQuery("
+            UPDATE {$tableName}
+               SET action_name = 'Follow',
+                   description = {$followDescriptionLiteral},
+                   return_message = {$followReturnMessageLiteral},
+                   parameters_json = '{$emptyParameters}'::jsonb,
+                   game_function = TRUE,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"status\":\"active\",\"dispatch\":\"plugin_command\",\"followup\":{\"enabled\":false}}'::jsonb,
+                   updated_at = NOW()
+             WHERE code_name = 'Follow'
+        ");
+        $db->execQuery("
+            UPDATE {$tableName}
+               SET action_name = 'Stop_Following',
+                   description = {$stopDescriptionLiteral},
+                   return_message = {$stopDescriptionLiteral},
+                   parameters_json = '{$emptyParameters}'::jsonb,
+                   game_function = TRUE,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"status\":\"active\",\"dispatch\":\"plugin_command\",\"followup\":{\"enabled\":false}}'::jsonb,
+                   updated_at = NOW()
+             WHERE code_name = 'StopFollowing'
+        ");
+        $db->execQuery("
+            UPDATE {$tableName}
+               SET is_activated = FALSE,
+                   game_function = FALSE,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"status\":\"legacy_alias\"}'::jsonb,
+                   updated_at = NOW()
+             WHERE code_name IN ('FollowPlayer', 'MakeFollower')
+        ");
+    }
+
+    $updateVersion("core_action", 20260823003);
+    Logger::info("Applied patch core_action 20260823003");
+}
+
 if ($checkVersion("core_tts_connector_metadata") < 20260626001) {
     Logger::debug("Applying core_tts_connector_metadata 20260626001 - remove copied connector metadata references");
 

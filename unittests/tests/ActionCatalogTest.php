@@ -149,9 +149,15 @@ final class ActionCatalogTest extends TestCase
 
         $this->assertSame($expectedCodes, $actualCodes);
         $disabledNarratorActions = ['DirectorCommand', 'SpawnCaps', 'SpawnItem', 'TeleportActor', 'KillTarget'];
+        $legacyFollowerActions = ['FollowPlayer', 'MakeFollower'];
         foreach ($expectedCodes as $codeName) {
-            $this->assertSame(!in_array($codeName, $disabledNarratorActions, true), $rows[$codeName]['is_activated']);
+            $this->assertSame(
+                !in_array($codeName, array_merge($disabledNarratorActions, $legacyFollowerActions), true),
+                $rows[$codeName]['is_activated']
+            );
         }
+
+        $this->assertSame('Stop_Following', $rows['StopFollowing']['action_name']);
 
         $this->assertTrue($rows['Inspect']['available_to_npc']);
         $this->assertTrue($rows['Inspect']['available_to_followers']);
@@ -388,7 +394,7 @@ final class ActionCatalogTest extends TestCase
         $rows = dialecticBuildActionCatalogSeedRows(
             [
                 'ComeCloser' => 'ComeCloser',
-                'FollowPlayer' => 'FollowPlayer',
+                'Follow' => 'Follow',
                 'WaitHere' => 'WaitHere',
                 'SheatheWeapon' => 'SheatheWeapon',
                 'TakeASeat' => 'TakeASeat',
@@ -399,7 +405,7 @@ final class ActionCatalogTest extends TestCase
             [],
             [
                 'ComeCloser' => ['parameters' => ['type' => 'object', 'properties' => [], 'required' => []]],
-                'FollowPlayer' => ['parameters' => ['type' => 'object', 'properties' => [], 'required' => []]],
+                'Follow' => ['parameters' => ['type' => 'object', 'properties' => [], 'required' => []]],
                 'WaitHere' => ['parameters' => ['type' => 'object', 'properties' => [], 'required' => []]],
                 'SheatheWeapon' => ['parameters' => ['type' => 'object', 'properties' => [], 'required' => []]],
                 'TakeASeat' => ['parameters' => ['type' => 'object', 'properties' => [], 'required' => []]],
@@ -407,7 +413,9 @@ final class ActionCatalogTest extends TestCase
         );
 
         $this->assertSame(30, $rows['ComeCloser']['metadata']['cooldown_seconds']);
-        $this->assertSame(60, $rows['FollowPlayer']['metadata']['cooldown_seconds']);
+        $this->assertSame(60, $rows['Follow']['metadata']['cooldown_seconds']);
+        $this->assertSame([], $rows['Follow']['parameters_json']['properties']);
+        $this->assertSame([], $rows['Follow']['parameters_json']['required']);
         $this->assertSame(30, $rows['WaitHere']['metadata']['cooldown_seconds']);
         $this->assertTrue($rows['SheatheWeapon']['metadata']['requirements']['activity']['is_weapon_drawn']);
         $this->assertContains('sitting', $rows['TakeASeat']['metadata']['requirements']['activity']['current_action_not_in']);
@@ -427,15 +435,15 @@ final class ActionCatalogTest extends TestCase
             $rows = dialecticBuildActionCatalogSeedRows(
                 [
                     'TakeCapsFromPlayer' => 'TakeCapsFromRANGROO',
-                    'MakeFollower' => 'JoinRANGROOParty',
+                    'Follow' => 'Follow',
                 ],
                 [
                     'TakeCapsFromPlayer' => 'The Narrator takes amount (property target) of caps from RANGROO, once RANGROO is agree. infer amount from context.',
-                    'MakeFollower' => 'The Narrator joins RANGROO party and travels with RANGROO as an ally.',
+                    'Follow' => 'The Narrator joins RANGROO party and travels with RANGROO as an ally.',
                 ],
                 [
                     'TakeCapsFromPlayer' => 'RANGROO gave #TARGET# caps to The Narrator. If this a transaction, maybe GiveItemTo is needed.',
-                    'MakeFollower' => 'The Narrator is now part of RANGROO party.',
+                    'Follow' => 'The Narrator is now part of RANGROO party.',
                 ]
             );
 
@@ -448,14 +456,14 @@ final class ActionCatalogTest extends TestCase
                 'PLAYER gave #TARGET# caps to NPC. If this a transaction, maybe GiveItemTo is needed.',
                 $rows['TakeCapsFromPlayer']['return_message']
             );
-            $this->assertSame('Join_Player_Party', $rows['MakeFollower']['action_name']);
+            $this->assertSame('Follow', $rows['Follow']['action_name']);
             $this->assertSame(
                 'NPC joins PLAYER party and travels with PLAYER as an ally.',
-                $rows['MakeFollower']['description']
+                $rows['Follow']['description']
             );
             $this->assertSame(
                 'NPC is now part of PLAYER party.',
-                $rows['MakeFollower']['return_message']
+                $rows['Follow']['return_message']
             );
         } finally {
             if ($hadDialecticName) {
