@@ -85,24 +85,36 @@ final class ResponseRuntimeRegressionTest extends TestCase
         $GLOBALS['DIALECTIC_NAME'] = 'Vulpes Inculta';
         $legionNpc = [
             'npc_name' => 'Vulpes Inculta',
-            'extended_data' => json_encode([
-                'factions' => [
-                    ['formid' => '0x000ee68a', 'rank' => 0],
+            'metadata' => json_encode([
+                'actor_profile' => [
+                    'factions' => [
+                        ['formid' => '0x000ee68a', 'rank' => 0],
+                    ],
                 ],
             ]),
         ];
+        $oghmaLegionNpc = [
+            'npc_name' => 'Vulpes Inculta',
+            'worldknowledge_tags' => 'human,caesars_legion,mojave',
+            'metadata' => json_encode(['actor_profile' => ['factions' => []]]),
+        ];
         $nonLegionNpc = [
             'npc_name' => 'Vulpes Inculta',
-            'extended_data' => json_encode([
+            'metadata' => json_encode([
                 'factions' => [
                     ['formid' => '000A46E7', 'rank' => 0],
                 ],
             ]),
+            'worldknowledge_tags' => 'human,anti_caesars_legion,mojave',
         ];
 
         $this->assertSame(
             "Kaiser's Legion obeys Kaiser.",
             dialecticApplyLegionTtsPronunciation("Caesar's Legion obeys Caesar.", $legionNpc)
+        );
+        $this->assertSame(
+            'Kaiser commands it.',
+            dialecticApplyLegionTtsPronunciation('Caesar commands it.', $oghmaLegionNpc)
         );
         $this->assertSame(
             "Caesar's Legion obeys Caesar.",

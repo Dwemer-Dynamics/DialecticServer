@@ -111,8 +111,15 @@ function dialecticApplyLegionTtsPronunciation(string $text, ?array $npcData = nu
 
     $npcMaster = new NpcMaster();
     $caesarsLegionFaction = '0x000EE68A';
+    $knowledgeTags = preg_split(
+        '/[,|\s]+/u',
+        strtolower(strval($npcData['worldknowledge_tags'] ?? '')),
+        -1,
+        PREG_SPLIT_NO_EMPTY
+    );
     $isLegionNpc = $npcMaster->isNpcInFaction($npcData, $caesarsLegionFaction)
-        || $npcMaster->isNpcInFaction($npcData, substr($caesarsLegionFaction, 2));
+        || $npcMaster->isNpcInFaction($npcData, substr($caesarsLegionFaction, 2))
+        || in_array('caesars_legion', is_array($knowledgeTags) ? $knowledgeTags : [], true);
     if (!$isLegionNpc) {
         return $text;
     }
