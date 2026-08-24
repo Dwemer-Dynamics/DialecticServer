@@ -178,11 +178,32 @@ final class RelationshipRuntimeTest extends TestCase
         $this->assertGreaterThan($llmCall, $postHook);
     }
 
-    public function testDedicatedRelationshipWorkerWasRestored(): void
+    public function testDedicatedRelationshipWorkerStartsOnlyAfterQueuedWork(): void
     {
         $root = dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'ext'.DIRECTORY_SEPARATOR.'relationship_system';
-        $this->assertFileExists($root.DIRECTORY_SEPARATOR.'async_queue.php');
-        $this->assertFileExists($root.DIRECTORY_SEPARATOR.'relationship_llm.php');
-        $this->assertFileExists($root.DIRECTORY_SEPARATOR.'worker.php');
+        $contextSource = file_get_contents($root.DIRECTORY_SEPARATOR.'context_pre.php');
+        $queueSource = file_get_contents($root.DIRECTORY_SEPARATOR.'async_queue.php');
+        $workerSource = file_get_contents($root.DIRECTORY_SEPARATOR.'worker.php');
+
+        $this->assertStringNotContainsString('_relEnsureWorkerRunning()', $contextSource);
+        $this->assertStringContainsString('function _relEnsureWorkerRunning()', $queueSource);
+        $this->assertSame(2, substr_count($queueSource, '_relEnsureWorkerRunning();'));
+        $this->assertStringContainsString('_relProcessInitQueue(5)', $workerSource);
+        $this->assertStringNotContainsString('DAEMON: Iteration', $workerSource);
+    }
+
+    public function testAutomaticEvaluationGatePrecedesConversationLookup(): void
+    {
+        $root = dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'ext'.DIRECTORY_SEPARATOR.'relationship_system';
+        $postRequestSource = file_get_contents($root.DIRECTORY_SEPARATOR.'postrequest.php');
+        $contextSource = file_get_contents($root.DIRECTORY_SEPARATOR.'context_pre.php');
+
+        $chanceGate = strpos($postRequestSource, 'RelationshipManager::shouldRunAutomaticEvaluation()');
+        $listenerLookup = strpos($postRequestSource, '// Determine who the NPC was talking to');
+        $this->assertIsInt($chanceGate);
+        $this->assertIsInt($listenerLookup);
+        $this->assertLessThan($listenerLookup, $chanceGate);
+        $this->assertSame(1, substr_count($contextSource, 'RelationshipManager::getRelationships($npcName)'));
+        $this->assertStringContainsString('RelationshipManager::buildContextFromRelationships(', $contextSource);
     }
 }
