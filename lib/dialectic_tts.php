@@ -54,7 +54,13 @@ function dialectic_tts_cache_seed(string $root, string $speaker, string $text): 
         error_log("[Dialectic TTS] Could not resolve cache voice for {$speaker}: " . $e->getMessage());
     }
 
-    return "dialectic.tts.v4\n" . $ttsFunction . "\n" . $speaker . "\n" . $voice . "\n" . $text;
+    $cacheVersion = "dialectic.tts.v4";
+    if (strcasecmp($ttsFunction, 'inworld') === 0 && stripos($text, 'Dialectic') !== false) {
+        // Invalidate only audio produced by the removed Inworld Dialectic pronunciation rewrite.
+        $cacheVersion .= ".inworld-dialectic-v2";
+    }
+
+    return $cacheVersion . "\n" . $ttsFunction . "\n" . $speaker . "\n" . $voice . "\n" . $text;
 }
 
 function dialectic_tts_cache_key(string $root, string $speaker, string $text): string
