@@ -17,6 +17,7 @@ final class ResponseRuntimeRegressionTest extends TestCase
         unset(
             $GLOBALS['db'],
             $GLOBALS['DIALECTIC_NAME'],
+            $GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA'],
             $GLOBALS['DIALECTIC_CORE_CURRENT_TTS_CONNECTOR_ID'],
             $GLOBALS['PATCH_OVERRIDE_VOICE'],
             $GLOBALS['PATCH_OVERRIDE_VOICE_ID'],
@@ -76,5 +77,40 @@ final class ResponseRuntimeRegressionTest extends TestCase
 
         $this->assertSame(18, getNpcLevel('Ranger Ghost'));
         $this->assertStringContainsString('FROM core_npc_master', $GLOBALS['db']->lastQuery);
+    }
+
+    public function testOnlyLegionNpcSpeechUsesKaiserPronunciation(): void
+    {
+        $GLOBALS['db'] = new class {};
+        $GLOBALS['DIALECTIC_NAME'] = 'Vulpes Inculta';
+        $legionNpc = [
+            'npc_name' => 'Vulpes Inculta',
+            'extended_data' => json_encode([
+                'factions' => [
+                    ['formid' => '0x000ee68a', 'rank' => 0],
+                ],
+            ]),
+        ];
+        $nonLegionNpc = [
+            'npc_name' => 'Vulpes Inculta',
+            'extended_data' => json_encode([
+                'factions' => [
+                    ['formid' => '000A46E7', 'rank' => 0],
+                ],
+            ]),
+        ];
+
+        $this->assertSame(
+            "Kaiser's Legion obeys Kaiser.",
+            dialecticApplyLegionTtsPronunciation("Caesar's Legion obeys Caesar.", $legionNpc)
+        );
+        $this->assertSame(
+            "Caesar's Legion obeys Caesar.",
+            dialecticApplyLegionTtsPronunciation("Caesar's Legion obeys Caesar.", $nonLegionNpc)
+        );
+        $this->assertSame(
+            'The Courier opposes Caesar.',
+            dialecticApplyLegionTtsPronunciation('The Courier opposes Caesar.', [])
+        );
     }
 }
