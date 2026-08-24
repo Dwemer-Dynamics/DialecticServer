@@ -63,14 +63,14 @@ final class JsonSchemaCatalogTest extends TestCase
         $GLOBALS['DIALECTIC_RESPONSE_STREAMING'] = false;
         $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'] = [];
 
-        dialectic_buffer_command_response_line('Veronica', dialecticEncodeCommandAction('Follow', ['Graussy']));
+        dialectic_buffer_command_response_line('Veronica', dialecticEncodeCommandAction('Follow', []));
 
         $this->assertCount(1, $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES']);
         $line = $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'][0];
         $this->assertSame('dialectic.response.line.v1', $line['schema']);
         $this->assertSame('rolecommand', $line['action']);
         $this->assertSame('Follow', $line['command_name']);
-        $this->assertSame(['Graussy'], $line['command_args']);
+        $this->assertArrayNotHasKey('command_args', $line);
     }
 
     public function testNarratorResponseKeepsCanonicalSpeakerAndAddsDisplayName(): void

@@ -3634,6 +3634,54 @@ if ($checkVersion("core_action") < 20260823002) {
     Logger::info("Applied patch core_action 20260823002");
 }
 
+if ($checkVersion("core_action") < 20260823003) {
+    Logger::debug("Applying core_action 20260823003 - simplify follower controls");
+
+    $followDescription = '#DIALECTIC_NAME# joins #PLAYER_NAME#\'s party and follows #PLAYER_NAME# permanently.';
+    $followReturnMessage = '#DIALECTIC_NAME# joins #PLAYER_NAME#\'s party and follows #PLAYER_NAME#.';
+    $stopDescription = '#DIALECTIC_NAME# leaves #PLAYER_NAME#\'s party and stops following #PLAYER_NAME#.';
+    $followDescriptionLiteral = $db->escapeLiteral($followDescription);
+    $followReturnMessageLiteral = $db->escapeLiteral($followReturnMessage);
+    $stopDescriptionLiteral = $db->escapeLiteral($stopDescription);
+    $emptyParameters = '{"type":"object","required":[],"properties":{}}';
+
+    foreach (['public.core_action', 'public.core_action_custom'] as $tableName) {
+        $db->execQuery("
+            UPDATE {$tableName}
+               SET action_name = 'Follow',
+                   description = {$followDescriptionLiteral},
+                   return_message = {$followReturnMessageLiteral},
+                   parameters_json = '{$emptyParameters}'::jsonb,
+                   game_function = TRUE,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"status\":\"active\",\"dispatch\":\"plugin_command\",\"followup\":{\"enabled\":false}}'::jsonb,
+                   updated_at = NOW()
+             WHERE code_name = 'Follow'
+        ");
+        $db->execQuery("
+            UPDATE {$tableName}
+               SET action_name = 'Stop_Following',
+                   description = {$stopDescriptionLiteral},
+                   return_message = {$stopDescriptionLiteral},
+                   parameters_json = '{$emptyParameters}'::jsonb,
+                   game_function = TRUE,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"status\":\"active\",\"dispatch\":\"plugin_command\",\"followup\":{\"enabled\":false}}'::jsonb,
+                   updated_at = NOW()
+             WHERE code_name = 'StopFollowing'
+        ");
+        $db->execQuery("
+            UPDATE {$tableName}
+               SET is_activated = FALSE,
+                   game_function = FALSE,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"status\":\"legacy_alias\"}'::jsonb,
+                   updated_at = NOW()
+             WHERE code_name IN ('FollowPlayer', 'MakeFollower')
+        ");
+    }
+
+    $updateVersion("core_action", 20260823003);
+    Logger::info("Applied patch core_action 20260823003");
+}
+
 if ($checkVersion("core_tts_connector_metadata") < 20260626001) {
     Logger::debug("Applying core_tts_connector_metadata 20260626001 - remove copied connector metadata references");
 
