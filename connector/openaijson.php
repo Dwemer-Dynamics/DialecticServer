@@ -606,14 +606,6 @@ class openaijson
                         
                         unset($contextData[$n]);
                     } else {
-                        if (!empty($element["_dialectic_compact_history"])) {
-                            $content = trim((string)$element["content"]);
-                            $contextDataCopy[] = ["role" => "assistant", "content" => $content];
-                            $pb["system"] .= $content . "\n";
-                            $lastrole = "assistant";
-                            continue;
-                        }
-
                         $alreadyJs=json_decode($element["content"],true);
                         if (is_array($alreadyJs)) {
                             $contextDataCopy[]=[

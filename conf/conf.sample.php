@@ -41,7 +41,7 @@ $WORLDKNOWLEDGE_RESULT_LIMIT=3; //Maximum World Knowledge articles included in o
 $PLAYER_RESPEECH=true; //Use default diary connector AI to rewrite player speech. Currently only triggers when starting speech with **.
 $PLAYER_SPEECH_STYLE=""; //Instructions for how the player character speaks and communicates. Used as context when rewriting player dialogue.
 $PROMPT_TIMESTAMP=false; //Add rough timestamp subdividers to event context (e.g., 'Moments Ago', 'A while ago') to help the LLM understand temporal relationships.
-$COMPACT_NPC_CONTEXT_HISTORY=false; //Use compact plaintext for prior NPC conversation history while preserving live JSON responses.
+$COMPACT_NPC_CONTEXT_HISTORY=true; //Use compact plaintext for prior NPC conversation history while preserving live JSON responses.
 $use_emotions_expression = false; //Add emotions support. Changes the affect context/json object offered to LLM must be false by default.
 
 //[Advanced Configuration]

@@ -4244,6 +4244,28 @@ if ($checkVersion("general_settings_seed_repair") < 20260713004 || !$managedGene
     }
 }
 
+if ($checkVersion("compact_npc_context_history_default") < 20260825001) {
+    Logger::debug("Applying compact_npc_context_history_default 20260825001 - enable compact NPC history by default");
+
+    $b_ok = true;
+    try {
+        $settingId = 'COMPACT_NPC_CONTEXT_HISTORY';
+        $description = dialecticGetManagedGeneralSettingDescriptions()[$settingId]
+            ?? dialecticGetSchemaDescription($settingId);
+        if (!dialecticSetGeneralSetting($settingId, true, $description)) {
+            throw new RuntimeException('Failed enabling compact NPC context history.');
+        }
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error enabling compact NPC context history by default: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("compact_npc_context_history_default", 20260825001);
+        Logger::info("Applied patch compact_npc_context_history_default 20260825001");
+    }
+}
+
 if ($checkVersion("tts_gender_fallback_defaults") < 20260715001) {
     Logger::debug("Applying tts_gender_fallback_defaults 20260715001 - use Fallout adult voice defaults");
 
