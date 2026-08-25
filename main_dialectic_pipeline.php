@@ -2447,10 +2447,10 @@ if ($GLOBALS["DIALECTIC_NAME"] !== "The Narrator" && ($activeProfile = dialectic
     }
 }
 
-// Narration-like requests should stay descriptive instead of drifting into
-// ordinary conversation turns.
+// Vision requests stay grounded in the current scene while producing a brief
+// in-character reaction instead of drifting into ordinary conversation.
 if ($gameRequest[0] === "vision") {
-    $GLOBALS["COMMAND_PROMPT"] = "Respond with a current-scene explanation only. Focus on what is visibly present in the provided scene context. Use the Talk action.";
+    $GLOBALS["COMMAND_PROMPT"] = "Respond with one brief, in-character thought or reaction to the current scene. Focus on what stands out instead of describing the whole scene. Use the Talk action.";
 } else if ($gameRequest[0] === "narration" || $gameRequest[0] === "narrator_welcome") {
     $GLOBALS["COMMAND_PROMPT"] = "Respond with atmospheric narration only. Use the Talk action.";
 }

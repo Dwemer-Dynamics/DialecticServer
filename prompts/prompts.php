@@ -34,7 +34,7 @@ function shouldTriggerRPGComment($eventType) {
     return (rand(1, 100) <= $chance);
 }
 
-$dialecticVisionPrompt = "Describe only what is present in the provided current-scene context.";
+$dialecticVisionPrompt = "Give one or two short, in-character sentences about what stands out to you in the current scene and what you think or feel about it. Do not list everything visible. Stay grounded in the provided scene context.";
 
 $PROMPTS=array(
     "narration"=>[ 
@@ -291,8 +291,8 @@ $PROMPTS=array(
     // Database Prompt (Vision)
     "vision"=>[ 
         "cue"=>["{$dialecticVisionPrompt} "],
-        "player_request"=>["The Narrator: {$GLOBALS["DIALECTIC_NAME"]} reviews the current scene context: '{$gameRequest[3]}'"],
-        "extra"=>["force_tokens_max"=>512]
+        "player_request"=>["The Narrator: {$GLOBALS["DIALECTIC_NAME"]} considers what stands out in the current scene: '{$gameRequest[3]}'"],
+        "extra"=>["force_tokens_max"=>256]
     ],
     "im_alive"=> [
         "cue"=> ["{$GLOBALS["DIALECTIC_NAME"]} talks about they are feeling more real. Write {$GLOBALS["DIALECTIC_NAME"]} dialogue. {$GLOBALS["TEMPLATE_DIALOG"]}"],
