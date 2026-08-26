@@ -2367,27 +2367,32 @@ if (sizeof($memoryInjectionCtx)>0) {
     logEvent($gameRequestCopy,$GLOBALS["DIALECTIC_NAME"]);// Memory log only avaibale to current NPC.
 }
 
-$contextDataFull = array_merge($contextDataWorld, $contextDataHistoric);
-
 $contextDataHistoric = filterHistoricContextForNarratorVisibility(
     $contextDataHistoric,
     $GLOBALS["DIALECTIC_NAME"] ?? ""
 );
 require_once __DIR__ . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "compact_context_history.php";
-if (dialecticShouldCompactNpcContextHistory($GLOBALS["DIALECTIC_NAME"] ?? "")) {
-    $contextDataHistoric = dialecticFormatCompactNpcContextHistory(
+$compactHistoryBlock = '';
+$compactHistoryEnabled = dialecticShouldCompactNpcContextHistory($GLOBALS["DIALECTIC_NAME"] ?? "");
+if ($compactHistoryEnabled) {
+    $compactHistoryBlock = dialecticFormatCompactNpcContextHistory(
         $contextDataHistoric,
         (string)($GLOBALS["DIALECTIC_NAME"] ?? "")
     );
 }
-$contextDataFull = array_merge($contextDataWorld, $contextDataHistoric);
 
-$GLOBALS["DIALECTIC_CONTEXT"] = implode("\n", array_values(array_filter(array_map(
-    static function ($entry) {
-        return is_array($entry) ? trim((string)($entry["content"] ?? "")) : "";
-    },
-    $contextDataHistoric
-))));
+$GLOBALS["DIALECTIC_CONTEXT"] = $compactHistoryEnabled
+    ? $compactHistoryBlock
+    : implode("\n", array_values(array_filter(array_map(
+        static function ($entry) {
+            return is_array($entry) ? trim((string)($entry["content"] ?? "")) : "";
+        },
+        $contextDataHistoric
+    ))));
+if ($compactHistoryEnabled) {
+    $contextDataHistoric = [];
+}
+$contextDataFull = array_merge($contextDataWorld, $contextDataHistoric);
 require_once __DIR__ . DIRECTORY_SEPARATOR . "ext" . DIRECTORY_SEPARATOR
     . "relationship_system" . DIRECTORY_SEPARATOR . "context_pre.php";
 
@@ -2580,9 +2585,10 @@ $systemPrompt = dialecticFormatPromptXmlSections(
 $systemPrompt = dialecticApplyPromptContextOptionsToSystemPrompt($systemPrompt);
 
 $head[] = array('role' => 'system', 'content' => $systemPrompt);
+$head = dialecticAppendCompactHistoryToPrompt($head, $compactHistoryBlock);
 Logger::phaseEnd("prompt_dynamic_context_build", [
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
-    "system_chars" => strlen((string)$systemPrompt),
+    "system_chars" => strlen((string)($head[0]['content'] ?? $systemPrompt)),
     "nearby_chars" => strlen((string)$nearbySections),
     "actions_chars" => strlen((string)$actionsList),
 ], "info");
