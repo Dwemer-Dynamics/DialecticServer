@@ -611,7 +611,8 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
     if ($race === '') {
         $race = $templateValue('race');
     }
-    $isMappedCreature = is_array($bioTemplate) && !empty($bioTemplate['is_nonverbal_creature']);
+    $isMappedCreature = is_array($bioTemplate)
+        && in_array($bioTemplate['is_nonverbal_creature'] ?? false, [true, 1, '1', 't', 'true'], true);
     if ($isMappedCreature) {
         $voice = $templateValue('voiceid');
         $voiceFormId = '';
