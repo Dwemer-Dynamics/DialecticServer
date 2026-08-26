@@ -1930,8 +1930,7 @@ function handleNpcVoiceUpdate(array $data, NpcMaster $npcMaster): void {
         return;
     }
 
-    $extended = $npcMaster->getExtendedData($currentData);
-    $extended['voice_metadata'] = [
+    $voiceMetadata = [
         'voiceid' => $attachableVoiceId !== '' ? $attachableVoiceId : $voiceId,
         'voice_formid' => $voiceFormId,
         'voice_name' => $voiceName,
@@ -1940,17 +1939,18 @@ function handleNpcVoiceUpdate(array $data, NpcMaster $npcMaster): void {
     ];
 
     if ($attachableVoiceId !== '') {
-        unset($extended['voice_refresh_requested_at']);
-        $extended['voice_refresh_last_result'] = 'metadata_resolved';
-        $extended['voice_refresh_last_resolved_at'] = time();
-
-        $currentData['voiceid'] = $attachableVoiceId;
+        $replaceableVoiceId = $currentVoiceIsTemporarySilent ? $currentVoiceId : '';
+        if (!$npcMaster->updateResolvedVoiceMetadata((int)$currentData['id'], $attachableVoiceId, $voiceMetadata, $replaceableVoiceId)) {
+            Logger::error("[gamedata.php] Failed to persist NPC voice metadata for {$currentData['npc_name']}: " . $npcMaster->getLastError());
+            return;
+        }
     } else {
+        $extended = $npcMaster->getExtendedData($currentData);
+        $extended['voice_metadata'] = $voiceMetadata;
         $extended['voice_refresh_last_result'] = 'metadata_formid_only';
+        $currentData = $npcMaster->setExtendedData($currentData, $extended);
+        $npcMaster->updateByArray($currentData);
     }
-
-    $currentData = $npcMaster->setExtendedData($currentData, $extended);
-    $npcMaster->updateByArray($currentData);
 
     Logger::debug("[gamedata.php] Updated NPC voice metadata for {$currentData['npc_name']} ({$voiceFormId})");
 }
