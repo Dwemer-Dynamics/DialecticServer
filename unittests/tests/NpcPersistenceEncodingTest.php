@@ -97,6 +97,41 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
         $this->assertSame('maleadult03', $row['voiceid']);
     }
 
+    public function testResolvedVoiceMetadataUpdatesAtomicallyWithoutReplacingManualVoice(): void
+    {
+        $this->assertTrue($this->npcMaster->create([
+            'npc_name' => 'Beatrix Voice Persistence Test',
+            'voiceid' => '',
+            'extended_data' => [],
+        ]));
+        $row = $this->npcMaster->getByName('Beatrix Voice Persistence Test');
+        $GLOBALS['db']->execQuery("UPDATE public.core_npc_master SET extended_data = '\"legacy malformed value\"'::jsonb WHERE id = " . (int)$row['id']);
+
+        $metadata = [
+            'voiceid' => 'femalegenericghoul',
+            'voice_formid' => '0x00061EA8',
+            'voice_name' => 'FemaleGenericGhoul',
+            'source' => 'fnv_snapshot',
+            'updated_at' => time(),
+        ];
+        $this->assertTrue($this->npcMaster->updateResolvedVoiceMetadata((int)$row['id'], 'femalegenericghoul', $metadata));
+
+        $resolved = $this->npcMaster->getByName('Beatrix Voice Persistence Test');
+        $extended = json_decode((string)$resolved['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('femalegenericghoul', $resolved['voiceid']);
+        $this->assertEquals($metadata, $extended['voice_metadata']);
+        $this->assertSame('metadata_resolved', $extended['voice_refresh_last_result']);
+
+        $this->assertNotFalse($this->npcMaster->update((int)$resolved['id'], ['voiceid' => 'manual_beatrix_voice']));
+        $this->assertTrue($this->npcMaster->updateResolvedVoiceMetadata((int)$resolved['id'], 'femaleadult02', [
+            'voiceid' => 'femaleadult02',
+        ]));
+
+        $preserved = $this->npcMaster->getByName('Beatrix Voice Persistence Test');
+        $this->assertSame('manual_beatrix_voice', $preserved['voiceid']);
+        $this->assertEquals($metadata, json_decode((string)$preserved['extended_data'], true, 512, JSON_THROW_ON_ERROR)['voice_metadata']);
+    }
+
     public function testUnrelatedStaleUpdatePreservesIndividualMemorySetting(): void
     {
         $this->assertTrue($this->npcMaster->create([

@@ -517,6 +517,63 @@ class NpcMaster
         return $this->update($id, $data);
     }
 
+    // Persist plugin-resolved voice data without rewriting unrelated NPC fields from a stale row.
+    public function updateResolvedVoiceMetadata(int $id, string $voiceId, array $voiceMetadata, string $replaceableVoiceId = ''): bool
+    {
+        $id = max(0, $id);
+        $voiceId = trim($voiceId);
+        if ($id === 0 || $voiceId === '') {
+            return false;
+        }
+
+        try {
+            $voiceMetadataJson = json_encode($voiceMetadata, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        } catch (JsonException $error) {
+            $this->lastError = $error->getMessage();
+            return false;
+        }
+
+        $escapedVoiceId = $this->db->escape($voiceId);
+        $escapedMetadata = $this->db->escape($voiceMetadataJson);
+        $replaceablePredicate = '';
+        if (trim($replaceableVoiceId) !== '') {
+            $escapedReplaceableVoiceId = $this->db->escape(trim($replaceableVoiceId));
+            $replaceablePredicate = " OR lower(trim(voiceid)) = lower('{$escapedReplaceableVoiceId}')";
+        }
+
+        $result = $this->db->execQuery("
+            UPDATE {$this->table}
+            SET voiceid = CASE
+                    WHEN NULLIF(trim(voiceid), '') IS NULL{$replaceablePredicate} THEN '{$escapedVoiceId}'
+                    ELSE voiceid
+                END,
+                extended_data = (
+                    CASE
+                        WHEN jsonb_typeof(extended_data) = 'object' THEN extended_data
+                        ELSE '{}'::jsonb
+                    END
+                    - 'voice_refresh_requested_at'
+                ) || jsonb_build_object(
+                    'voice_metadata', '{$escapedMetadata}'::jsonb,
+                    'voice_refresh_last_result', 'metadata_resolved',
+                    'voice_refresh_last_resolved_at', extract(epoch from now())::bigint
+                )
+            WHERE id = {$id}
+              AND (
+                    NULLIF(trim(voiceid), '') IS NULL
+                    OR lower(trim(voiceid)) = lower('{$escapedVoiceId}')
+                    {$replaceablePredicate}
+              )
+        ");
+
+        if ($result === false) {
+            $this->lastError = trim((string)$this->db->GetLastError());
+            return false;
+        }
+
+        return true;
+    }
+
     // Delete NPC by ID
     public function delete($id)
     {
