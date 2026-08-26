@@ -34,12 +34,13 @@ function maybeQueueNpcVoiceRefresh($currentNpcData, $npcMaster)
         return $currentNpcData;
     }
 
-    $extended["voice_refresh_requested_at"] = $now;
-    $extended["voice_refresh_attempts"] = intval($extended["voice_refresh_attempts"] ?? 0) + 1;
-    $extended["voice_refresh_last_result"] = "awaiting_plugin_profile";
+    $attempts = intval($extended["voice_refresh_attempts"] ?? 0) + 1;
+    $npcMaster->updateVoiceRefreshRequest((int)($currentNpcData['id'] ?? 0), $now, $attempts);
+    $currentNpcData = $npcMaster->getById((int)($currentNpcData['id'] ?? 0)) ?: $currentNpcData;
 
-    $currentNpcData = $npcMaster->setExtendedData($currentNpcData, $extended);
-    $npcMaster->updateByArray($currentNpcData);
+    if (trim((string)($currentNpcData['voiceid'] ?? '')) !== '') {
+        return $currentNpcData;
+    }
 
     $refId = trim((string) ($currentNpcData["refid"] ?? ""));
     if ($refId !== "" && stripos($refId, "0x") !== 0) {

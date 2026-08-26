@@ -132,6 +132,50 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
         $this->assertEquals($metadata, json_decode((string)$preserved['extended_data'], true, 512, JSON_THROW_ON_ERROR)['voice_metadata']);
     }
 
+    public function testStaleRuntimeSnapshotDoesNotClearResolvedVoice(): void
+    {
+        $this->assertTrue($this->npcMaster->create([
+            'npc_name' => 'Ralph Stale Voice Test',
+            'voiceid' => '',
+            'extended_data' => ['inventory' => ['9mm pistol']],
+        ]));
+        $staleRow = $this->npcMaster->getByName('Ralph Stale Voice Test');
+        $this->assertTrue($this->npcMaster->updateVoiceRefreshRequest((int)$staleRow['id'], time(), 1));
+        $requested = $this->npcMaster->getByName('Ralph Stale Voice Test');
+        $requestedExtended = json_decode((string)$requested['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(1, $requestedExtended['voice_refresh_attempts']);
+        $this->assertSame('awaiting_plugin_profile', $requestedExtended['voice_refresh_last_result']);
+
+        $metadata = [
+            'voiceid' => 'maleadult05',
+            'voice_formid' => '0x000717E1',
+            'voice_name' => 'MaleAdult05',
+            'source' => 'fnv_snapshot',
+            'updated_at' => time(),
+        ];
+        $this->assertTrue($this->npcMaster->updateResolvedVoiceMetadata((int)$staleRow['id'], 'maleadult05', $metadata));
+        $this->assertTrue($this->npcMaster->updateVoiceRefreshRequest((int)$staleRow['id'], time(), 2));
+
+        $staleExtended = json_decode((string)$staleRow['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $staleExtended['voice_refresh_requested_at'] = time();
+        $staleExtended['voice_refresh_attempts'] = 1;
+        $staleExtended['voice_refresh_last_result'] = 'awaiting_plugin_profile';
+        $staleRow['extended_data'] = $staleExtended;
+        $this->assertNotFalse($this->npcMaster->updateByArray($staleRow));
+
+        $preserved = $this->npcMaster->getByName('Ralph Stale Voice Test');
+        $extended = json_decode((string)$preserved['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('maleadult05', $preserved['voiceid']);
+        $this->assertEquals($metadata, $extended['voice_metadata']);
+        $this->assertSame('metadata_resolved', $extended['voice_refresh_last_result']);
+        $this->assertArrayNotHasKey('voice_refresh_requested_at', $extended);
+        $this->assertSame(['9mm pistol'], $extended['inventory']);
+
+        $this->assertNotFalse($this->npcMaster->update((int)$preserved['id'], ['voiceid' => '']));
+        $cleared = $this->npcMaster->getByName('Ralph Stale Voice Test');
+        $this->assertSame('', trim((string)($cleared['voiceid'] ?? '')));
+    }
+
     public function testUnrelatedStaleUpdatePreservesIndividualMemorySetting(): void
     {
         $this->assertTrue($this->npcMaster->create([
