@@ -1580,6 +1580,50 @@ if ($checkVersion("fallout_bio_templates_seed") < 20260615007) {
     }
 }
 
+if ($checkVersion("fallout_creature_bio_templates_seed") < 20260824001) {
+    Logger::debug("Applying fallout_creature_bio_templates_seed 20260824001");
+    try {
+        $db->execQuery("
+            CREATE TABLE IF NOT EXISTS public.bio_template_actor_map (
+                id bigserial PRIMARY KEY,
+                template_name character varying(128) NOT NULL,
+                base_plugin text NOT NULL,
+                base_local_formid character varying(8) NOT NULL,
+                reference_plugin text,
+                reference_local_formid character varying(8),
+                exact_name text,
+                is_nonverbal_creature boolean NOT NULL DEFAULT false,
+                CHECK ((reference_plugin IS NULL) = (reference_local_formid IS NULL))
+            )
+        ");
+        $db->execQuery("
+            CREATE UNIQUE INDEX IF NOT EXISTS bio_template_actor_map_identity_uidx
+                ON public.bio_template_actor_map (
+                    template_name,
+                    base_plugin,
+                    base_local_formid,
+                    COALESCE(reference_plugin, ''),
+                    COALESCE(reference_local_formid, '')
+                )
+        ");
+        $sqlFile = __DIR__ . "/../data/fallout_creature_bio_templates.sql";
+        if (!file_exists($sqlFile)) {
+            throw new RuntimeException("Creature bio template seed file not found: " . $sqlFile);
+        }
+        $sqlContent = file_get_contents($sqlFile);
+        if ($sqlContent === false || trim($sqlContent) === '') {
+            throw new RuntimeException("Creature bio template seed file is empty: " . $sqlFile);
+        }
+        if (!$db->execQuery(preg_replace('/^\xEF\xBB\xBF/', '', $sqlContent))) {
+            throw new RuntimeException("Creature bio template SQL did not execute cleanly.");
+        }
+        $updateVersion("fallout_creature_bio_templates_seed", 20260824001);
+        Logger::info("Applied official TTW creature bio templates 20260824001");
+    } catch (Exception $e) {
+        Logger::error("Error applying official TTW creature bio templates: " . $e->getMessage());
+    }
+}
+
 // Remove DB-layer protection for The Narrator to allow deletion via UI
 // Version 20250124001
 if ($checkVersion("narrator_protection")<20250124001) {
