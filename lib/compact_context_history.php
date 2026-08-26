@@ -7,7 +7,7 @@
 if (!function_exists('dialecticCompactNpcContextHistoryEnabled')) {
     function dialecticCompactNpcContextHistoryEnabled(): bool
     {
-        $value = $GLOBALS['COMPACT_NPC_CONTEXT_HISTORY'] ?? false;
+        $value = $GLOBALS['COMPACT_NPC_CONTEXT_HISTORY'] ?? true;
         if (is_bool($value)) {
             return $value;
         }
@@ -146,50 +146,136 @@ if (!function_exists('dialecticCompactUserHistoryEntry')) {
     }
 }
 
-if (!function_exists('dialecticFormatCompactNpcContextHistory')) {
-    function dialecticFormatCompactNpcContextHistory(array $history, string $actorName): array
+if (!function_exists('dialecticCompactToolHistoryEntry')) {
+    function dialecticCompactToolHistoryEntry(array $entry): string
     {
-        $formatted = [];
+        $content = $entry['content'] ?? '';
+        if (is_string($content) || is_scalar($content)) {
+            $content = dialecticCompactHistoryWhitespace((string)$content);
+            if ($content !== '') {
+                return 'Tool result: ' . $content;
+            }
+        }
+
+        $toolCalls = $entry['tool_calls'] ?? [];
+        if (!is_array($toolCalls)) {
+            return '';
+        }
+
+        $calls = [];
+        foreach ($toolCalls as $toolCall) {
+            if (!is_array($toolCall)) {
+                continue;
+            }
+
+            $function = $toolCall['function'] ?? [];
+            if (!is_array($function)) {
+                continue;
+            }
+
+            $name = dialecticCompactHistoryWhitespace((string)($function['name'] ?? ''));
+            if ($name !== '') {
+                $calls[] = $name;
+            }
+        }
+
+        return $calls === [] ? '' : 'Requested action: ' . implode(', ', $calls) . '.';
+    }
+}
+
+if (!function_exists('dialecticFormatCompactNpcContextHistory')) {
+    function dialecticFormatCompactNpcContextHistory(array $history, string $actorName): string
+    {
+        $lines = [];
+
         foreach ($history as $entry) {
-            if (!is_array($entry) || !isset($entry['role'], $entry['content'])) {
-                $formatted[] = $entry;
+            if (!is_array($entry) || !isset($entry['role'])) {
                 continue;
             }
 
             $role = (string)$entry['role'];
             if ($role === 'assistant') {
-                if (isset($entry['tool_calls']) || (!is_string($entry['content']) && !is_scalar($entry['content']))) {
-                    $formatted[] = $entry;
+                if (isset($entry['tool_calls'])) {
+                    $content = dialecticCompactToolHistoryEntry($entry);
+                    if ($content !== '') {
+                        $lines[] = $content;
+                    }
                     continue;
                 }
 
-                $content = dialecticCompactAssistantHistoryEntry((string)$entry['content'], $actorName);
+                $entryContent = $entry['content'] ?? '';
+                if (!is_string($entryContent) && !is_scalar($entryContent)) {
+                    continue;
+                }
+
+                $content = dialecticCompactAssistantHistoryEntry((string)$entryContent, $actorName);
                 if ($content !== '') {
-                    $formatted[] = [
-                        'role' => 'assistant',
-                        'content' => $content,
-                        '_dialectic_compact_history' => true,
-                    ];
+                    $lines[] = $content;
                 }
                 continue;
             }
 
             if ($role === 'user') {
-                if (!is_string($entry['content']) && !is_scalar($entry['content'])) {
-                    $formatted[] = $entry;
+                $entryContent = $entry['content'] ?? '';
+                if (!is_string($entryContent) && !is_scalar($entryContent)) {
                     continue;
                 }
 
-                $content = dialecticCompactUserHistoryEntry((string)$entry['content']);
+                $content = dialecticCompactUserHistoryEntry((string)$entryContent);
                 if ($content !== '') {
-                    $formatted[] = ['role' => 'user', 'content' => $content];
+                    $lines[] = $content;
                 }
                 continue;
             }
 
-            $formatted[] = $entry;
+            if ($role === 'tool') {
+                $content = dialecticCompactToolHistoryEntry($entry);
+            } else {
+                $entryContent = $entry['content'] ?? '';
+                $content = (is_string($entryContent) || is_scalar($entryContent))
+                    ? dialecticCompactHistoryWhitespace((string)$entryContent)
+                    : '';
+            }
+
+            if ($content !== '') {
+                $lines[] = $content;
+            }
         }
 
-        return $formatted;
+        return implode("\n", array_map(
+            static fn(string $line): string => '# ' . $line,
+            $lines
+        ));
+    }
+}
+
+if (!function_exists('dialecticAppendCompactHistoryToPrompt')) {
+    function dialecticAppendCompactHistoryToPrompt(array $worldContext, string $historyBlock): array
+    {
+        $historyBlock = trim($historyBlock);
+        if ($historyBlock === '') {
+            return $worldContext;
+        }
+
+        foreach ($worldContext as &$entry) {
+            if (
+                is_array($entry)
+                && ($entry['role'] ?? '') === 'system'
+                && isset($entry['content'])
+                && (is_string($entry['content']) || is_scalar($entry['content']))
+            ) {
+                $entry['content'] = rtrim((string)$entry['content']) . "\n\n" . $historyBlock;
+                unset($entry);
+                return $worldContext;
+            }
+        }
+        unset($entry);
+
+        array_unshift($worldContext, [
+            'role' => 'system',
+            'content' => $historyBlock,
+        ]);
+
+        return $worldContext;
     }
 }

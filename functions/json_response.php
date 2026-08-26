@@ -293,7 +293,7 @@
         // Build listener description - for rechat events, encourage addressing the previous speaker
         $listenerDesc = "specify who {$promptCharacterName} is talking to, comma separated, max two listeners, in addressing order";
         if (dialecticIsVisionRequest()) {
-            $listenerDesc = "leave blank unless {$promptCharacterName} directly addresses someone while explaining the current scene";
+            $listenerDesc = "leave blank unless {$promptCharacterName} directly addresses someone while reacting to the current scene";
         } elseif (
             isset($GLOBALS["gameRequest"]) &&
             (
@@ -317,7 +317,7 @@
         $inlineNarrationEnabled = $inlineNarrationMode !== 'disabled';
         $messageDescription = "lines of dialogue";
         if (dialecticIsVisionRequest()) {
-            $messageDescription = "{$promptCharacterName}'s spoken explanation of the current scene. Describe only what is visibly present right now through {$GLOBALS["PLAYER_NAME"]}'s eyes, focusing on people, environment, objects, and immediate activity. Do not continue unrelated conversation, do not answer stale dialogue, and do not invent unseen details.";
+            $messageDescription = "One or two short, in-character sentences about what stands out to {$promptCharacterName} in the current scene and what they think or feel about it. Do not list everything visible. Stay grounded in what is visible through {$GLOBALS["PLAYER_NAME"]}'s eyes, do not continue unrelated conversation, do not answer stale dialogue, and do not invent unseen details.";
         } elseif ($inlineNarrationEnabled) {
             $messageDescription = "If needed, start with one brief third-person narration block in single asterisks, then put {$promptCharacterName}'s spoken text after it. Example: *She smiles* It's good to see you again, my friend! Do not wrap the entire reply in asterisks, and keep spoken dialogue outside the asterisks.";
         } elseif (dialecticIsDirectNarratorDialogue()) {
@@ -400,7 +400,7 @@
         shuffle($moods);
         $moodDescription = "choose exactly one mood while speaking, never combine moods";
         $listenerDescription = dialecticIsVisionRequest()
-            ? "leave blank unless {$promptCharacterName} directly addresses someone while explaining the current scene"
+            ? "leave blank unless {$promptCharacterName} directly addresses someone while reacting to the current scene"
             : "specify who {$promptCharacterName} is talking to, comma separated, max two listeners, in addressing order";
 
         // Determine message description based on inline narration mode.
@@ -414,7 +414,7 @@
         $inlineNarrationEnabled = $inlineNarrationMode !== 'disabled';
         $messageDescription = "lines of {$promptCharacterName}'s dialogue";
         if (dialecticIsVisionRequest()) {
-            $messageDescription = "{$promptCharacterName}'s spoken explanation of the current scene. Describe only what is visibly present right now through {$GLOBALS["PLAYER_NAME"]}'s eyes, focusing on people, environment, objects, and immediate activity. Do not continue unrelated conversation, do not answer stale dialogue, and do not invent unseen details.";
+            $messageDescription = "One or two short, in-character sentences about what stands out to {$promptCharacterName} in the current scene and what they think or feel about it. Do not list everything visible. Stay grounded in what is visible through {$GLOBALS["PLAYER_NAME"]}'s eyes, do not continue unrelated conversation, do not answer stale dialogue, and do not invent unseen details.";
         } elseif ($inlineNarrationEnabled) {
             $messageDescription = "If needed, start with one brief third-person narration block in single asterisks, then put {$promptCharacterName}'s spoken text after it. Example: *She smiles* It's good to see you again, my friend! Do not wrap the entire reply in asterisks, and keep spoken dialogue outside the asterisks.";
         } elseif (dialecticIsDirectNarratorDialogue()) {

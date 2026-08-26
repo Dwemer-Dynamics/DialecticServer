@@ -4702,31 +4702,25 @@ function FindClosestActorName($actorName)
 
 function FindClosestNPCName($actorName)
 {
+    $actorName = trim((string)$actorName);
+    if ($actorName === "") {
+        return "";
+    }
+
     $beingsArrayCleaned = dialecticNearbyActorNamesFromPayload(true, false);
 
     if (empty($beingsArrayCleaned)) {
         return $actorName;
     }
 
-    // Find the closest match using Levenshtein distance
-    $closest = null;
-    $shortest = -1;
-
     foreach ($beingsArrayCleaned as $name) {
-        $lev = levenshtein($actorName, $name);
-        error_log("Comparing: $actorName, $name");
-
-        if ($lev == 0) {
-            return $name; // Exact match
-        }
-
-        if ($lev < $shortest || $shortest < 0) {
-            $closest = $name;
-            $shortest = $lev;
+        $name = trim((string)$name);
+        if ($name !== "" && strcasecmp($actorName, $name) === 0) {
+            return $name;
         }
     }
 
-    return (!empty(trim($closest)))?$closest:$actorName;
+    return $actorName;
 }
 
 function DirectConversationsWith($actor, $speaker="")
@@ -6112,40 +6106,9 @@ function call_llm_internal() {
                             if ($destination!=$GLOBALS["PLAYER_NAME"])
                                 $actions[$n]=$replaceAction($action, "TradeItems", $destination);
 
-                        }  else if ($actionParts2[0]=="Follow") {
-                            // Lets polish the parammeters
-                            $localtarget=$actionParts2[1];
-                            $mang1=explode(",",$localtarget);
-                            $mang2=explode(" and ",$mang1[0]);
-                            $mang3=explode("(",$mang2[0]);
-                            $requestedFollowTarget=trim($mang3[0]);
-                            $playerNameForFollow=trim(strval($GLOBALS["PLAYER_NAME"] ?? ""));
-                            $isPlayerFollowTarget=(
-                                $requestedFollowTarget !== "" &&
-                                (
-                                    ($playerNameForFollow !== "" && strcasecmp($requestedFollowTarget, $playerNameForFollow) === 0) ||
-                                    in_array(strtolower($requestedFollowTarget), ["player", "me", "the player"], true)
-                                )
-                            );
-
-                            if ($isPlayerFollowTarget) {
-                                error_log("[ACTION POSTFILTER Follow] $localtarget => {$requestedFollowTarget} => FollowPlayer");
-                                $actions[$n]=$replaceAction($action, "FollowPlayer", "");
-                                continue;
-                            }
-
-                            $mang4=FindClosestActorName($requestedFollowTarget);
-
-                            error_log("[ACTION POSTFILTER Follow] $localtarget =>  {$mang3[0]} => $mang4");
-
-                            if ($mang4)
-                                $destination=$mang4;
-                            else
-                                $destination=$requestedFollowTarget;
-                            $actions[$n]=$replaceAction($action, "Follow", $destination);
-                            
-
-                            error_log("[ACTION POSTFILTER Follow] $localtarget => {$mang3[0]} => $destination");
+                        } else if (in_array($actionParts2[0], ["Follow", "FollowPlayer", "MakeFollower"], true)) {
+                            error_log("[ACTION POSTFILTER Follow] Normalizing {$actionParts2[0]} to permanent party follow");
+                            $actions[$n]=$replaceAction($action, "Follow", "");
 
                         } else if ($actionParts2[0]=="TravelTo") {
                             // Lets polish the parammeters
@@ -6246,11 +6209,6 @@ function call_llm_internal() {
 
                             error_log("[ACTION POSTFILTER MoveTo] $localtarget => $target => $resolvedTarget");
                             $actions[$n]=$replaceAction($action, "MoveTo", $resolvedTarget);
-                            
-                        }  else if ($actionParts2[0]=="FollowPlayer") {
-                            
-                            error_log("[ACTION POSTFILTER FollowPlayer] Just Cleaning here");
-                            $actions[$n]=$replaceAction($action, "FollowPlayer", "");
                             
                         }  else if ($actionParts2[0]=="ReturnBackHome") {
                             

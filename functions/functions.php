@@ -24,12 +24,10 @@ function dialecticCanonicalActionCodes()
         'DecreaseWalkSpeed',
         'EndConversation',
         'Follow',
-        'FollowPlayer',
         'GiveItemTo',
         'GiveCapsTo',
         'Inspect',
         'InspectSurroundings',
-        'MakeFollower',
         'MoveTo',
         'PickupItem',
         'ReadQuests',
@@ -69,6 +67,8 @@ function dialecticNormalizeActionCodeName($codeName)
         'TradeItems' => 'OpenInventory',
         'ExchangeItems' => 'OpenInventory',
         'AcceptGift' => 'OpenInventory',
+        'FollowPlayer' => 'Follow',
+        'MakeFollower' => 'Follow',
         'StopFollow' => 'StopFollowing',
         'DismissFollower' => 'StopFollowing',
         'LeaveParty' => 'StopFollowing',
@@ -421,7 +421,7 @@ $F_DESCRIPTIONS_LOCAL["MoveTo"] = "Move to a visible nearby actor or NPC. Use Tr
 $F_DESCRIPTIONS_LOCAL["Barter"] = "Open a vendor-style barter menu with #DIALECTIC_NAME#.";
 $F_DESCRIPTIONS_LOCAL["OpenInventory"] = "Open #DIALECTIC_NAME#'s inventory for free item exchange with #PLAYER_NAME#.";
 $F_DESCRIPTIONS_LOCAL["Attack"] = "Attack with intention to kill a target actor or entity.";
-$F_DESCRIPTIONS_LOCAL["Follow"] = "Move to and follow the specified target actor";
+$F_DESCRIPTIONS_LOCAL["Follow"] = "#DIALECTIC_NAME# joins #PLAYER_NAME#'s party and follows #PLAYER_NAME# permanently.";
 $F_DESCRIPTIONS_LOCAL["Inspect"] = "Inspect a nearby actor or being to get a closer read on their visible equipment, condition, and state.";
 $F_DESCRIPTIONS_LOCAL["InspectSurroundings"] = "Look around and assess who or what is nearby, including people, creatures, and possible threats.";
 $F_DESCRIPTIONS_LOCAL["CheckInventory"] = "Search in #DIALECTIC_NAME#'s inventory, backpack, or pocket. List their inventory contents.";
@@ -440,13 +440,13 @@ $F_DESCRIPTIONS_LOCAL["DecreaseWalkSpeed"] = "Decrease #DIALECTIC_NAME#'s speed 
 $F_DESCRIPTIONS_LOCAL["StopWalk"] = "Stop all of #DIALECTIC_NAME#'s actions immediately.";
 $F_DESCRIPTIONS_LOCAL["WaitHere"] = "#DIALECTIC_NAME# waits and loiters at the current location.";
 $F_DESCRIPTIONS_LOCAL["TakeCapsFromPlayer"] = "#DIALECTIC_NAME# takes the specified amount of caps from #PLAYER_NAME# once #PLAYER_NAME# agrees. Infer the amount from context.";
-$F_DESCRIPTIONS_LOCAL["FollowPlayer"] = "#DIALECTIC_NAME# follows #PLAYER_NAME#.";
-$F_DESCRIPTIONS_LOCAL["StopFollowing"] = "#DIALECTIC_NAME# stops following #PLAYER_NAME# and leaves the current follower role.";
+$F_DESCRIPTIONS_LOCAL["FollowPlayer"] = "#DIALECTIC_NAME# temporarily follows #PLAYER_NAME# without joining the party or follower roster. Do not use for requests to join the party or become a companion; use Join_#PLAYER_NAME#_Party.";
+$F_DESCRIPTIONS_LOCAL["StopFollowing"] = "#DIALECTIC_NAME# leaves #PLAYER_NAME#'s party and stops following #PLAYER_NAME#.";
 $F_DESCRIPTIONS_LOCAL["ComeCloser"] = "#DIALECTIC_NAME# approaches #PLAYER_NAME#.";
 $F_DESCRIPTIONS_LOCAL["GiveCapsTo"] = "#DIALECTIC_NAME# gives caps to another actor or #PLAYER_NAME#. REQUIRED: include the recipient in 'target' and the caps amount in 'amount' or 'item'.";
 $F_DESCRIPTIONS_LOCAL["GiveItemTo"] = "#DIALECTIC_NAME# gives a specific item from inventory to another actor or #PLAYER_NAME#. REQUIRED: Must include 'item' field with exact item name from <inventory> tag, and 'target' field with recipient name.";
 $F_DESCRIPTIONS_LOCAL["PickupItem"] = "#DIALECTIC_NAME# picks up a specific item from the ground. Use the exact RefID:ItemName format from nearby_items or from the representative RefID shown in ITEM DESCRIPTIONS when the nearby item list is grouped (e.g. 0x12345:9mm Pistol).";
-$F_DESCRIPTIONS_LOCAL["MakeFollower"] = "#DIALECTIC_NAME# joins #PLAYER_NAME#, forming a squad or adventuring party.";
+$F_DESCRIPTIONS_LOCAL["MakeFollower"] = "#DIALECTIC_NAME# joins #PLAYER_NAME# as a recruited follower and party member, and begins following. Use for requests to join the party, become a follower or companion, join the squad, or travel as an ally.";
 
 $F_DESCRIPTIONS_LOCAL["Consume"] = "#DIALECTIC_NAME# consumes food, drink, chems, or another aid item from inventory. Use the exact inventory item name in the target field.";
 $F_DESCRIPTIONS_LOCAL["EquipItem"] = "#DIALECTIC_NAME# equips a weapon or wearable item already present in their inventory. Use the exact item name from <inventory>.";
@@ -458,7 +458,7 @@ $F_RETURNMESSAGES_LOCAL["MoveTo"] = "#DIALECTIC_NAME# moves to #TARGET#.";
 $F_RETURNMESSAGES_LOCAL["Barter"] = "Opens barter menu with #DIALECTIC_NAME#.";
 $F_RETURNMESSAGES_LOCAL["OpenInventory"] = "Opens #DIALECTIC_NAME#'s inventory for item exchange with #PLAYER_NAME#.";
 $F_RETURNMESSAGES_LOCAL["Attack"] = "#DIALECTIC_NAME# attacks #TARGET#.";
-$F_RETURNMESSAGES_LOCAL["Follow"] = "#DIALECTIC_NAME# follows #TARGET#.";
+$F_RETURNMESSAGES_LOCAL["Follow"] = "#DIALECTIC_NAME# joins #PLAYER_NAME#'s party and follows #PLAYER_NAME#.";
 $F_RETURNMESSAGES_LOCAL["Inspect"] = "#DIALECTIC_NAME# inspects #TARGET# and see this: #RESULT#";
 $F_RETURNMESSAGES_LOCAL["InspectSurroundings"] = "#DIALECTIC_NAME# takes a look around and see this: #RESULT#";
 $F_RETURNMESSAGES_LOCAL["CheckInventory"] = "#DIALECTIC_NAME#'s INVENTORY:#RESULT#";
@@ -478,7 +478,7 @@ $F_RETURNMESSAGES_LOCAL["TravelTo"] = "#DIALECTIC_NAME# begins travelling to #TA
 $F_RETURNMESSAGES_LOCAL["WaitHere"] = "#DIALECTIC_NAME# waits and stands at the place.";
 $F_RETURNMESSAGES_LOCAL["TakeCapsFromPlayer"] = "#PLAYER_NAME# gave #TARGET# caps to #DIALECTIC_NAME#. If this is a transaction, maybe GiveItemTo is needed.";
 $F_RETURNMESSAGES_LOCAL["FollowPlayer"] = "#DIALECTIC_NAME# follows #PLAYER_NAME#.";
-$F_RETURNMESSAGES_LOCAL["StopFollowing"] = "#DIALECTIC_NAME# stops following #PLAYER_NAME#.";
+$F_RETURNMESSAGES_LOCAL["StopFollowing"] = "#DIALECTIC_NAME# leaves #PLAYER_NAME#'s party and stops following #PLAYER_NAME#.";
 $F_RETURNMESSAGES_LOCAL["GiveCapsTo"] = "#DIALECTIC_NAME# gives #AMOUNT# caps to #TARGET#.";
 $F_RETURNMESSAGES_LOCAL["GiveItemTo"] = "#DIALECTIC_NAME# gives #ITEM# to #TARGET#.";
 $F_RETURNMESSAGES_LOCAL["PickupItem"] = "#DIALECTIC_NAME# picks up #ITEM#.";
@@ -514,7 +514,7 @@ $F_NAMES_LOCAL["TravelTo"] = "TravelTo";
 $F_NAMES_LOCAL["WaitHere"] = "WaitHere";
 $F_NAMES_LOCAL["TakeCapsFromPlayer"] = "TakeCapsFromPlayer";
 $F_NAMES_LOCAL["FollowPlayer"] = "Follow_#PLAYER_NAME#";
-$F_NAMES_LOCAL["StopFollowing"] = "Stop_Following_#PLAYER_NAME#";
+$F_NAMES_LOCAL["StopFollowing"] = "Stop_Following";
 $F_NAMES_LOCAL["ComeCloser"] = "ComeCloser";
 $F_NAMES_LOCAL["GiveCapsTo"] = "GiveCapsTo";
 $F_NAMES_LOCAL["GiveItemTo"] = "GiveItemTo";
@@ -605,13 +605,8 @@ $GLOBALS["FUNCTIONS"] = [
         "description" => $F_DESCRIPTIONS_LOCAL["Follow"],
         "parameters" => [
             "type" => "object",
-            "properties" => [
-                "target" => [
-                    "type" => "string",
-                    "description" => "Target NPC, Actor, or being",
-                ],
-            ],
-            "required" => ["target"],
+            "properties" => [],
+            "required" => [],
         ],
     ],
     [
@@ -789,31 +784,12 @@ $GLOBALS["FUNCTIONS"] = [
         ],
     ],
     [
-        "name" => $F_NAMES_LOCAL["FollowPlayer"],
-        "description" => $F_DESCRIPTIONS_LOCAL["FollowPlayer"],
-        "parameters" => [
-            "type" => "object",
-            "properties" => [
-                "target" => [
-                    "type" => "string",
-                    "description" => "",
-                ],
-            ],
-            "required" => [""],
-        ],
-    ],
-    [
         "name" => $F_NAMES_LOCAL["StopFollowing"],
         "description" => $F_DESCRIPTIONS_LOCAL["StopFollowing"],
         "parameters" => [
             "type" => "object",
-            "properties" => [
-                "target" => [
-                    "type" => "string",
-                    "description" => "Keep it blank",
-                ],
-            ],
-            "required" => [""],
+            "properties" => [],
+            "required" => [],
         ],
     ],
     [
@@ -891,20 +867,6 @@ $GLOBALS["FUNCTIONS"] = [
                 ],
             ],
             "required" => ["item"],
-        ],
-    ],
-    [
-        "name" => $F_NAMES_LOCAL["MakeFollower"],
-        "description" => $F_DESCRIPTIONS_LOCAL["MakeFollower"],
-        "parameters" => [
-            "type" => "object",
-            "properties" => [
-                "target" => [
-                    "type" => "string",
-                    "description" => "Keep it blank",
-                ],
-            ],
-            "required" => [""],
         ],
     ],
     [
@@ -1016,7 +978,11 @@ function getFunctionNameAliases()
         'AcceptGift' => 'OpenInventory',
         "TakeMoneyFrom{$playerName}" => 'TakeCapsFromPlayer',
         'ReadQuestJournal' => 'ReadQuests',
-        "JoinTo{$playerName}Squad" => 'MakeFollower',
+        'FollowPlayer' => 'Follow',
+        'MakeFollower' => 'Follow',
+        "Follow{$playerName}" => 'Follow',
+        "Join{$playerName}Party" => 'Follow',
+        "JoinTo{$playerName}Squad" => 'Follow',
         "StopFollowing{$playerName}" => 'StopFollowing',
         "Stop_Following_{$playerName}" => 'StopFollowing',
         "StopFollow{$playerName}" => 'StopFollowing',

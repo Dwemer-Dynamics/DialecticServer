@@ -1580,6 +1580,50 @@ if ($checkVersion("fallout_bio_templates_seed") < 20260615007) {
     }
 }
 
+if ($checkVersion("fallout_creature_bio_templates_seed") < 20260824001) {
+    Logger::debug("Applying fallout_creature_bio_templates_seed 20260824001");
+    try {
+        $db->execQuery("
+            CREATE TABLE IF NOT EXISTS public.bio_template_actor_map (
+                id bigserial PRIMARY KEY,
+                template_name character varying(128) NOT NULL,
+                base_plugin text NOT NULL,
+                base_local_formid character varying(8) NOT NULL,
+                reference_plugin text,
+                reference_local_formid character varying(8),
+                exact_name text,
+                is_nonverbal_creature boolean NOT NULL DEFAULT false,
+                CHECK ((reference_plugin IS NULL) = (reference_local_formid IS NULL))
+            )
+        ");
+        $db->execQuery("
+            CREATE UNIQUE INDEX IF NOT EXISTS bio_template_actor_map_identity_uidx
+                ON public.bio_template_actor_map (
+                    template_name,
+                    base_plugin,
+                    base_local_formid,
+                    COALESCE(reference_plugin, ''),
+                    COALESCE(reference_local_formid, '')
+                )
+        ");
+        $sqlFile = __DIR__ . "/../data/fallout_creature_bio_templates.sql";
+        if (!file_exists($sqlFile)) {
+            throw new RuntimeException("Creature bio template seed file not found: " . $sqlFile);
+        }
+        $sqlContent = file_get_contents($sqlFile);
+        if ($sqlContent === false || trim($sqlContent) === '') {
+            throw new RuntimeException("Creature bio template seed file is empty: " . $sqlFile);
+        }
+        if (!$db->execQuery(preg_replace('/^\xEF\xBB\xBF/', '', $sqlContent))) {
+            throw new RuntimeException("Creature bio template SQL did not execute cleanly.");
+        }
+        $updateVersion("fallout_creature_bio_templates_seed", 20260824001);
+        Logger::info("Applied official TTW creature bio templates 20260824001");
+    } catch (Exception $e) {
+        Logger::error("Error applying official TTW creature bio templates: " . $e->getMessage());
+    }
+}
+
 // Remove DB-layer protection for The Narrator to allow deletion via UI
 // Version 20250124001
 if ($checkVersion("narrator_protection")<20250124001) {
@@ -3582,6 +3626,106 @@ if ($checkVersion("core_action") < 20260719001) {
     }
 }
 
+if ($checkVersion("core_action") < 20260823001) {
+    Logger::debug("Applying core_action 20260823001 - distinguish temporary follow from party recruitment");
+
+    $followPlayerDescription = '#DIALECTIC_NAME# temporarily follows #PLAYER_NAME# without joining the party or follower roster. Do not use for requests to join the party or become a companion; use Join_#PLAYER_NAME#_Party.';
+    $makeFollowerDescription = '#DIALECTIC_NAME# joins #PLAYER_NAME# as a recruited follower and party member, and begins following. Use for requests to join the party, become a follower or companion, join the squad, or travel as an ally.';
+    $followPlayerDescriptionLiteral = $db->escapeLiteral($followPlayerDescription);
+    $makeFollowerDescriptionLiteral = $db->escapeLiteral($makeFollowerDescription);
+
+    $db->execQuery("UPDATE public.core_action SET description = {$followPlayerDescriptionLiteral}, updated_at = NOW() WHERE code_name = 'FollowPlayer'");
+    $db->execQuery("UPDATE public.core_action SET description = {$makeFollowerDescriptionLiteral}, updated_at = NOW() WHERE code_name = 'MakeFollower'");
+
+    $db->execQuery("
+        UPDATE public.core_action_custom
+           SET description = {$followPlayerDescriptionLiteral}, updated_at = NOW()
+         WHERE code_name = 'FollowPlayer'
+           AND description = '#DIALECTIC_NAME# follows #PLAYER_NAME#.'
+    ");
+    $db->execQuery("
+        UPDATE public.core_action_custom
+           SET description = {$makeFollowerDescriptionLiteral}, updated_at = NOW()
+         WHERE code_name = 'MakeFollower'
+           AND description IN (
+               '#DIALECTIC_NAME# joins #PLAYER_NAME#, forming a squad or adventuring party.',
+               '#DIALECTIC_NAME# joins #PLAYER_NAME# as a follower.'
+           )
+    ");
+
+    $updateVersion("core_action", 20260823001);
+    Logger::info("Applied patch core_action 20260823001");
+}
+
+if ($checkVersion("core_action") < 20260823002) {
+    Logger::debug("Applying core_action 20260823002 - keep generic follow separate from party recruitment");
+
+    $followDescription = 'Temporarily move to and follow the specified target actor without joining the party or follower roster. Do not use for requests to join the party or become a companion; use Join_#PLAYER_NAME#_Party.';
+    $followDescriptionLiteral = $db->escapeLiteral($followDescription);
+
+    $db->execQuery("UPDATE public.core_action SET description = {$followDescriptionLiteral}, updated_at = NOW() WHERE code_name = 'Follow'");
+    $db->execQuery("
+        UPDATE public.core_action_custom
+           SET description = {$followDescriptionLiteral}, updated_at = NOW()
+         WHERE code_name = 'Follow'
+           AND description IN (
+               'Move to and follow the specified target actor',
+               'Move to and follow the specified target actor.'
+           )
+    ");
+
+    $updateVersion("core_action", 20260823002);
+    Logger::info("Applied patch core_action 20260823002");
+}
+
+if ($checkVersion("core_action") < 20260823003) {
+    Logger::debug("Applying core_action 20260823003 - simplify follower controls");
+
+    $followDescription = '#DIALECTIC_NAME# joins #PLAYER_NAME#\'s party and follows #PLAYER_NAME# permanently.';
+    $followReturnMessage = '#DIALECTIC_NAME# joins #PLAYER_NAME#\'s party and follows #PLAYER_NAME#.';
+    $stopDescription = '#DIALECTIC_NAME# leaves #PLAYER_NAME#\'s party and stops following #PLAYER_NAME#.';
+    $followDescriptionLiteral = $db->escapeLiteral($followDescription);
+    $followReturnMessageLiteral = $db->escapeLiteral($followReturnMessage);
+    $stopDescriptionLiteral = $db->escapeLiteral($stopDescription);
+    $emptyParameters = '{"type":"object","required":[],"properties":{}}';
+
+    foreach (['public.core_action', 'public.core_action_custom'] as $tableName) {
+        $db->execQuery("
+            UPDATE {$tableName}
+               SET action_name = 'Follow',
+                   description = {$followDescriptionLiteral},
+                   return_message = {$followReturnMessageLiteral},
+                   parameters_json = '{$emptyParameters}'::jsonb,
+                   game_function = TRUE,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"status\":\"active\",\"dispatch\":\"plugin_command\",\"followup\":{\"enabled\":false}}'::jsonb,
+                   updated_at = NOW()
+             WHERE code_name = 'Follow'
+        ");
+        $db->execQuery("
+            UPDATE {$tableName}
+               SET action_name = 'Stop_Following',
+                   description = {$stopDescriptionLiteral},
+                   return_message = {$stopDescriptionLiteral},
+                   parameters_json = '{$emptyParameters}'::jsonb,
+                   game_function = TRUE,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"status\":\"active\",\"dispatch\":\"plugin_command\",\"followup\":{\"enabled\":false}}'::jsonb,
+                   updated_at = NOW()
+             WHERE code_name = 'StopFollowing'
+        ");
+        $db->execQuery("
+            UPDATE {$tableName}
+               SET is_activated = FALSE,
+                   game_function = FALSE,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"status\":\"legacy_alias\"}'::jsonb,
+                   updated_at = NOW()
+             WHERE code_name IN ('FollowPlayer', 'MakeFollower')
+        ");
+    }
+
+    $updateVersion("core_action", 20260823003);
+    Logger::info("Applied patch core_action 20260823003");
+}
+
 if ($checkVersion("core_tts_connector_metadata") < 20260626001) {
     Logger::debug("Applying core_tts_connector_metadata 20260626001 - remove copied connector metadata references");
 
@@ -4141,6 +4285,28 @@ if ($checkVersion("general_settings_seed_repair") < 20260713004 || !$managedGene
     if ($b_ok) {
         $updateVersion("general_settings_seed_repair", 20260713004);
         Logger::info("Applied patch general_settings_seed_repair 20260713004");
+    }
+}
+
+if ($checkVersion("compact_npc_context_history_default") < 20260825001) {
+    Logger::debug("Applying compact_npc_context_history_default 20260825001 - enable compact NPC history by default");
+
+    $b_ok = true;
+    try {
+        $settingId = 'COMPACT_NPC_CONTEXT_HISTORY';
+        $description = dialecticGetManagedGeneralSettingDescriptions()[$settingId]
+            ?? dialecticGetSchemaDescription($settingId);
+        if (!dialecticSetGeneralSetting($settingId, true, $description)) {
+            throw new RuntimeException('Failed enabling compact NPC context history.');
+        }
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error enabling compact NPC context history by default: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("compact_npc_context_history_default", 20260825001);
+        Logger::info("Applied patch compact_npc_context_history_default 20260825001");
     }
 }
 

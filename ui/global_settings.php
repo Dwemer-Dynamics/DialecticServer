@@ -73,7 +73,7 @@ $gsSections = [
  [ 'name' => 'HIDE_AMBIENT_COMBAT', 'type' => 'boolean' ],
  [ 'name' => 'POWER_AWARENESS_ENABLED', 'type' => 'boolean' ],
  [ 'name' => 'PROMPT_TIMESTAMP', 'type' => 'boolean' ],
- [ 'name' => 'COMPACT_NPC_CONTEXT_HISTORY', 'type' => 'boolean', 'default' => false ],
+ [ 'name' => 'COMPACT_NPC_CONTEXT_HISTORY', 'type' => 'boolean' ],
  ],
  'Filters & Blacklists' => [
  [ 'name' => 'LOCATION_BLACKLIST', 'type' => 'longstring' ],

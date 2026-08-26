@@ -691,7 +691,6 @@ function dialecticActionCatalogGetBuiltinCooldownSeconds($codeName)
         'ComeCloser' => 30,
         'WaitHere' => 30,
         'Follow' => 60,
-        'FollowPlayer' => 60,
         'StopFollowing' => 30,
     ];
 
@@ -864,7 +863,7 @@ function dialecticActionCatalogBuildBaseFollowupConfig($codeName)
     $disabledFollowUpCodes = [
         'Attack',
         'Consume',
-        'FollowPlayer',
+        'Follow',
         'GiveCapsTo',
         'GiveItemTo',
         'MoveTo',
