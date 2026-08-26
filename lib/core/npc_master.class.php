@@ -440,10 +440,10 @@ class NpcMaster
     }
 
     // Update NPC by ID
-    public function update($id, $data)
+    public function update($id, $data, $existingNpcData = null)
     {
         $id = (int) $id;
-        $existing = $this->getById($id);
+        $existing = is_array($existingNpcData) ? $existingNpcData : $this->getById($id);
         $data = $this->normalizeNpcDataForPersistence($data, $existing ?: null);
         $data = $this->normalizeProfileAssignment($data);
 
@@ -512,9 +512,80 @@ class NpcMaster
         }
 
         $id = (int) $data['id'];
+        $existing = $this->getById($id);
+        $data = $this->preserveResolvedVoiceOnGenericUpdate($data, $existing);
         unset($data['id']); // Remove 'id' from the data array to avoid updating it
 
-        return $this->update($id, $data);
+        return $this->update($id, $data, $existing);
+    }
+
+    // Prevent stale runtime row snapshots from erasing a voice resolved by a newer game-data event.
+    private function preserveResolvedVoiceOnGenericUpdate($data, $existing)
+    {
+        if (!is_array($data)) {
+            return $data;
+        }
+
+        $incomingVoiceId = trim((string)($data['voiceid'] ?? ''));
+        if ($incomingVoiceId !== '' || !array_key_exists('voiceid', $data)) {
+            return $data;
+        }
+
+        unset($data['voiceid']);
+        $existingVoiceId = is_array($existing) ? trim((string)($existing['voiceid'] ?? '')) : '';
+        if ($existingVoiceId === '' || !array_key_exists('extended_data', $data)) {
+            return $data;
+        }
+
+        $incomingExtended = $this->getExtendedData($data);
+        $existingExtended = $this->getExtendedData($existing);
+        foreach (array_keys($incomingExtended) as $key) {
+            if (str_starts_with((string)$key, 'voice_')) {
+                unset($incomingExtended[$key]);
+            }
+        }
+        foreach ($existingExtended as $key => $value) {
+            if (str_starts_with((string)$key, 'voice_')) {
+                $incomingExtended[$key] = $value;
+            }
+        }
+        $data['extended_data'] = $this->encodeJsonObjectForPersistence($incomingExtended, 'extended_data');
+
+        return $data;
+    }
+
+    // Record a missing-voice refresh without rewriting the NPC row captured by the request.
+    public function updateVoiceRefreshRequest(int $id, int $requestedAt, int $attempts): bool
+    {
+        $id = max(0, $id);
+        if ($id === 0) {
+            return false;
+        }
+
+        $requestedAt = max(0, $requestedAt);
+        $attempts = max(1, $attempts);
+        $result = $this->db->execQuery("
+            UPDATE {$this->table}
+            SET extended_data = (
+                    CASE
+                        WHEN jsonb_typeof(extended_data) = 'object' THEN extended_data
+                        ELSE '{}'::jsonb
+                    END
+                ) || jsonb_build_object(
+                    'voice_refresh_requested_at', {$requestedAt},
+                    'voice_refresh_attempts', {$attempts},
+                    'voice_refresh_last_result', 'awaiting_plugin_profile'
+                )
+            WHERE id = {$id}
+              AND NULLIF(trim(voiceid), '') IS NULL
+        ");
+
+        if ($result === false) {
+            $this->lastError = trim((string)$this->db->GetLastError());
+            return false;
+        }
+
+        return true;
     }
 
     // Persist plugin-resolved voice data without rewriting unrelated NPC fields from a stale row.

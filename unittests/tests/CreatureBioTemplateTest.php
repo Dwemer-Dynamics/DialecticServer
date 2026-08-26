@@ -53,6 +53,26 @@ final class CreatureBioTemplateTest extends DatabaseTestCase
         }
     }
 
+    public function testHumanBioTemplateKeepsDetectedVoice(): void
+    {
+        $db = $this->db();
+        $template = dialectic_fetch_bio_template($db, 'Ralph', '0x0010D8E2', '0x0010C760');
+        self::assertSame('ralph__ralph', strtolower(strval($template['npc_name'] ?? '')));
+        self::assertSame('f', $template['is_nonverbal_creature'] ?? null);
+
+        dialectic_ensure_npc($db, 'Ralph', '0x0010D8E2', [
+            'baseid' => '0x0010C760',
+            'voice' => 'MaleAdult05',
+            'voice_formid' => '0x000717E1',
+            'voice_name' => 'MaleAdult05',
+        ]);
+
+        $created = $db->fetchOne("SELECT voiceid, extended_data FROM public.core_npc_master WHERE npc_name='Ralph'");
+        $extended = json_decode(strval($created['extended_data'] ?? ''), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('MaleAdult05', $created['voiceid'] ?? null);
+        self::assertSame('MaleAdult05', $extended['voice_metadata']['voiceid'] ?? null);
+    }
+
     public function testCustomTemplateAndExistingNpcFieldsKeepPrecedence(): void
     {
         $db = $this->db();
