@@ -42,7 +42,7 @@ $PLAYER_RESPEECH=true; //Use default diary connector AI to rewrite player speech
 $PLAYER_SPEECH_STYLE=""; //Instructions for how the player character speaks and communicates. Used as context when rewriting player dialogue.
 $PROMPT_TIMESTAMP=false; //Add rough timestamp subdividers to event context (e.g., 'Moments Ago', 'A while ago') to help the LLM understand temporal relationships.
 $COMPACT_NPC_CONTEXT_HISTORY=true; //Use compact text instead of separate messages for conversation history. Does not affect the Narrator.
-$PROMPT_HEAD_MARKDOWN_ENABLED=false; //Use Markdown headings instead of XML tags for all prompt sections.
+$PROMPT_HEAD_MARKDOWN_ENABLED=true; //Use Markdown headings instead of XML tags for all prompt sections.
 $use_emotions_expression = false; //Add emotions support. Changes the affect context/json object offered to LLM must be false by default.
 
 //[Advanced Configuration]

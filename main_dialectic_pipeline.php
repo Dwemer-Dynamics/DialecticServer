@@ -2583,7 +2583,7 @@ $systemPrompt = dialecticFormatPromptXmlSections(
 );
 
 $systemPrompt = dialecticApplyPromptContextOptionsToSystemPrompt($systemPrompt);
-$promptHeadMarkdownEnabled = filter_var($GLOBALS['PROMPT_HEAD_MARKDOWN_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN);
+$promptHeadMarkdownEnabled = filter_var($GLOBALS['PROMPT_HEAD_MARKDOWN_ENABLED'] ?? true, FILTER_VALIDATE_BOOLEAN);
 $systemPrompt = dialecticFormatPromptHeadSection($systemPrompt, $promptHeadMarkdownEnabled);
 
 $head[] = array('role' => 'system', 'content' => $systemPrompt);

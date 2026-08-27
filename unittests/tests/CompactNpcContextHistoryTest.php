@@ -7,11 +7,14 @@ require_once(__DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . '..' .
 
 final class CompactNpcContextHistoryTest extends TestCase
 {
-    public function testCompactPromptInfoDefaultsOffAndPreservesOriginalPrompt(): void
+    public function testCompactPromptInfoDefaultsOnAndCanPreserveOriginalPrompt(): void
     {
         require_once __DIR__ . '/../../lib/prompt_composition.php';
         $schema = json_decode(file_get_contents(__DIR__ . '/../../conf/conf_schema.json'), true);
-        $this->assertFalse($schema['PROMPT_HEAD_MARKDOWN_ENABLED']['default']);
+        $this->assertTrue($schema['PROMPT_HEAD_MARKDOWN_ENABLED']['default']);
+        require_once __DIR__ . '/../../lib/settings.php';
+        $this->assertFalse(dialecticSettingsNormalizeScalar('false', $schema['PROMPT_HEAD_MARKDOWN_ENABLED']));
+        $this->assertTrue(dialecticSettingsNormalizeScalar('true', $schema['PROMPT_HEAD_MARKDOWN_ENABLED']));
         $xml = " <character>\r\n<personality>Direct</personality>\r\n</character>\r\n";
         $this->assertSame($xml, dialecticFormatPromptHeadSection($xml, false));
     }
