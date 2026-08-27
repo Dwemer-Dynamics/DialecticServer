@@ -24,13 +24,19 @@ final class CompactNpcContextHistoryTest extends TestCase
             . "• Rifle\n</equipment>\n</character>\n"
             . "<nearby_actors>\n#NEARBY ACTORS/NPC IN THE SCENE\n##Boone (00096BCE)\n</nearby_actors>\n"
             . "<available_actions_list>\nAVAILABLE ACTION: Follow\n</available_actions_list>\n"
-            . "<general_instructions>\nUse <inventory> for reference.\n</general_instructions>";
+            . "<general_instructions>\nUse <inventory> for reference.\n</general_instructions>\n"
+            . "<fallout_context>\n<knowledge>\n<oghma contract=\"oghma-parity-v1\" status=\"grounded\">\n"
+            . "<article topic=\"quarry_junction\" source=\"location\" access=\"basic\">\n"
+            . "<content>Deathclaws live here.</content>\n</article>\n</oghma>\n</knowledge>\n</fallout_context>";
         $formatted = dialecticFormatPromptHeadSection($xml, true);
         foreach ([
             '# World', '- Worldspace: Mojave Wasteland', '- Location: Goodsprings',
             '# Character', '## Personality', '## Equipment', '- Rifle',
             '# Nearby Actors', '- Boone (00096BCE)', '# Available Actions',
             '- AVAILABLE ACTION: Follow', 'Use `Inventory` for reference.',
+            '# Fallout Context', '## Knowledge', '### Oghma', '- Contract: oghma-parity-v1',
+            '- Status: grounded', '#### Article', '- Topic: quarry_junction',
+            '- Source: location', '- Access: basic', '##### Content', 'Deathclaws live here.',
         ] as $expected) {
             $this->assertStringContainsString($expected, $formatted);
         }

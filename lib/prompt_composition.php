@@ -13,6 +13,20 @@ function dialecticFormatPromptHeadSection(string $systemPrompt, bool $markdownEn
             ? 'Available Actions'
             : ucwords(str_replace(['_', '-'], ' ', strtolower($tag)));
     };
+    // Knowledge wrappers carry contract, topic, source and access as attributes.
+    // Preserve those values as fields before converting the section hierarchy.
+    $systemPrompt = preg_replace_callback(
+        '/^[ \t]*<([A-Za-z][A-Za-z0-9_-]*)((?:[ \t]+[A-Za-z][A-Za-z0-9_-]*="[^"]*")+)>[ \t]*$/m',
+        static function (array $matches) use ($formatTagName): string {
+            preg_match_all('/([A-Za-z][A-Za-z0-9_-]*)="([^"]*)"/', $matches[2], $attributes, PREG_SET_ORDER);
+            $lines = ['<' . $matches[1] . '>'];
+            foreach ($attributes as $attribute) {
+                $lines[] = '- ' . $formatTagName($attribute[1]) . ': ' . $attribute[2];
+            }
+            return implode("\n", $lines);
+        },
+        $systemPrompt
+    );
     // World values are fields; other sections keep their hierarchy even on one line.
     $systemPrompt = preg_replace_callback(
         '/^[ \t]*<([A-Za-z][A-Za-z0-9_-]*)>([^<\n]*)<\/\1>[ \t]*$/mi',
