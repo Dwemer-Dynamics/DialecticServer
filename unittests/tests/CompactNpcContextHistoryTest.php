@@ -7,6 +7,57 @@ require_once(__DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . '..' .
 
 final class CompactNpcContextHistoryTest extends TestCase
 {
+    public function testCompactPromptInfoDefaultsOnAndCanPreserveOriginalPrompt(): void
+    {
+        require_once __DIR__ . '/../../lib/prompt_composition.php';
+        $schema = json_decode(file_get_contents(__DIR__ . '/../../conf/conf_schema.json'), true);
+        $this->assertTrue($schema['PROMPT_HEAD_MARKDOWN_ENABLED']['default']);
+        require_once __DIR__ . '/../../lib/settings.php';
+        $this->assertFalse(dialecticSettingsNormalizeScalar('false', $schema['PROMPT_HEAD_MARKDOWN_ENABLED']));
+        $this->assertTrue(dialecticSettingsNormalizeScalar('true', $schema['PROMPT_HEAD_MARKDOWN_ENABLED']));
+        $xml = " <character>\r\n<personality>Direct</personality>\r\n</character>\r\n";
+        $this->assertSame($xml, dialecticFormatPromptHeadSection($xml, false));
+    }
+
+    public function testCompactPromptInfoKeepsHierarchyFieldsAndHyphenLists(): void
+    {
+        require_once __DIR__ . '/../../lib/prompt_composition.php';
+        $xml = "<world>\n<worldspace>Mojave Wasteland</worldspace>\n<location>Goodsprings</location>\n</world>\n"
+            . "<character>\n<personality>Direct</personality>\n<equipment>\n#Current Equipment\n"
+            . "• Rifle\n</equipment>\n</character>\n"
+            . "<nearby_actors>\n#NEARBY ACTORS/NPC IN THE SCENE\n##Boone (00096BCE)\n</nearby_actors>\n"
+            . "<available_actions_list>\nAVAILABLE ACTION: Follow\n</available_actions_list>\n"
+            . "<general_instructions>\nUse <inventory> for reference.\n</general_instructions>\n"
+            . "<fallout_context>\n<knowledge>\n<oghma contract=\"oghma-parity-v1\" status=\"grounded\">\n"
+            . "<article topic=\"quarry_junction\" source=\"location\" access=\"basic\">\n"
+            . "<content>Deathclaws live here.</content>\n</article>\n</oghma>\n</knowledge>\n</fallout_context>";
+        $formatted = dialecticFormatPromptHeadSection($xml, true);
+        foreach ([
+            '# World', '- Worldspace: Mojave Wasteland', '- Location: Goodsprings',
+            '# Character', '## Personality', '## Equipment', '- Rifle',
+            '# Nearby Actors', '- Boone (00096BCE)', '# Available Actions',
+            '- AVAILABLE ACTION: Follow', 'Use `Inventory` for reference.',
+            '# Fallout Context', '## Knowledge', '### Oghma', '- Contract: oghma-parity-v1',
+            '- Status: grounded', '#### Article', '- Topic: quarry_junction',
+            '- Source: location', '- Access: basic', '##### Content', 'Deathclaws live here.',
+        ] as $expected) {
+            $this->assertStringContainsString($expected, $formatted);
+        }
+        $this->assertStringNotContainsString('<', $formatted);
+        $this->assertStringNotContainsString('Current Equipment', $formatted);
+        $head = [['role' => 'system', 'content' => $formatted]];
+        $history = "# Courier: Hello.\n# Boone: Hello.";
+        $this->assertSame(
+            dialecticAppendCompactHistoryToPrompt($head, $history),
+            dialecticAppendCompactHistoryToPrompt($head, $history, false)
+        );
+        $this->assertSame(
+            rtrim($formatted) . "\n\n# Conversation History\n\n- Courier: Hello.\n- Boone: Hello.",
+            dialecticAppendCompactHistoryToPrompt($head, $history, true)[0]['content']
+        );
+        $this->assertSame($head, dialecticAppendCompactHistoryToPrompt($head, '', true));
+    }
+
     protected function tearDown(): void
     {
         unset(

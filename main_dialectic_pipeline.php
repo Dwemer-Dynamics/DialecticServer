@@ -2583,9 +2583,11 @@ $systemPrompt = dialecticFormatPromptXmlSections(
 );
 
 $systemPrompt = dialecticApplyPromptContextOptionsToSystemPrompt($systemPrompt);
+$promptHeadMarkdownEnabled = filter_var($GLOBALS['PROMPT_HEAD_MARKDOWN_ENABLED'] ?? true, FILTER_VALIDATE_BOOLEAN);
+$systemPrompt = dialecticFormatPromptHeadSection($systemPrompt, $promptHeadMarkdownEnabled);
 
 $head[] = array('role' => 'system', 'content' => $systemPrompt);
-$head = dialecticAppendCompactHistoryToPrompt($head, $compactHistoryBlock);
+$head = dialecticAppendCompactHistoryToPrompt($head, $compactHistoryBlock, $promptHeadMarkdownEnabled);
 Logger::phaseEnd("prompt_dynamic_context_build", [
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
     "system_chars" => strlen((string)($head[0]['content'] ?? $systemPrompt)),
