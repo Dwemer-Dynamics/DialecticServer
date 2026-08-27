@@ -38,6 +38,8 @@ $gsSections = [
  'Prompt & Rechat' => [
  [ 'name' => 'PROMPT_HEAD', 'type' => 'longstring' ],
  [ 'name' => 'EMOTEMOODS', 'type' => 'longstring' ],
+ [ 'name' => 'COMPACT_NPC_CONTEXT_HISTORY', 'type' => 'boolean' ],
+ [ 'name' => 'PROMPT_HEAD_MARKDOWN_ENABLED', 'type' => 'boolean' ],
  [ 'name' => 'RECHAT_MODE', 'type' => 'select', 'values' => ['tight', 'conversational', 'group', 'random'] ],
  [ 'name' => 'ENFORCE_STRICT_RECHAT_RESPONSE', 'type' => 'boolean' ],
  ],
@@ -73,7 +75,6 @@ $gsSections = [
  [ 'name' => 'HIDE_AMBIENT_COMBAT', 'type' => 'boolean' ],
  [ 'name' => 'POWER_AWARENESS_ENABLED', 'type' => 'boolean' ],
  [ 'name' => 'PROMPT_TIMESTAMP', 'type' => 'boolean' ],
- [ 'name' => 'COMPACT_NPC_CONTEXT_HISTORY', 'type' => 'boolean' ],
  ],
  'Filters & Blacklists' => [
  [ 'name' => 'LOCATION_BLACKLIST', 'type' => 'longstring' ],
@@ -150,6 +151,7 @@ function pretty_label(string $flatName): string
  'SHORTER_NEARBY_ITEM_LIST' => 'Shorter Nearby Item List',
  'CLEAN_CONTEXT_FOCUS_CHAT_HISTORY' => 'Focus Chat Context',
  'COMPACT_NPC_CONTEXT_HISTORY' => 'Compact NPC Context History',
+ 'PROMPT_HEAD_MARKDOWN_ENABLED' => 'Compact Prompt Info',
  ];
  if (isset($customLabels[$flatName])) {
  return $customLabels[$flatName];
@@ -201,6 +203,7 @@ function icon_for_field(string $flatName): string
  'POWER_AWARENESS_ENABLED' => '&#9876;&#65039;',
  'PROMPT_TIMESTAMP' => '&#128336;',
  'COMPACT_NPC_CONTEXT_HISTORY' => '&#128476;&#65039;',
+ 'PROMPT_HEAD_MARKDOWN_ENABLED' => '&#129534;',
  'LOCATION_BLACKLIST' => '&#128205;',
  'ITEM_BLACKLIST' => '&#128230;',
  'SHORTER_NEARBY_ITEM_LIST' => '&#128220;',

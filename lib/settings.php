@@ -147,6 +147,7 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'HIDE_AMBIENT_COMBAT',
             'PROMPT_TIMESTAMP',
             'COMPACT_NPC_CONTEXT_HISTORY',
+            'PROMPT_HEAD_MARKDOWN_ENABLED',
             'PROMPT_CONTEXT_OPTIONS',
             'RECHAT_MODE',
             'ENFORCE_STRICT_RECHAT_RESPONSE',
