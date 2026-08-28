@@ -147,6 +147,7 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'HIDE_AMBIENT_COMBAT',
             'PROMPT_TIMESTAMP',
             'COMPACT_NPC_CONTEXT_HISTORY',
+            'SHORT_TERM_MEMORY_IN_COMPACT_CHAT',
             'PROMPT_HEAD_MARKDOWN_ENABLED',
             'PROMPT_CONTEXT_OPTIONS',
             'RECHAT_MODE',
@@ -464,6 +465,19 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingsCatalog')) {
             $catalog[$id] = $entry;
         }
 
+        // Profile-only values remain available as explicit NPC overrides, not global defaults.
+        $catalog['SHORT_TERM_MEMORY_ENABLED'] = [
+            'type' => 'boolean',
+            'description' => 'Include earlier scene summaries beyond recent dialogue.',
+            'category' => 'Memory',
+            'ui_label' => 'Short Term Memory',
+        ];
+        $catalog['SHORT_TERM_MEMORY_MAX'] = [
+            'type' => 'integer',
+            'description' => 'Maximum earlier scene summaries per response (1-50; default 10).',
+            'category' => 'Memory',
+            'ui_label' => 'Short Term Memory Max Summaries',
+        ];
         ksort($catalog);
         return $catalog;
     }

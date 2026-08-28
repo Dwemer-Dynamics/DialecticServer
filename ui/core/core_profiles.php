@@ -1791,6 +1791,7 @@ $ttsById = $byId($ttsRows);
 
         $dynamicProfileEnabled = !empty($profileMetadata['DYNAMIC_PROFILE_ENABLED']);
         $mtmEnabled = !empty($profileMetadata['MIDDLE_TERM_MEMORY_ENABLED']);
+        $stmEnabled = filter_var($profileMetadata['SHORT_TERM_MEMORY_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $autoDiaryEnabled = !empty($profileMetadata['AUTO_DIARY_ENABLED']);
         $autoDiaryWaitEnabled = !empty($profileMetadata['AUTO_DIARY_WAIT_ENABLED']);
         $latestDiaryContextEnabled = !empty($profileMetadata['LATEST_DIARY_CONTEXT_ENABLED']);
@@ -1809,6 +1810,7 @@ $ttsById = $byId($ttsRows);
                 'cards' => [
                     ['key' => 'DYNAMIC_PROFILE_ENABLED', 'icon' => '&#x267B;&#xFE0F;', 'title' => 'Dynamic Profile', 'enabled' => $dynamicProfileEnabled, 'short' => 'Allow gameplay events to evolve NPC profiles.', 'help' => 'Allow systems to evolve NPC profiles based on gameplay events. NPCs using this profile will have dynamic profile enabled by default.'],
                     ['key' => 'MIDDLE_TERM_MEMORY_ENABLED', 'icon' => '&#x1F4C3;', 'title' => 'Middle Term Memory', 'enabled' => $mtmEnabled, 'short' => 'Include periodic middle-term memory summaries.', 'help' => 'Saves a list of recent events after every 10 memory summaries. NPCs using this profile will have MTM enabled by default.'],
+                    ['key' => 'SHORT_TERM_MEMORY_ENABLED', 'icon' => '&#x1F5C2;&#xFE0F;', 'title' => 'Short Term Memory', 'enabled' => $stmEnabled, 'short' => 'Recall earlier scenes beyond recent dialogue.', 'help' => 'Adds scene summaries after the NPC\'s middle-term memory and before its recent dialogue. Recent dialogue is never shortened. Overlapping summaries wait until they leave the dialogue window.'],
                 ],
             ],
             [
@@ -1901,6 +1903,22 @@ $ttsById = $byId($ttsRows);
                             </label>
                         <?php endforeach; ?>
                     </div>
+                    <?php if ($toggleGroup['title'] === 'Profiles & Memories'):
+                        $stmMax = max(1, min(50, intval($profileMetadata['SHORT_TERM_MEMORY_MAX'] ?? 10)));
+                    ?>
+                    <div class="setting-row">
+                        <div>
+                            <label class="setting-key" for="stm_max_num">Max Summaries</label>
+                            <div class="setting-desc" id="stm_max_help">Short Term Memory only. 1–50; default 10. More summaries use more tokens.</div>
+                        </div>
+                        <div class="setting-control">
+                            <div class="range-pair">
+                                <input type="range" id="stm_max_range" min="1" max="50" step="1" value="<?= $stmMax ?>" aria-label="Short Term Memory max summaries" aria-describedby="stm_max_help" oninput="document.getElementById('stm_max_num').value=this.value">
+                                <input type="number" id="stm_max_num" name="meta_vis[SHORT_TERM_MEMORY_MAX]" min="1" max="50" step="1" value="<?= $stmMax ?>" aria-describedby="stm_max_help" oninput="metaClamp('stm_max_range','stm_max_num',1,50)">
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </section>
             <?php endforeach; ?>
         </div>
@@ -1908,7 +1926,7 @@ $ttsById = $byId($ttsRows);
 
     <script>
     document.addEventListener('DOMContentLoaded', function(){
-        const names = ['default_npc','meta_vis[LLM_RANDOMIZER_ENABLED]','meta_vis[LLM_FALLBACK_ENABLED]','meta_vis[DYNAMIC_PROFILE_ENABLED]','meta_vis[MIDDLE_TERM_MEMORY_ENABLED]','meta_vis[AUTO_DIARY_ENABLED]','meta_vis[AUTO_DIARY_WAIT_ENABLED]','meta_vis[LATEST_DIARY_CONTEXT_ENABLED]'];
+        const names = ['default_npc','meta_vis[LLM_RANDOMIZER_ENABLED]','meta_vis[LLM_FALLBACK_ENABLED]','meta_vis[DYNAMIC_PROFILE_ENABLED]','meta_vis[MIDDLE_TERM_MEMORY_ENABLED]','meta_vis[SHORT_TERM_MEMORY_ENABLED]','meta_vis[AUTO_DIARY_ENABLED]','meta_vis[AUTO_DIARY_WAIT_ENABLED]','meta_vis[LATEST_DIARY_CONTEXT_ENABLED]'];
         names.forEach(n=>{
             const cb = document.querySelector(`input[type="checkbox"][name="${n}"]`);
             if (!cb) return;
@@ -2146,6 +2164,9 @@ const saveAllBtn = document.getElementById('btn_save_all');
             // Keys with a dedicated profile control must not also appear here; both editors
             // post the same meta_vis[] name and the generic one would blank the value on save.
             unset($profileOverrideCatalog['BORED_EVENT']);
+            // Short Term Memory has dedicated profile controls above; the catalog keeps these
+            // entries only so they stay available as per-NPC overrides in DIALECTIC NPCs.
+            unset($profileOverrideCatalog['SHORT_TERM_MEMORY_ENABLED'], $profileOverrideCatalog['SHORT_TERM_MEMORY_MAX']);
             $currentProfileOverrides = [];
             try {
                 if (!empty($editItem["metadata"])) {
@@ -2170,7 +2191,7 @@ const saveAllBtn = document.getElementById('btn_save_all');
                 'mode' => 'profile',
                 'fieldName' => 'metadata',
                 'settingsCatalog' => $profileOverrideCatalog,
-                'reservedKeys' => ['DYNAMIC_PROFILE_ENABLED', 'MIDDLE_TERM_MEMORY_ENABLED', 'AUTO_DIARY_ENABLED', 'AUTO_DIARY_WAIT_ENABLED', 'LATEST_DIARY_CONTEXT_ENABLED', 'LLM_RANDOMIZER_ENABLED', 'RPG_COMMENTS', 'RPG_COMMENTS_CHANCE', 'DYNAMIC_PROFILE_FIELDS'],
+                'reservedKeys' => ['DYNAMIC_PROFILE_ENABLED', 'MIDDLE_TERM_MEMORY_ENABLED', 'SHORT_TERM_MEMORY_ENABLED', 'SHORT_TERM_MEMORY_MAX', 'AUTO_DIARY_ENABLED', 'AUTO_DIARY_WAIT_ENABLED', 'LATEST_DIARY_CONTEXT_ENABLED', 'LLM_RANDOMIZER_ENABLED', 'RPG_COMMENTS', 'RPG_COMMENTS_CHANCE', 'DYNAMIC_PROFILE_FIELDS'],
                 'currentData' => $currentProfileOverrides,
                 'systemFields' => [],
             ];

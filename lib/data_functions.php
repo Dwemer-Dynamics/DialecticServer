@@ -2808,6 +2808,7 @@ function buildHistoricContext($actor, $lastNelements = -10,$sqlfilter="") {
                 $row["role"]="narratorci";
                 $row["content"]=trim($rowData);
                 $row["gamets"]=$lastGameTs;// gamets will be previous record gamets
+                $row['_g'] = intval($lastGameTs);
 
                 $previousRow=$row;
                 continue; // Skip adding this row to the context
@@ -2832,10 +2833,10 @@ function buildHistoricContext($actor, $lastNelements = -10,$sqlfilter="") {
 A MAJOR TIME JUMP HAS OCCURRED.
 Elapsed time since last interaction: ~$timeGapInDays days
 New setting: $currentLocation
-!!! END CONTEXT !!! ");
+!!! END CONTEXT !!! ", '_g' => intval($row['gamets']));
                 } else if ($timeGapInHours>5) {
                     $timeGapInDays=round($timeGapInHours/24,1);
-                    $lastDialogFull[] = array('role' => "narratorci", 'content' => "(minor timelapse of about $timeGapInHours hours)");
+                    $lastDialogFull[] = array('role' => "narratorci", 'content' => "(minor timelapse of about $timeGapInHours hours)", '_g' => intval($row['gamets']));
                 }
                 $lastGameTs=$row["gamets"];
             }
@@ -2845,10 +2846,10 @@ New setting: $currentLocation
                 if (!isset($timeStampBuffer[$hoursAgo])) {
                     if ($currentLocation) {
                         if (DataLastKnownLocationHuman(false,true)==$currentLocation)   // Enforce current location.
-                            $lastDialogFull[] = array('role' => "narratorci", 'content' => "LOCATION CHANGE, THIS IS THE CURRENT LOCATION: $currentLocation");
+                            $lastDialogFull[] = array('role' => "narratorci", 'content' => "LOCATION CHANGE, THIS IS THE CURRENT LOCATION: $currentLocation", '_g' => intval($row['gamets']));
                         
                         else
-                            $lastDialogFull[] = array('role' => "narratorci", 'content' => "LOCATION CHANGE to $currentLocation, timeline mark: $hoursAgo hours ago  ");
+                            $lastDialogFull[] = array('role' => "narratorci", 'content' => "LOCATION CHANGE to $currentLocation, timeline mark: $hoursAgo hours ago  ", '_g' => intval($row['gamets']));
                     }
                 }
             } else {
@@ -2866,13 +2867,13 @@ New setting: $currentLocation
             
             // If category changed, insert a subdivider
             if ($lastTimeCategory !== null && $currentTimeCategory !== $lastTimeCategory) {
-                $lastDialogFull[] = array('role' => "narratorci", 'content' => "--- {$currentTimeCategory} ---");
+                $lastDialogFull[] = array('role' => "narratorci", 'content' => "--- {$currentTimeCategory} ---", '_g' => intval($row['gamets']));
             }
             
             $lastTimeCategory = $currentTimeCategory;
         }
         
-        $row= array('role' => $lastSpeaker, 'content' => trim($rowData),'subtype'=>$row["subtype"]?:strtoupper($lastSpeaker),'type'=>$row["type"]);
+        $row= array('role' => $lastSpeaker, 'content' => trim($rowData),'subtype'=>$row["subtype"]?:strtoupper($lastSpeaker),'type'=>$row["type"], '_g' => intval($row['gamets']));
         $lastDialogFull[] = $row;
         $previousRow=$row;
 
@@ -2973,6 +2974,7 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
     $bufferDialectic=[];
     $lastDialogFullCopy=[];
     $compactedBuffer = "";
+    $assistantGamets = PHP_INT_MAX;
  
     foreach ($lastDialogFull as $n => $line) {
         if (($line["role"] == "assistant")) {
@@ -2984,6 +2986,7 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
             $cleanedText=$line["content"];
            
             $bufferDialectic[]=$cleanedText;
+            $assistantGamets = min($assistantGamets, intval($line['_g'] ?? 0));
 
             
         } else {
@@ -3008,10 +3011,11 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
 
 
                 }
-                $lastDialogFullCopy[] = ["role"=>"assistant","content"=>trim($compactedBuffer)];
+                $lastDialogFullCopy[] = ["role"=>"assistant","content"=>trim($compactedBuffer), '_g' => $assistantGamets];
 
             }
             $bufferDialectic=[];
+            $assistantGamets = PHP_INT_MAX;
             $compactedBuffer="";
             $lastDialogFullCopy[]=$line;
         } 
@@ -3041,7 +3045,7 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
 
 
         }
-        $lastDialogFullCopy[] = ["role"=>"assistant","content"=>trim($compactedBuffer)];
+        $lastDialogFullCopy[] = ["role"=>"assistant","content"=>trim($compactedBuffer), '_g' => $assistantGamets];
         $bufferDialectic=[];
     }
 
@@ -3052,10 +3056,12 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
     $lastSpeaker = "";
     $buffer = [];
     $lastDialogFull=[];
+    $bufferGamets = 0;
 
 
     foreach ($lastDialogFullCopy as $n => $line) {
         $speaker=$line["role"];
+        $lineGamets = intval($line['_g'] ?? 0);
         
         if ($speaker=="npc") { // Tricky, npc could be any char
             preg_match('/^([^:]+):/', $line["content"], $matches);
@@ -3075,17 +3081,20 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
                 // And for compacting other dialog lines: capture content after the speaker name
                 preg_match('/^\s*[^:]+:\s*(.*?)\s*(?:\([^)]*\))?\s*$/s', $line["content"], $matches);
                 $buffer[]=$matches[1] ?? $line["content"];
+                $bufferGamets = min($bufferGamets, $lineGamets);
             } else {
 
                 if (!$compactContextInfo) {
-                    $lastDialogFull[]=array('role' => $lastSpeaker, 'content' => trim(isset($buffer[0])?$buffer[0]:$line["content"]));
+                    $lastDialogFull[]=array('role' => $lastSpeaker, 'content' => trim(isset($buffer[0])?$buffer[0]:$line["content"]), '_g' => $bufferGamets);
                     if (isset($buffer[0])) {
                         $buffer = [];
                         $buffer[] = $line["content"];
+                        $bufferGamets = $lineGamets;
                     } else
                         $buffer = [];
                 } else {
                     $buffer[] = strtr($line["content"],["The Narrator:"=>"","{$GLOBALS["DIALECTIC_NAME"]}:"=>""]);
+                    $bufferGamets = min($bufferGamets, $lineGamets);
                 }
                 
             }
@@ -3094,19 +3103,20 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
             if (sizeof($buffer) > 0) {
                 if ($lastSpeaker=="narratorci" || $lastSpeaker=="narratorloc") {
                     if (!$compactContextInfo) {
-                        $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => "".implode(" ", removeEmptyElements($buffer)));  // Should be only one line
+                        $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => "".implode(" ", removeEmptyElements($buffer)), '_g' => $bufferGamets);  // Should be only one line
                     } else {
-                        $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => "* ".implode("\n* ", removeEmptyElements($buffer))); 
+                        $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => "* ".implode("\n* ", removeEmptyElements($buffer)), '_g' => $bufferGamets);
                     }
 
                 }
                 else if ($lastSpeaker=="backgroundchat")
-                    $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => implode("\n", removeEmptyElements($buffer)));
+                    $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => implode("\n", removeEmptyElements($buffer)), '_g' => $bufferGamets);
                 else 
-                    $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => moveDialogueTargetSuffixToEnd(implode(" ", removeEmptyElements($buffer))));
+                    $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => moveDialogueTargetSuffixToEnd(implode(" ", removeEmptyElements($buffer))), '_g' => $bufferGamets);
             }
             $buffer = [];
             $buffer[] = $line["content"];
+            $bufferGamets = $lineGamets;
             $lastSpeaker = $speaker;
 
             if ($speaker=="assistant") {    //Leave as is
@@ -3130,11 +3140,11 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
     // Last buffer, probably user input.
     if (sizeof($bufferCopy)) {
         if ($lastSpeaker=="narratorci" || $lastSpeaker=="narratorloc") 
-            $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => implode("\n* ", $bufferCopy));
+            $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => implode("\n* ", $bufferCopy), '_g' => $bufferGamets);
         else if ($lastSpeaker=="backgroundchat")
-            $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => implode("\n", $bufferCopy));
+            $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => implode("\n", $bufferCopy), '_g' => $bufferGamets);
         else 
-            $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => moveDialogueTargetSuffixToEnd(implode(" ", $bufferCopy)));
+            $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => moveDialogueTargetSuffixToEnd(implode(" ", $bufferCopy)), '_g' => $bufferGamets);
     }
 
     $contextDataHistory=[];
@@ -3195,6 +3205,14 @@ function replaceRoles($lastDialogFull,$actor,$lastNelements) {
 
     error_log("[DIALECTIC] Using effective context limit of : $lastNelements");
     $orderedData = array_slice($lastDialogFull, $lastNelements);
+    // Keep the earliest source event, not the next speaker's timestamp, for merged blocks.
+    // Unknown timestamps disable STM; an empty window can use summaries up to the save time.
+    $GLOBALS['CONTEXT_WINDOW_FLOOR'] = PHP_INT_MAX;
+    foreach ($orderedData as &$entry) {
+        $GLOBALS['CONTEXT_WINDOW_FLOOR'] = min($GLOBALS['CONTEXT_WINDOW_FLOOR'], intval($entry['_g'] ?? 0));
+        unset($entry['_g'], $entry['gamets']);
+    }
+    unset($entry);
 
     file_put_contents(__DIR__."/../log/context_for_$actor.txt",print_r($orderedData,true));
     $GLOBALS["CONTEXT_BUILDING_DATA"]=$orderedData;
@@ -4827,6 +4845,66 @@ function dataGetMemoryCompanionConditionSql(
 
     $npcEsc = $GLOBALS['db']->escape($npcName);
     return "($column LIKE '%|$npcEsc|%' OR $column='$npcEsc')";
+}
+
+/** Read completed, undigested scenes strictly before the surviving verbatim window. */
+function DataShortTermMemoryFor(string $actor, int $windowFloor): array
+{
+    $actor = trim($actor);
+    if ($actor === '' || $actor === 'The Narrator'
+        || !filter_var($GLOBALS['SHORT_TERM_MEMORY_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        return [];
+    }
+
+    // Missing/unknown timestamps must never open the entire memory bank after a save load.
+    $currentGamets = intval($GLOBALS['gameRequest'][2] ?? 0);
+    if ($currentGamets <= 0 || $windowFloor <= 0) {
+        return [];
+    }
+    $upperBound = min($currentGamets, $windowFloor - 1);
+    $cap = max(1, min(50, intval($GLOBALS['SHORT_TERM_MEMORY_MAX'] ?? 10)));
+
+    try {
+        $npcMaster = new NpcMaster();
+        $npc = $npcMaster->getByName($actor);
+        if (!$npc) {
+            return [];
+        }
+        $extendedData = $npcMaster->getExtendedData($npc);
+        $digestThrough = 0;
+        $digests = $extendedData['middle_term_memory'] ?? [];
+        foreach (is_array($digests) ? $digests : [] as $gamets => $digest) {
+            if (is_numeric($gamets) && intval($gamets) <= $currentGamets && is_scalar($digest) && trim((string)$digest) !== '') {
+                $digestThrough = max($digestThrough, intval($gamets));
+            }
+        }
+        if ($upperBound <= $digestThrough) {
+            return [];
+        }
+
+        $scope = dataGetMemoryScopeConditionSql($actor);
+        $companions = dataGetMemoryCompanionConditionSql($actor);
+        $rows = $GLOBALS['db']->fetchAll(
+            "SELECT summary, gamets_truncated FROM memory_summary"
+            . " WHERE NULLIF(BTRIM(summary), '') IS NOT NULL AND $scope AND $companions"
+            . " AND gamets_truncated > $digestThrough AND gamets_truncated <= $upperBound"
+            . " ORDER BY gamets_truncated DESC, uid DESC LIMIT $cap"
+        );
+
+        $context = [];
+        foreach (array_reverse($rows ?: []) as $row) {
+            $summary = preg_replace('/^#Summary:\s*/i', '', trim((string)$row['summary']));
+            $summary = trim((string)preg_replace('/\s*#Tags:.*$/is', '', $summary));
+            if ($summary !== '') {
+                $when = convert_gamets2fallout_date($row['gamets_truncated']);
+                $context[] = ['role' => 'user', 'content' => "(Earlier events - $when) $summary"];
+            }
+        }
+        return $context;
+    } catch (Throwable $e) {
+        Logger::warn('[STM] Could not read short-term memory: ' . $e->getMessage());
+        return [];
+    }
 }
 
 // Removes request-routing labels before text and vector memory matching.
