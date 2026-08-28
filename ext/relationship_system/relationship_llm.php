@@ -485,7 +485,11 @@ PROMPT;
                 return false;
             }
 
-            $extended['relationships'] = RelationshipManager::normalizeRelationshipMap($relationships);
+            $extended['relationships'] = RelationshipManager::mergeAiRelationshipMap(
+                $extended['relationships'] ?? [],
+                $relationships,
+                true
+            );
             $extended['relationships_analyzed'] = date('Y-m-d H:i:s');
             $extended['relationships_model'] = $this->modelName;
 
@@ -1371,10 +1375,10 @@ PROMPT;
                 }
 
                 // Merge our changes with latest state
-                $existingRels = RelationshipManager::normalizeRelationshipMap($extended['relationships'] ?? []);
-                foreach ($currentRels as $target => $data) {
-                    $existingRels[$target] = $data;
-                }
+                $existingRels = RelationshipManager::mergeAiRelationshipMap(
+                    $extended['relationships'] ?? [],
+                    $currentRels
+                );
 
                 $extended['relationships'] = $existingRels;
                 $extended['relationships_last_eval'] = date('Y-m-d H:i:s');
@@ -1390,7 +1394,7 @@ PROMPT;
                 }
 
                 $this->releaseNpcLock($npcId);
-                Logger::debug("[REL-LLM] Database update for NPC {$npcId}: " . ($result ? "SUCCESS" : "FAILED") . " - relationships: " . json_encode($existingRels));
+                Logger::debug("[REL-LLM] Database update for NPC {$npcId}: " . ($result ? "SUCCESS" : "FAILED") . " - relationships: " . count($existingRels));
             } catch (Exception $e) {
                 $this->releaseNpcLock($npcId);
                 throw $e;

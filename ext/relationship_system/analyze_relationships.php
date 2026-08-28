@@ -104,7 +104,8 @@ PROMPT;
         throw new RuntimeException('The relationship model returned invalid JSON.');
     }
 
-    $relationships = RelationshipManager::normalizeRelationshipMap($parsed['relationships']);
+    // Model output must never create or replace player-only Custom Info.
+    $relationships = RelationshipManager::mergeAiRelationshipMap([], $parsed['relationships']);
     foreach (array_keys($relationships) as $targetName) {
         if (strcasecmp($targetName, $npcName) === 0) {
             unset($relationships[$targetName]);
