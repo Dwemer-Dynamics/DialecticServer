@@ -1,6 +1,7 @@
 <?php
 
 
+if (!function_exists('insertNoise')) {
 function insertNoise($inputString, $noiseArray) {
     // Split the string into words
     $words = explode(' ', $inputString);
@@ -35,6 +36,7 @@ function insertNoise($inputString, $noiseArray) {
 
     // Join the words back into a string
     return implode(' ', $words);
+}
 }
 
 if (!function_exists('normalize_endpoint_url')) {
@@ -282,6 +284,7 @@ function pockettts_settings($settings,$resetAfter=false) {
 }
 
 // convert numbers into Japanese kanji
+if (!function_exists('num2kan_decimal')) {
 function num2kan_decimal($instr) {
     // Check if the input is exactly 0. Return katakana zero in that case.
     if ($instr === '0') {
@@ -317,6 +320,7 @@ function num2kan_decimal($instr) {
 	}
 
 	return $outstr;
+}
 }
 
 
