@@ -13,7 +13,7 @@ require_once(__DIR__."/npc_tts_status.php");
 function dialecticBuildLatestDiaryContextBlock(string $npcName, array $profileData): string
 {
     $safeNpcName = trim($npcName);
-    if ($safeNpcName === '' || strcasecmp($safeNpcName, 'The Narrator') === 0) {
+    if ($safeNpcName === '') {
         return '';
     }
 
