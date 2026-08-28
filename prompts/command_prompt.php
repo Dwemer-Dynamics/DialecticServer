@@ -43,9 +43,6 @@ if (!function_exists('dialecticGetDialogueTargetVerb')) {
         if ($mode === "WHISPER") {
             return "Whispering to";
         }
-        if ($mode === "CLOSE") {
-            return "Speaking privately to";
-        }
         if ($mode === "SHOUT") {
             return "Shouting to";
         }
