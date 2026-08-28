@@ -879,7 +879,9 @@ class openaijson
 
         if ($this->normalizeBooleanFlag($GLOBALS["CONNECTOR"][$this->name]["quickstart_managed"] ?? false, false)) {
             // Local OpenAI-compatible servers use the broadly supported token limit.
-            $data['max_tokens'] = $data['max_tokens'] ?? $MAX_TOKENS;
+            if ($MAX_TOKENS > 0) {
+                $data['max_tokens'] = $data['max_tokens'] ?? $MAX_TOKENS;
+            }
             unset($data['max_completion_tokens']);
         }
 
@@ -1467,7 +1469,9 @@ class openaijson
         $this->adaptLmStudioResponseFormat($data);
 
         if ($this->normalizeBooleanFlag($GLOBALS["CONNECTOR"][$this->name]["quickstart_managed"] ?? false, false)) {
-            $data['max_tokens'] = $data['max_tokens'] ?? $MAX_TOKENS;
+            if ($MAX_TOKENS > 0) {
+                $data['max_tokens'] = $data['max_tokens'] ?? $MAX_TOKENS;
+            }
             unset($data['max_completion_tokens']);
         }
 
