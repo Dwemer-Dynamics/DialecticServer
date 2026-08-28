@@ -3,11 +3,11 @@
  * RELATIONSHIP SYSTEM - Background Worker Daemon
  *
  * Processes queued relationship evaluations in the background.
- * Auto-started by context.php when RELLLM_CONNECTOR is configured.
+ * Auto-started after relationship work is successfully queued.
  *
  * Usage:
  *   php worker.php              # Run once and exit
- *   php worker.php --daemon     # Run continuously (auto-started by context.php)
+ *   php worker.php --daemon     # Run continuously (auto-started by async_queue.php)
  *   php worker.php --interval=5 # Custom interval in seconds (default: 2)
  *
  * DAEMONIZATION:
@@ -38,7 +38,7 @@ $logFile = $enginePath . 'log/relationship_worker.log';
 @file_put_contents($logFile, date('[Y-m-d H:i:s]') . " TRACE: Script started, daemon=" . ($daemon ? 'yes' : 'no') . "\n", FILE_APPEND);
 
 // DAEMONIZATION: If running in daemon mode, fork where pcntl is available.
-// On Windows, context_pre.php launches this as a detached process, so the
+// On Windows, async_queue.php launches this as a detached process, so the
 // worker writes its own PID and enters the loop.
 if ($daemon && function_exists('pcntl_fork')) {
     // Fork once to detach from parent
@@ -151,14 +151,9 @@ if ($daemon) {
     // Log that we're entering the main loop
     @file_put_contents($logFile, date('[Y-m-d H:i:s]') . " DAEMON: Entering main loop\n", FILE_APPEND);
 
-    $iteration = 0;
     while (true) {
-        $iteration++;
-        @file_put_contents($logFile, date('[Y-m-d H:i:s]') . " DAEMON: Iteration {$iteration} starting\n", FILE_APPEND);
-
         try {
             $processed = processOneBatch();
-            @file_put_contents($logFile, date('[Y-m-d H:i:s]') . " DAEMON: Iteration {$iteration} processed {$processed}\n", FILE_APPEND);
 
             // If we processed something, check again immediately
             // Otherwise wait the interval
