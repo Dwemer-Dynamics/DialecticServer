@@ -149,6 +149,7 @@ $SCENE_CLASSIFIER_ENABLED=true; // Enable post-request scene tone/genre classifi
 $CORE_CONNECTOR_PROFILES=1;
 $RELLLM_CONNECTOR=5; // Relationship Management default (Mistral Small 3.2 24B)
 $RELATIONSHIP_UPDATE_CHANCE=50; // Percent chance (0-100) an eligible completed NPC response queues a Relationship Management evaluation. 0 disables automatic evaluations.
+$NEVER_CLEAR_RELATIONSHIP_DATA=false; //Keep current NPC relationships when loading older saves. NPCs may remember later events. Off by default.
 
 ;
 //[AI/LLM Connectors]

@@ -160,6 +160,7 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'RELLLM_CONNECTOR',
             'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM',
             'RELATIONSHIP_SYSTEM_ENABLED',
+            'NEVER_CLEAR_RELATIONSHIP_DATA',
             'SCENE_CLASSIFIER_ENABLED',
             'POWER_AWARENESS_ENABLED',
             'WORLDKNOWLEDGE_CUSTOM',
@@ -404,12 +405,16 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingsCatalog')) {
             'RECHAT_P',
             'RECHAT_ALLOW_ACTIONS',
         ];
+        // Global-only settings that must never gain a per-profile override.
+        $globalOnlyIds = [
+            'NEVER_CLEAR_RELATIONSHIP_DATA',
+        ];
         $managedIds = array_flip(dialecticGetManagedGeneralSettingIds());
         $explicitOverrideIds = ['GLOBAL_STT_CONNECTOR_ID' => true, 'GLOBAL_ITT_CONNECTOR_ID' => true];
 
         $catalog = [];
         foreach ($candidateIds as $id) {
-            if (in_array($id, $profileNativeIds, true)) {
+            if (in_array($id, $profileNativeIds, true) || in_array($id, $globalOnlyIds, true)) {
                 continue;
             }
 
