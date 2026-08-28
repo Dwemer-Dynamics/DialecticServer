@@ -330,6 +330,14 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
         $afterChangeExtended = json_decode((string)$afterChange['extended_data'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame(35, $afterChangeExtended['relationships']['Player']['aff']);
         $this->assertArrayNotHasKey('_dialectic_history_source', $afterChangeExtended);
+
+        // A profile lock retains the newer NPC timestamp, but must not erase restored relationships.
+        $this->assertNotFalse($this->npcMaster->update((int)$row['id'], ['lock_profile' => 1]));
+        $this->assertTrue($this->npcMaster->restoreNPC(100));
+        $locked = $this->npcMaster->getByName('Veronica Relationship Timeline Test');
+        $lockedExtended = json_decode((string)$locked['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(110, (int)$locked['gamets_last_updated']);
+        $this->assertSame(10, $lockedExtended['relationships']['Player']['aff']);
     }
 
     public function testRelationshipRestoreIndexExists(): void

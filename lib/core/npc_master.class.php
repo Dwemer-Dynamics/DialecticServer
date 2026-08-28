@@ -186,8 +186,8 @@ if (!function_exists('dialecticRelationshipFutureClearQuery')) {
         $timestamp = (float) $timestamp;
 
         return "WITH cleared AS (
-                UPDATE {$schema}.core_npc_master
-                SET extended_data = extended_data
+                UPDATE {$schema}.core_npc_master AS c
+                SET extended_data = c.extended_data
                     - 'relationships'
                     - 'relationships_analyzed'
                     - 'relationships_inferred'
@@ -195,12 +195,20 @@ if (!function_exists('dialecticRelationshipFutureClearQuery')) {
                     - 'relationships_model'
                     - 'relationships_updated'
                     - '_dialectic_history_source'
-                WHERE npc_name <> 'The Narrator'
-                  AND (gamets_last_updated > {$timestamp} OR gamets_last_updated IS NULL)
-                  AND extended_data IS NOT NULL
-                  AND extended_data ? 'relationships'
-                  AND NOT COALESCE((extended_data->>'relationships_locked')::boolean, false)
-                RETURNING npc_name
+                WHERE c.npc_name <> 'The Narrator'
+                  AND (c.gamets_last_updated > {$timestamp} OR c.gamets_last_updated IS NULL)
+                  AND c.extended_data IS NOT NULL
+                  AND c.extended_data ? 'relationships'
+                  AND NOT COALESCE((c.extended_data->>'relationships_locked')::boolean, false)
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM {$schema}.core_npc_master_history h
+                      WHERE h.npc_id = c.id
+                        AND (h.gamets_last_updated <= {$timestamp} OR h.gamets_last_updated IS NULL)
+                        AND h.extended_data IS NOT NULL
+                        AND h.extended_data ? 'relationships'
+                  )
+                RETURNING c.npc_name
             ),
             sample AS (
                 SELECT npc_name FROM cleared ORDER BY npc_name LIMIT 10
