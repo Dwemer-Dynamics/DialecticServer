@@ -153,12 +153,12 @@ function callLLMFast($contextData, $customParms = []) {
     // Build the request
     $url = $connectorData["url"];
     $model = $connectorData["model"];
-    $apiKeyId = $connectorData["api_badge_id"];
+    $apiKeyId = intval($connectorData["api_badge_id"] ?? 0);
     
     // Get API key
     $apiBadge = new ApiBadge();
-    $apiKeyData = $apiBadge->getById($apiKeyId);
-    $apiKey = $apiKeyData["api_key"];
+    $apiKeyData = $apiKeyId > 0 ? $apiBadge->getById($apiKeyId) : null;
+    $apiKey = strval($apiKeyData["api_key"] ?? '');
     
     // Prepare request data
     $data = [
@@ -172,10 +172,12 @@ function callLLMFast($contextData, $customParms = []) {
     // Prepare headers
     $headers = [
         'Content-Type: application/json',
-        'Authorization: Bearer ' . $apiKey,
         'HTTP-Referer: https://dwemerdynamics.com/',
         'X-Title: Dwemer Dynamics - WorldKnowledge Topic Extraction'
     ];
+    if ($apiKey !== '') {
+        $headers[] = 'Authorization: Bearer ' . $apiKey;
+    }
     
     // Add provider-specific headers if needed
     if (isset($connectorData["provider"]) && !empty($connectorData["provider"])) {

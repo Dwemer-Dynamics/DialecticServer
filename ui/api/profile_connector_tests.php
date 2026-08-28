@@ -116,6 +116,16 @@ function profileConnectorTestsLlmRequiresApiKey(array $row): bool
     $provider = strtolower(profileConnectorTestsString($row['provider'] ?? ''));
     $url = strtolower(profileConnectorTestsString($row['url'] ?? ''));
 
+    if ($driver === 'openaijson') {
+        require_once dirname(__DIR__, 2) . '/lib/core/local_llm_setup.php';
+        try {
+            dialecticLocalLlmValidateUrl($url);
+            return false;
+        } catch (InvalidArgumentException $e) {
+            // Public providers still require a configured API key.
+        }
+    }
+
     $remoteDrivers = [
         'anthropic',
         'google_openaijson',

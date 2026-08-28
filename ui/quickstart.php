@@ -773,6 +773,8 @@ echo '<section class="qs-section">
         </div>
       </section>';
 
+include(__DIR__ . DIRECTORY_SEPARATOR . "local_llm_quickstart.php");
+
 echo '<section class="qs-section">
                 <h2 class="qs-section-title">LLM Connectors Note</h2>
                 <p class="form-text" id="qs_llm_connectors_note_default"' . $llmNoteDefaultStyle . '>Quickstart gives you four hot-swappable LLMs for in-game use.</p>

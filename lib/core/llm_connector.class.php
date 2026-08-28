@@ -265,6 +265,12 @@ class LLMConnector
 
         if ($currentConnectorData["driver"] == "openaijson") {
 
+            // A later remote connector must not inherit Quickstart-local transport settings.
+            if (!empty($GLOBALS["CONNECTOR"]["openaijson"]["quickstart_managed"])) {
+                unset($GLOBALS["CONNECTOR"]["openaijson"]["disable_streaming"], $GLOBALS["CONNECTOR"]["openaijson"]["lmstudio_compat"]);
+            }
+            unset($GLOBALS["CONNECTOR"]["openaijson"]["quickstart_managed"], $GLOBALS["CONNECTOR"]["openaijson"]["quickstart_timeout"]);
+
             $apiKey = $this->getApiKeyForBadge($currentConnectorData["api_badge_id"] ?? null);
             // error_log("[CORE SYSTEM] Using new profile system CONNECTOR openaijson {$currentConnectorData["id"]} {$currentConnectorData["driver"]}/{$currentConnectorData["model"]}");
             $GLOBALS["CONNECTOR"]["openaijson"]["url"] = $currentConnectorData["url"] ?? 'https://openrouter.ai/api/v1/chat/completions';
