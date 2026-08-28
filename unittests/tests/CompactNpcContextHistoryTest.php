@@ -7,6 +7,38 @@ require_once(__DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . '..' .
 
 final class CompactNpcContextHistoryTest extends TestCase
 {
+    public function testShortTermMemoryFloorSurvivesCompactionWithoutLeakingMetadata(): void
+    {
+        require_once __DIR__ . '/../../lib/data_functions.php';
+        $GLOBALS['DIALECTIC_NAME'] = 'Veronica';
+        $rows = [
+            ['role' => 'player', 'content' => 'Courier: Earlier.', '_g' => 50],
+            ['role' => 'assistant', 'content' => 'Veronica: First reply.', '_g' => 100],
+            ['role' => 'assistant', 'content' => 'Veronica: Second reply.', '_g' => 150],
+            ['role' => 'npc', 'content' => 'Boone: First note.', '_g' => 200],
+            ['role' => 'npc', 'content' => 'Boone: Second note.', '_g' => 250],
+            ['role' => 'player', 'content' => 'Courier: Current question.', '_g' => 300],
+        ];
+        foreach ([false, true] as $compactInfo) {
+            $compacted = compactHistoricContext($rows, 'Veronica', $compactInfo);
+            $history = replaceRoles($compacted, 'Veronica', -3);
+            $this->assertSame(100, $GLOBALS['CONTEXT_WINDOW_FLOOR']);
+            $this->assertCount(3, $history);
+            foreach ($history as $row) {
+                $this->assertArrayNotHasKey('_g', $row);
+                $this->assertArrayNotHasKey('gamets', $row);
+            }
+            $this->assertStringContainsString('Second reply.', $history[0]['content']);
+            $this->assertStringContainsString('Second note.', $history[1]['content']);
+            $this->assertStringContainsString('Current question.', $history[2]['content']);
+        }
+        replaceRoles([], 'Veronica', -3);
+        $this->assertSame(PHP_INT_MAX, $GLOBALS['CONTEXT_WINDOW_FLOOR']);
+        replaceRoles([['role' => 'user', 'content' => 'Unknown time']], 'Veronica', -3);
+        $this->assertSame(0, $GLOBALS['CONTEXT_WINDOW_FLOOR']);
+        unset($GLOBALS['CONTEXT_WINDOW_FLOOR'], $GLOBALS['CONTEXT_BUILDING_DATA']);
+    }
+
     public function testCompactPromptInfoDefaultsOnAndCanPreserveOriginalPrompt(): void
     {
         require_once __DIR__ . '/../../lib/prompt_composition.php';

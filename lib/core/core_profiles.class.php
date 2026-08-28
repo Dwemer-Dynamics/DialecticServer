@@ -40,6 +40,8 @@ class CoreProfile
             'AUTO_DIARY_ENABLED' => false,
             'AUTO_DIARY_WAIT_ENABLED' => true,
             'LATEST_DIARY_CONTEXT_ENABLED' => false,
+            'SHORT_TERM_MEMORY_ENABLED' => false,
+            'SHORT_TERM_MEMORY_MAX' => 10,
             'SALUTATION_AFTER_A_WHILE' => false,
         ];
     }
@@ -338,6 +340,9 @@ class CoreProfile
 
         // Decode and apply profile metadata
         $metadata = json_decode($currentProfileData['metadata'] ?? '{}', true);
+        // Reset opt-in values before applying this profile and its later NPC overrides.
+        $GLOBALS['SHORT_TERM_MEMORY_ENABLED'] = false;
+        $GLOBALS['SHORT_TERM_MEMORY_MAX'] = 10;
         $narratorManagedKeys = [
             'REMOVE_ASTERISKS_FROM_PLAYER_INPUT',
             'REMOVE_ASTERISKS_FROM_NPC_OUTPUT',

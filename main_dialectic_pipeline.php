@@ -2374,6 +2374,16 @@ $contextDataHistoric = filterHistoricContextForNarratorVisibility(
 require_once __DIR__ . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "compact_context_history.php";
 $compactHistoryBlock = '';
 $compactHistoryEnabled = dialecticShouldCompactNpcContextHistory($GLOBALS["DIALECTIC_NAME"] ?? "");
+// Preserve live dialogue verbatim. A partially overlapping summary waits until the
+// whole scene is outside the window; unlike the upstream port, no rows are cropped.
+// Current followers have IS_NPC=false; the helper checks NPC identity and opt-in.
+if ($GLOBALS['DIALECTIC_NAME'] !== 'The Narrator'
+    && (!$compactHistoryEnabled || filter_var($GLOBALS['SHORT_TERM_MEMORY_IN_COMPACT_CHAT'] ?? true, FILTER_VALIDATE_BOOLEAN))) {
+    $contextDataHistoric = array_merge(
+        DataShortTermMemoryFor($GLOBALS['DIALECTIC_NAME'], intval($GLOBALS['CONTEXT_WINDOW_FLOOR'] ?? 0)),
+        $contextDataHistoric
+    );
+}
 if ($compactHistoryEnabled) {
     $compactHistoryBlock = dialecticFormatCompactNpcContextHistory(
         $contextDataHistoric,
