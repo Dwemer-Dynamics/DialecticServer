@@ -12,7 +12,8 @@
 //      Routes the turn privately to the selected listener using a quiet request-local range.
 //
 // * Close (CLOSE)
-//      Routes the turn privately to one nearby listener within the plugin-owned 200-unit close radius.
+//      Routes to the nearby group that can hear the player within the plugin-owned 200-unit close radius
+//      (100 while sneaking). Selecting a responder does not exclude nearby hearers.
 //
 // * Shout (SHOUT)
 //      Expands local hearing/activation range and marks dialogue as shouted.
@@ -275,6 +276,7 @@ $EXECUTION_MODE_=$db->fetchOne("SELECT value FROM conf_opts WHERE id='dialectic_
 $EXECUTION_MODE=isset($EXECUTION_MODE_["value"])?$EXECUTION_MODE_["value"]:"STANDARD";
 
 $EXECUTION_MODE=strtoupper($EXECUTION_MODE);
+$GLOBALS["DIALECTIC_CONFIGURED_EXECUTION_MODE"] = $EXECUTION_MODE;
 
 if (!in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext"])) {
     $EXECUTION_MODE="STANDARD";
@@ -303,7 +305,7 @@ if ($EXECUTION_MODE=="STANDARD") {
     // The game plugin owns request-local whisper distance and audience routing.
 
 } else if ($EXECUTION_MODE=="CLOSE") {
-    // The game plugin owns the compact 200-unit close radius and target-only audience.
+    // The game plugin owns the compact close radius and nearby group audience.
 
 } else if ($EXECUTION_MODE=="SHOUT") {
     // The game plugin owns request-local shout distance and audience routing.

@@ -14,6 +14,7 @@ final class PlayerTtsHelpersTest extends TestCase
     protected function tearDown(): void
     {
         unset($GLOBALS['DIALECTIC_JSON_RESPONSE_LINES']);
+        unset($GLOBALS['DIALECTIC_TURN_PEOPLE_SNAPSHOT']);
     }
 
     public function testExtractsTextFromJsonPayload(): void
@@ -115,6 +116,34 @@ final class PlayerTtsHelpersTest extends TestCase
         ]);
 
         $this->assertSame('|Graussy|Doc Mitchell|Veronica|', dialecticDecodeAudienceSnapshotField($payload));
+    }
+
+    public function testCloseAllowsGroupRechatWithoutNarratorInterjections(): void
+    {
+        $this->assertTrue(dialecticExecutionModeAllowsRechatEvent('CLOSE', 'rechat'));
+        $this->assertFalse(dialecticExecutionModeAllowsRechatEvent('CLOSE', 'narration'));
+        $this->assertFalse(dialecticExecutionModeAllowsRechatEvent('WHISPER', 'rechat'));
+        $this->assertFalse(dialecticExecutionModeAllowsRechatEvent('WHISPER', 'narration'));
+        $this->assertTrue(dialecticExecutionModeAllowsRechatEvent('STANDARD', 'rechat'));
+        $this->assertTrue(dialecticExecutionModeAllowsRechatEvent('STANDARD', 'narration'));
+    }
+
+    public function testCloseGroupSnapshotSurvivesIntoRechatPayload(): void
+    {
+        $people = dialecticDecodeAudienceSnapshotField(json_encode([
+            'people' => '|Doc Mitchell|Veronica|Arcade Gannon|Graussy|',
+        ]));
+        dialecticSetCurrentTurnPeopleSnapshot($people);
+        $payload = dialecticParseServerSideRechatPayload(json_encode([
+            'speaker' => 'Doc Mitchell',
+            'listener_hint' => 'Graussy',
+            'audience_snapshot' => ['people' => dialecticGetCurrentTurnPeopleSnapshot()],
+        ]));
+
+        $this->assertSame(
+            ['Doc Mitchell', 'Veronica', 'Arcade Gannon', 'Graussy'],
+            $payload['audience']
+        );
     }
 
     public function testRechatPayloadPreservesActorFormIds(): void
