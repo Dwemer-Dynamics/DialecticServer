@@ -3240,6 +3240,15 @@ if ($checkVersion("dialectic_chat_event_types") < 20260613001) {
 
 //----------------------------------------------------
 
+if ($checkVersion('global_settings_presets') < 20260828001 || $checkTableExists('global_settings_presets') == -1) {
+    $schema = file_get_contents(__DIR__ . '/../lib/core/database_schema/global_settings_presets.sql');
+    if ($schema !== false && $db->execQuery($schema) !== false) {
+        $updateVersion('global_settings_presets', 20260828001);
+    } else {
+        Logger::error('Could not prepare global settings preset storage.');
+    }
+}
+
 if ($checkVersion("general_settings") < 20260502002) {
     Logger::debug("Applying general_settings 20260502002 - create database-backed general settings table");
     $b_ok = true;
