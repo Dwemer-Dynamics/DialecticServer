@@ -51,6 +51,7 @@ class LLMConnector
 {
 
     private $table = "core_llm_connector";
+    private static $quickstartTransportDefaults = null;
 
     private function normalizeConnectorUrlValue($value)
     {
@@ -265,6 +266,27 @@ class LLMConnector
 
         if ($currentConnectorData["driver"] == "openaijson") {
 
+            $metadata = json_decode($currentConnectorData['metadata'] ?? '{}', true);
+            $metadata = is_array($metadata) ? $metadata : [];
+            $quickstartManaged = filter_var($metadata['quickstart_managed'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            // Restore the prior request defaults after any sequence of managed connectors.
+            // The next connector's explicit metadata is applied below and takes precedence.
+            if ($quickstartManaged && self::$quickstartTransportDefaults === null) {
+                self::$quickstartTransportDefaults = array_intersect_key(
+                    $GLOBALS["CONNECTOR"]["openaijson"] ?? [],
+                    array_flip(['disable_streaming', 'lmstudio_compat'])
+                );
+            } elseif (!$quickstartManaged && self::$quickstartTransportDefaults !== null) {
+                foreach (['disable_streaming', 'lmstudio_compat'] as $key) {
+                    unset($GLOBALS["CONNECTOR"]["openaijson"][$key]);
+                    if (array_key_exists($key, self::$quickstartTransportDefaults)) {
+                        $GLOBALS["CONNECTOR"]["openaijson"][$key] = self::$quickstartTransportDefaults[$key];
+                    }
+                }
+                self::$quickstartTransportDefaults = null;
+            }
+            unset($GLOBALS["CONNECTOR"]["openaijson"]["quickstart_managed"], $GLOBALS["CONNECTOR"]["openaijson"]["quickstart_timeout"]);
+
             $apiKey = $this->getApiKeyForBadge($currentConnectorData["api_badge_id"] ?? null);
             // error_log("[CORE SYSTEM] Using new profile system CONNECTOR openaijson {$currentConnectorData["id"]} {$currentConnectorData["driver"]}/{$currentConnectorData["model"]}");
             $GLOBALS["CONNECTOR"]["openaijson"]["url"] = $currentConnectorData["url"] ?? 'https://openrouter.ai/api/v1/chat/completions';
@@ -285,12 +307,9 @@ class LLMConnector
             $GLOBALS["CONNECTOR"]["openaijson"]["API_KEY"] = $apiKey;
             $GLOBALS["CONNECTOR"]["openaijson"]["json_schema"] = $currentConnectorData["json_schema"] ?? false;
 
-            // Decode metadata and extended_data if available
-            $metadata = json_decode($currentConnectorData['metadata'] ?? '{}', true);
-            if (is_array($metadata)) {
-                foreach ($metadata as $key => $value) {
-                    $GLOBALS["CONNECTOR"]["openaijson"][$key] = $value;
-                }
+            // Apply this connector's metadata after restoring transport defaults.
+            foreach ($metadata as $key => $value) {
+                $GLOBALS["CONNECTOR"]["openaijson"][$key] = $value;
             }
 
         } else if ($currentConnectorData["driver"] == "openrouterjson") {

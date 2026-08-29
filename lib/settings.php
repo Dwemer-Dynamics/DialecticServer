@@ -147,6 +147,8 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'HIDE_AMBIENT_COMBAT',
             'PROMPT_TIMESTAMP',
             'COMPACT_NPC_CONTEXT_HISTORY',
+            'SHORT_TERM_MEMORY_IN_COMPACT_CHAT',
+            'PROMPT_HEAD_MARKDOWN_ENABLED',
             'PROMPT_CONTEXT_OPTIONS',
             'RECHAT_MODE',
             'ENFORCE_STRICT_RECHAT_RESPONSE',
@@ -159,6 +161,7 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'RELLLM_CONNECTOR',
             'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM',
             'RELATIONSHIP_SYSTEM_ENABLED',
+            'NEVER_CLEAR_RELATIONSHIP_DATA',
             'SCENE_CLASSIFIER_ENABLED',
             'POWER_AWARENESS_ENABLED',
             'WORLDKNOWLEDGE_CUSTOM',
@@ -403,12 +406,16 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingsCatalog')) {
             'RECHAT_P',
             'RECHAT_ALLOW_ACTIONS',
         ];
+        // Global-only settings that must never gain a per-profile override.
+        $globalOnlyIds = [
+            'NEVER_CLEAR_RELATIONSHIP_DATA',
+        ];
         $managedIds = array_flip(dialecticGetManagedGeneralSettingIds());
         $explicitOverrideIds = ['GLOBAL_STT_CONNECTOR_ID' => true, 'GLOBAL_ITT_CONNECTOR_ID' => true];
 
         $catalog = [];
         foreach ($candidateIds as $id) {
-            if (in_array($id, $profileNativeIds, true)) {
+            if (in_array($id, $profileNativeIds, true) || in_array($id, $globalOnlyIds, true)) {
                 continue;
             }
 
@@ -463,6 +470,19 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingsCatalog')) {
             $catalog[$id] = $entry;
         }
 
+        // Profile-only values remain available as explicit NPC overrides, not global defaults.
+        $catalog['SHORT_TERM_MEMORY_ENABLED'] = [
+            'type' => 'boolean',
+            'description' => 'Include earlier scene summaries beyond recent dialogue.',
+            'category' => 'Memory',
+            'ui_label' => 'Short Term Memory',
+        ];
+        $catalog['SHORT_TERM_MEMORY_MAX'] = [
+            'type' => 'integer',
+            'description' => 'Maximum earlier scene summaries per response (1-50; default 10).',
+            'category' => 'Memory',
+            'ui_label' => 'Short Term Memory Max Summaries',
+        ];
         ksort($catalog);
         return $catalog;
     }

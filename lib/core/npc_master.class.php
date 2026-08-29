@@ -186,8 +186,8 @@ if (!function_exists('dialecticRelationshipFutureClearQuery')) {
         $timestamp = (float) $timestamp;
 
         return "WITH cleared AS (
-                UPDATE {$schema}.core_npc_master
-                SET extended_data = extended_data
+                UPDATE {$schema}.core_npc_master AS c
+                SET extended_data = c.extended_data
                     - 'relationships'
                     - 'relationships_analyzed'
                     - 'relationships_inferred'
@@ -195,12 +195,20 @@ if (!function_exists('dialecticRelationshipFutureClearQuery')) {
                     - 'relationships_model'
                     - 'relationships_updated'
                     - '_dialectic_history_source'
-                WHERE npc_name <> 'The Narrator'
-                  AND (gamets_last_updated > {$timestamp} OR gamets_last_updated IS NULL)
-                  AND extended_data IS NOT NULL
-                  AND extended_data ? 'relationships'
-                  AND NOT COALESCE((extended_data->>'relationships_locked')::boolean, false)
-                RETURNING npc_name
+                WHERE c.npc_name <> 'The Narrator'
+                  AND (c.gamets_last_updated > {$timestamp} OR c.gamets_last_updated IS NULL)
+                  AND c.extended_data IS NOT NULL
+                  AND c.extended_data ? 'relationships'
+                  AND NOT COALESCE((c.extended_data->>'relationships_locked')::boolean, false)
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM {$schema}.core_npc_master_history h
+                      WHERE h.npc_id = c.id
+                        AND (h.gamets_last_updated <= {$timestamp} OR h.gamets_last_updated IS NULL)
+                        AND h.extended_data IS NOT NULL
+                        AND h.extended_data ? 'relationships'
+                  )
+                RETURNING c.npc_name
             ),
             sample AS (
                 SELECT npc_name FROM cleared ORDER BY npc_name LIMIT 10
@@ -1438,14 +1446,26 @@ class NpcMaster
         if (! is_numeric($timestamp)) {
             throw new InvalidArgumentException("Invalid timestamp value.");
         }
+        require_once(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'settings.php');
+        // Save-load policy belongs to the persisted global setting, never NPC/profile metadata.
+        $neverClearRelationshipData = dialecticGetGeneralSettingBool('NEVER_CLEAR_RELATIONSHIP_DATA', false);
+        $preserveRelationshipDataSql = $neverClearRelationshipData ? 'TRUE' : 'FALSE';
         $startTime = time();
         // Preserve user-controlled memory, diary, and locked relationship settings while rolling back save-scoped history.
         $query     =
             "WITH deleted AS (
-    DELETE FROM core_npc_master
-    WHERE npc_name<>'The Narrator' and COALESCE(lock_profile,0)=0
-    and COALESCE(gamets_last_updated,0)>0
-    RETURNING id, extended_data AS current_extended_data
+    DELETE FROM core_npc_master AS c
+    WHERE c.npc_name<>'The Narrator' and COALESCE(c.lock_profile,0)=0
+    and COALESCE(c.gamets_last_updated,0)>0
+    and (
+        NOT {$preserveRelationshipDataSql}
+        OR EXISTS (
+            SELECT 1 FROM core_npc_master_history eligible_history
+            WHERE eligible_history.npc_id = c.id
+              AND (eligible_history.gamets_last_updated <= $timestamp OR eligible_history.gamets_last_updated IS NULL)
+        )
+    )
+    RETURNING c.id, c.extended_data AS current_extended_data
 ),
 persistent AS (
     SELECT
@@ -1461,7 +1481,15 @@ persistent AS (
                 'auto_diary_wait_enabled',
                 'relationships_locked'
             ])
-        ), '{}'::jsonb) AS persistent_settings
+        ), '{}'::jsonb) AS persistent_settings,
+        CASE WHEN {$preserveRelationshipDataSql} THEN COALESCE((
+            SELECT jsonb_object_agg(entry.key, entry.value)
+            FROM jsonb_each(COALESCE(d.current_extended_data, '{}'::jsonb)) AS entry
+            WHERE entry.key = ANY (ARRAY[
+                'relationships', 'relationships_analyzed', 'relationships_inferred',
+                'relationships_last_eval', 'relationships_model', 'relationships_updated'
+            ])
+        ), '{}'::jsonb) ELSE '{}'::jsonb END AS preserved_relationships
     FROM deleted d
 ),
 restore AS (
@@ -1495,8 +1523,13 @@ restore AS (
                 'auto_diary_wait_enabled',
                 'relationships_locked'
             ]::text[]
+            - CASE WHEN {$preserveRelationshipDataSql} THEN ARRAY[
+                'relationships', 'relationships_analyzed', 'relationships_inferred',
+                'relationships_last_eval', 'relationships_model', 'relationships_updated'
+            ]::text[] ELSE ARRAY[]::text[] END
             || d.persistent_settings
         ) || CASE
+            WHEN {$preserveRelationshipDataSql} THEN d.preserved_relationships
             WHEN COALESCE((d.current_extended_data->>'relationships_locked')::boolean, false)
                 THEN jsonb_build_object(
                     'relationships',
@@ -1543,35 +1576,39 @@ FROM restore
         error_log("[NPC RESTORE] using gamets: $timestamp.. " . date('Y-m-d H:i:s'));
         $GLOBALS["db"]->query($query);
 
-        $relationshipRestoreSucceeded = false;
-        try {
-            $relationshipRestoreResult = $GLOBALS['db']->fetchOne(dialecticRelationshipRestoreQuery($timestamp));
-            if (!is_array($relationshipRestoreResult) || !array_key_exists('affected', $relationshipRestoreResult)) {
-                throw new RuntimeException('relationship restore query did not return a result');
-            }
-            $relationshipRestoreCount = (int) ($relationshipRestoreResult['affected'] ?? 0);
-            $relationshipRestoreSucceeded = true;
-            error_log("[NPC RESTORE] Restored relationship timeline data for {$relationshipRestoreCount} NPCs at gamets $timestamp");
-        } catch (Throwable $e) {
-            error_log("[NPC RESTORE] Failed to restore NPC relationships: " . $e->getMessage());
-        }
-
-        // RELATIONSHIP SYSTEM: Clear "future" relationship data from NPCs that weren't restored
-        // NPCs added AFTER the save timestamp don't have history entries, so they keep their
-        // current (future) state. We need to clear their relationship data to prevent paradoxes.
-        if ($relationshipRestoreSucceeded) {
-            try {
-                $clearResult = $GLOBALS['db']->fetchOne(dialecticRelationshipFutureClearQuery($timestamp));
-                if (!is_array($clearResult) || !array_key_exists('affected', $clearResult)) {
-                    throw new RuntimeException('future relationship clear query did not return a result');
-                }
-                $clearCount = (int) ($clearResult['affected'] ?? 0);
-                error_log("[NPC RESTORE] Cleared future relationship data for {$clearCount} NPCs with gamets > $timestamp");
-            } catch (Throwable $e) {
-                error_log("[NPC RESTORE] Failed to clear future relationships: " . $e->getMessage());
-            }
+        if ($neverClearRelationshipData) {
+            error_log('[NPC RESTORE] Preserved current relationships because Never Clear Relationship Data is enabled');
         } else {
-            error_log('[NPC RESTORE] Skipped future relationship clear because timeline restore failed');
+            $relationshipRestoreSucceeded = false;
+            try {
+                $relationshipRestoreResult = $GLOBALS['db']->fetchOne(dialecticRelationshipRestoreQuery($timestamp));
+                if (!is_array($relationshipRestoreResult) || !array_key_exists('affected', $relationshipRestoreResult)) {
+                    throw new RuntimeException('relationship restore query did not return a result');
+                }
+                $relationshipRestoreCount = (int) ($relationshipRestoreResult['affected'] ?? 0);
+                $relationshipRestoreSucceeded = true;
+                error_log("[NPC RESTORE] Restored relationship timeline data for {$relationshipRestoreCount} NPCs at gamets $timestamp");
+            } catch (Throwable $e) {
+                error_log("[NPC RESTORE] Failed to restore NPC relationships: " . $e->getMessage());
+            }
+
+            // RELATIONSHIP SYSTEM: Clear "future" relationship data from NPCs that weren't restored
+            // NPCs added AFTER the save timestamp don't have history entries, so they keep their
+            // current (future) state. We need to clear their relationship data to prevent paradoxes.
+            if ($relationshipRestoreSucceeded) {
+                try {
+                    $clearResult = $GLOBALS['db']->fetchOne(dialecticRelationshipFutureClearQuery($timestamp));
+                    if (!is_array($clearResult) || !array_key_exists('affected', $clearResult)) {
+                        throw new RuntimeException('future relationship clear query did not return a result');
+                    }
+                    $clearCount = (int) ($clearResult['affected'] ?? 0);
+                    error_log("[NPC RESTORE] Cleared future relationship data for {$clearCount} NPCs with gamets > $timestamp");
+                } catch (Throwable $e) {
+                    error_log("[NPC RESTORE] Failed to clear future relationships: " . $e->getMessage());
+                }
+            } else {
+                error_log('[NPC RESTORE] Skipped future relationship clear because timeline restore failed');
+            }
         }
 
         error_log("[NPC RESTORE] " . date('Y-m-d H:i:s') . ", NPCs restore made in " . (time() - $startTime) . " secs ");

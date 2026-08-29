@@ -877,14 +877,23 @@ class openaijson
 
         $this->adaptLmStudioResponseFormat($data);
 
+        if ($this->normalizeBooleanFlag($GLOBALS["CONNECTOR"][$this->name]["quickstart_managed"] ?? false, false)) {
+            // Local OpenAI-compatible servers use the broadly supported token limit.
+            if ($MAX_TOKENS > 0) {
+                $data['max_tokens'] = $data['max_tokens'] ?? $MAX_TOKENS;
+            }
+            unset($data['max_completion_tokens']);
+        }
+
         $GLOBALS["DEBUG_DATA"]["full"]=($data);
 
         file_put_contents(__DIR__."/../log/context_sent_to_llm.log",date(DATE_ATOM)."\n=\n".var_export($data,true)."\n=\n", FILE_APPEND);
 
-        $headers = array(
-            'Content-Type: application/json',
-            "Authorization: Bearer {$GLOBALS["CONNECTOR"][$this->name]["API_KEY"]}"
-        );
+        $headers = ['Content-Type: application/json'];
+        $apiKey = strval($GLOBALS["CONNECTOR"][$this->name]["API_KEY"] ?? '');
+        if ($apiKey !== '') {
+            $headers[] = 'Authorization: Bearer ' . $apiKey;
+        }
 
         $timeout = max(intval(($GLOBALS["HTTP_TIMEOUT"]) ?? 30), $this->_timeout);
         $options = array(
@@ -896,6 +905,11 @@ class openaijson
                 "ignore_errors" => true
             )
         );
+
+        if ($this->normalizeBooleanFlag($GLOBALS["CONNECTOR"][$this->name]["quickstart_managed"] ?? false, false)) {
+            $options['http']['timeout'] = max(5, min(120, intval($GLOBALS["CONNECTOR"][$this->name]["quickstart_timeout"] ?? 30)));
+            $options['http']['follow_location'] = 0;
+        }
 
         $context = stream_context_create($options);
         
@@ -1454,14 +1468,24 @@ class openaijson
 
         $this->adaptLmStudioResponseFormat($data);
 
+        if ($this->normalizeBooleanFlag($GLOBALS["CONNECTOR"][$this->name]["quickstart_managed"] ?? false, false)) {
+            if ($MAX_TOKENS > 0) {
+                $data['max_tokens'] = $data['max_tokens'] ?? $MAX_TOKENS;
+            }
+            unset($data['max_completion_tokens']);
+        }
+
         $GLOBALS["DEBUG_DATA"]["full"]=($data);
      
         $headers = array(
             'Content-Type: application/json',
-            "Authorization: Bearer {$GLOBALS["CONNECTOR"][$this->name]["API_KEY"]}",
             "HTTP-Referer:  https://dwemerdynamics.com/",
             "X-Title: Dwemer Dynamics"
         );
+        $apiKey = strval($GLOBALS["CONNECTOR"][$this->name]["API_KEY"] ?? '');
+        if ($apiKey !== '') {
+            $headers[] = 'Authorization: Bearer ' . $apiKey;
+        }
         
         $timeout = max(intval(($GLOBALS["HTTP_TIMEOUT"]) ?? 30), $this->_timeout);
         $options = array(
@@ -1472,6 +1496,11 @@ class openaijson
                 'timeout' => $timeout
             )
         );
+
+        if ($this->normalizeBooleanFlag($GLOBALS["CONNECTOR"][$this->name]["quickstart_managed"] ?? false, false)) {
+            $options['http']['timeout'] = max(5, min(120, intval($GLOBALS["CONNECTOR"][$this->name]["quickstart_timeout"] ?? 30)));
+            $options['http']['follow_location'] = 0;
+        }
 
         $context = stream_context_create($options);
         

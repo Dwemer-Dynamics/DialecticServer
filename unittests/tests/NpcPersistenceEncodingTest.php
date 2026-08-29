@@ -330,6 +330,80 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
         $afterChangeExtended = json_decode((string)$afterChange['extended_data'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame(35, $afterChangeExtended['relationships']['Player']['aff']);
         $this->assertArrayNotHasKey('_dialectic_history_source', $afterChangeExtended);
+
+        // A profile lock retains the newer NPC timestamp, but must not erase restored relationships.
+        $this->assertNotFalse($this->npcMaster->update((int)$row['id'], ['lock_profile' => 1]));
+        $this->assertTrue($this->npcMaster->restoreNPC(100));
+        $locked = $this->npcMaster->getByName('Veronica Relationship Timeline Test');
+        $lockedExtended = json_decode((string)$locked['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(110, (int)$locked['gamets_last_updated']);
+        $this->assertSame(10, $lockedExtended['relationships']['Player']['aff']);
+    }
+
+    public function testNeverClearRelationshipsPreservesCurrentStateUntilDisabled(): void
+    {
+        $name = 'Never Clear Relationships Test';
+        $this->assertTrue($this->npcMaster->create([
+            'npc_name' => $name,
+            'personality' => 'Before save',
+            'extended_data' => [
+                'inventory' => ['Varmint rifle'],
+                'relationships' => ['Player' => ['aff' => 10]],
+                'relationships_updated' => 'Historical marker',
+            ],
+        ]));
+        $this->assertTrue($this->npcMaster->backupAllNpcs(100));
+        $row = $this->npcMaster->getByName($name);
+        $current = [
+            'inventory' => ['Current inventory'],
+            'relationships' => ['Player' => ['aff' => 80, 'notes' => null]],
+            'relationships_analyzed' => false,
+            'relationships_inferred' => [],
+            'relationships_last_eval' => 200,
+            'relationships_model' => null,
+        ];
+        // Replace the JSON directly so an absent current key cannot be merged back by an NPC update.
+        $this->assertTrue($GLOBALS['db']->updateRow('core_npc_master', [
+            'personality' => 'After save',
+            'gamets_last_updated' => 200,
+            'extended_data' => json_encode($current, JSON_THROW_ON_ERROR),
+        ], 'id = ' . (int)$row['id']));
+        $this->assertTrue($this->npcMaster->create([
+            'npc_name' => 'Never Clear Future NPC Test',
+            'gamets_last_updated' => 200,
+            'extended_data' => $current,
+        ]));
+
+        $hadGlobal = array_key_exists('NEVER_CLEAR_RELATIONSHIP_DATA', $GLOBALS);
+        $savedGlobal = $GLOBALS['NEVER_CLEAR_RELATIONSHIP_DATA'] ?? null;
+        try {
+            $GLOBALS['db']->upsertRowOnConflict('general_settings', [
+                'id' => 'NEVER_CLEAR_RELATIONSHIP_DATA', 'value' => 'true',
+            ], 'id');
+            $GLOBALS['NEVER_CLEAR_RELATIONSHIP_DATA'] = false;
+            $this->assertTrue($this->npcMaster->restoreNPC(100));
+            $restored = $this->npcMaster->getByName($name);
+            $expected = $current;
+            $expected['inventory'] = ['Varmint rifle'];
+            $this->assertSame('Before save', $restored['personality']);
+            $this->assertEquals($expected, $this->npcMaster->getExtendedData($restored));
+            $future = $this->npcMaster->getByName('Never Clear Future NPC Test');
+            $this->assertNotEmpty($future);
+            $this->assertEquals($current, $this->npcMaster->getExtendedData($future));
+
+            $GLOBALS['db']->updateRow('general_settings', ['value' => 'false'], "id = 'NEVER_CLEAR_RELATIONSHIP_DATA'");
+            $GLOBALS['NEVER_CLEAR_RELATIONSHIP_DATA'] = true;
+            $this->assertTrue($this->npcMaster->restoreNPC(100));
+            $rolledBack = $this->npcMaster->getExtendedData($this->npcMaster->getByName($name));
+            $this->assertSame(10, $rolledBack['relationships']['Player']['aff']);
+            $this->assertSame('Historical marker', $rolledBack['relationships_updated']);
+        } finally {
+            if ($hadGlobal) {
+                $GLOBALS['NEVER_CLEAR_RELATIONSHIP_DATA'] = $savedGlobal;
+            } else {
+                unset($GLOBALS['NEVER_CLEAR_RELATIONSHIP_DATA']);
+            }
+        }
     }
 
     public function testRelationshipRestoreIndexExists(): void

@@ -81,9 +81,9 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
     </div>
 
     <div class="relationship-modal" id="rel_details_modal" aria-hidden="true">
-        <div class="relationship-modal-panel">
-            <h3>Relationship Details: <span id="rel_details_target"></span></h3>
-            <p>These details are injected into prompt context. Keep them concise and relevant.</p>
+        <div class="relationship-modal-panel" role="dialog" aria-modal="true" aria-labelledby="rel_details_heading">
+            <h3 id="rel_details_heading">Relationship Details: <span id="rel_details_target"></span></h3>
+            <p>Relationship detail and memories are injected into prompt context. Keep them concise and relevant.</p>
             <label for="rel_details_relation">Relationship detail</label>
             <input type="text" id="rel_details_relation" placeholder="friend, sibling, patient, commanding officer">
             <label for="rel_details_note">Recent interaction</label>
@@ -92,6 +92,9 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
             <input type="text" id="rel_details_best" placeholder="saved their life near Goodsprings">
             <label for="rel_details_worst">Worst memory</label>
             <input type="text" id="rel_details_worst" placeholder="betrayed their trust">
+            <label for="rel_details_custom">Custom Info</label>
+            <textarea id="rel_details_custom" rows="3" aria-describedby="rel_details_custom_hint" placeholder="Your own notes about this relationship"></textarea>
+            <small id="rel_details_custom_hint" class="relationship-private-hint">Player notes only. Not sent to the AI.</small>
             <div class="relationship-modal-actions">
                 <button type="button" class="relationship-button" data-rel-close="rel_details_modal">Cancel</button>
                 <button type="button" id="rel_details_save" class="relationship-button positive">Save Details</button>
@@ -118,6 +121,7 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
 .relationship-signal-note { color:#d1d5db; }
 .relationship-signal-best { color:#86efac; }
 .relationship-signal-worst { color:#fca5a5; }
+.relationship-signal-private { color:#f6d49b; }
 .relationship-no-signals { color:#666; }
 .relationship-row-actions { display:flex; gap:4px; justify-content:flex-end; }
 .relationship-icon-button { width:32px; height:32px; border:1px solid #555; background:#292929; color:#ddd; border-radius:4px; cursor:pointer; }
@@ -142,7 +146,8 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
 .relationship-modal-panel p { color:#999; margin:0 0 12px; }
 .relationship-modal-panel label { display:block; color:#ccc; margin:10px 0 4px; }
 .relationship-modal-panel input, .relationship-modal-panel textarea { width:100%; }
-.relationship-modal-panel textarea { min-height:82px; resize:vertical; }
+.relationship-modal-panel textarea { min-height:82px; resize:vertical; font-family:inherit; font-size:inherit; }
+.relationship-modal-panel .relationship-private-hint { display:block; margin:5px 0 0; color:#999; font-size:0.8rem; line-height:1.35; }
 .relationship-warning { padding:9px 10px; border:1px solid #7c6533; background:#3a2d13; color:#f5d88f; border-radius:4px; }
 .relationship-modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
 @media (max-width:760px) { .relationship-add-row { grid-template-columns:1fr 90px; } }
@@ -160,6 +165,7 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
     const types = baseTypes.slice();
     let relationships = {};
     let detailsTarget = '';
+    let modalReturnFocus = null;
     try {
         const parsedRelationships = JSON.parse(hidden.value || '{}');
         relationships = parsedRelationships && typeof parsedRelationships === 'object' && !Array.isArray(parsedRelationships)
@@ -194,6 +200,11 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
     function truncate(value, limit) {
         const text = String(value || '');
         return text.length > limit ? text.slice(0, limit - 3) + '...' : text;
+    }
+    // Automatic merges preserve the exact player-authored text; only an explicit
+    // details save trims it. Custom Info never comes from model output.
+    function privateNote(data) {
+        return data && typeof data.custom_info === 'string' ? data.custom_info : '';
     }
     function setStatus(message, isError) {
         status.textContent = message || '';
@@ -278,6 +289,15 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
             hasSignals = signal(signalsCell, 'relationship-signal-best', 'Best', data.best) || hasSignals;
             hasSignals = signal(signalsCell, 'relationship-signal-worst', 'Worst', data.worst) || hasSignals;
             if (!hasSignals && data.relation) hasSignals = signal(signalsCell, 'relationship-signal-note', 'Role', data.relation);
+            const privateText = privateNote(data).trim();
+            if (privateText) {
+                const privateLine = document.createElement('div');
+                privateLine.className = 'relationship-signal-private';
+                privateLine.textContent = 'Custom Info: ' + truncate(privateText.replace(/\s+/g, ' '), 62);
+                privateLine.title = 'Player notes only. Not sent to the AI.\n' + privateText;
+                signalsCell.appendChild(privateLine);
+                hasSignals = true;
+            }
             if (!hasSignals) {
                 const none = document.createElement('span');
                 none.className = 'relationship-no-signals'; none.textContent = 'No signals';
@@ -287,7 +307,8 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
             actionsCell.className = 'relationship-row-actions';
             const details = document.createElement('button');
             details.type = 'button'; details.className = 'relationship-icon-button'; details.textContent = '...'; details.title = 'Edit relationship details';
-            if (data.relation || data.note || data.best || data.worst) details.classList.add('has-details');
+            details.dataset.relDetailsTarget = target;
+            if (data.relation || data.note || data.best || data.worst || privateText) details.classList.add('has-details');
             details.addEventListener('click', () => openDetails(target));
             const remove = document.createElement('button');
             remove.type = 'button'; remove.className = 'relationship-icon-button danger'; remove.textContent = 'X'; remove.title = 'Remove relationship';
@@ -299,15 +320,35 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
         fillTypeSelect(document.getElementById('rel_new_type'), document.getElementById('rel_new_type').value || 'neutral');
         sync();
     }
+    function focusDetailsButton(target) {
+        const buttons = tbody.querySelectorAll('button[data-rel-details-target]');
+        for (let index = 0; index < buttons.length; index += 1) {
+            if (buttons[index].dataset.relDetailsTarget === target) {
+                buttons[index].focus();
+                return;
+            }
+        }
+    }
     function openModal(id) {
         const modal = document.getElementById(id);
+        modalReturnFocus = document.activeElement;
         modal.classList.add('open');
         modal.setAttribute('aria-hidden', 'false');
+        const first = modal.querySelector('input, textarea, select, button');
+        if (first) first.focus();
     }
     function closeModal(id) {
         const modal = document.getElementById(id);
         modal.classList.remove('open');
         modal.setAttribute('aria-hidden', 'true');
+        const previous = modalReturnFocus;
+        modalReturnFocus = null;
+        if (previous && previous.isConnected && typeof previous.focus === 'function') {
+            previous.focus();
+            return;
+        }
+        // Saving details re-renders the table, so the button that opened it is gone.
+        if (id === 'rel_details_modal') focusDetailsButton(detailsTarget);
     }
     function openDetails(target) {
         detailsTarget = target;
@@ -317,33 +358,81 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
         document.getElementById('rel_details_note').value = data.note || '';
         document.getElementById('rel_details_best').value = data.best || '';
         document.getElementById('rel_details_worst').value = data.worst || '';
+        document.getElementById('rel_details_custom').value = typeof data.custom_info === 'string' ? data.custom_info : '';
         openModal('rel_details_modal');
     }
 
     document.querySelectorAll('[data-rel-close]').forEach(button => {
         button.addEventListener('click', () => closeModal(button.getAttribute('data-rel-close')));
     });
+    // Capture phase so Escape closes only this modal. npc_master listens on document
+    // in the bubble phase and would otherwise close the whole NPC modal underneath.
+    section.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' && event.key !== 'Tab') return;
+        const open = section.querySelector('.relationship-modal.open');
+        if (!open) return;
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            closeModal(open.id);
+            return;
+        }
+        // Keep keyboard navigation inside the details dialog while it is open.
+        if (open.id !== 'rel_details_modal') return;
+        const controls = open.querySelectorAll('input, textarea, select, button:not(:disabled)');
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    }, true);
     document.getElementById('rel_details_save').addEventListener('click', () => {
         const data = relationships[detailsTarget];
         if (!data) return closeModal('rel_details_modal');
+        let aiFieldsChanged = false;
         ['relation', 'note', 'best', 'worst'].forEach(field => {
             const value = document.getElementById('rel_details_' + field).value.trim();
+            if (value === (data[field] || '')) return;
+            aiFieldsChanged = true;
             if (value) data[field] = value; else delete data[field];
         });
-        protectManualEdit();
-        closeModal('rel_details_modal');
+        const note = document.getElementById('rel_details_custom').value.trim();
+        const noteChanged = note !== privateNote(data);
+        if (note) {
+            data.custom_info = note;
+        } else if ('custom_info' in data) {
+            // Keep an explicit empty value so clearing reads as a clear instead of an
+            // untouched field that server-side preservation could restore.
+            data.custom_info = '';
+        }
+        // Custom Info never reaches the model, so it must not turn on the AI lock.
+        if (aiFieldsChanged) protectManualEdit();
+        // Render first so closeModal sees the stale opener button and restores focus
+        // to the rebuilt row instead of dropping it on the page body.
         render();
-        setStatus('Relationship details updated. Save the NPC to keep them.', false);
+        closeModal('rel_details_modal');
+        if (!aiFieldsChanged && noteChanged) {
+            setStatus('Custom Info updated. Save the NPC to keep it.', false);
+        } else {
+            setStatus('Relationship details updated. Save the NPC to keep them.', false);
+        }
     });
     // Shared by the Add button and the save hooks below. Returns false when nothing is staged.
     function commitStagedRow() {
         const targetInput = document.getElementById('rel_new_target');
         const target = targetInput.value.trim();
         if (!target) return false;
+        const stagedNote = privateNote(relationships[target]);
         relationships[target] = {
             aff: Math.max(-100, Math.min(100, Number(document.getElementById('rel_new_affinity').value || 0))),
             type: document.getElementById('rel_new_type').value || 'neutral'
         };
+        // Re-adding a tracked target replaces its affinity and type, not the player note.
+        if (stagedNote) relationships[target].custom_info = stagedNote;
         protectManualEdit();
         targetInput.value = '';
         document.getElementById('rel_new_affinity').value = '0';
@@ -369,7 +458,15 @@ $relationshipEndpoint = rtrim((string)($webRoot ?? ''), '/') . '/ext/relationshi
             const response = await fetch(<?= json_encode($relationshipEndpoint) ?>, {method: 'POST', body});
             const result = await response.json();
             if (!response.ok || !result.ok) throw new Error(result.error || 'Relationship analysis failed.');
-            relationships = Object.assign({}, relationships, result.relationships || {});
+            const merged = Object.assign({}, relationships);
+            Object.entries(result.relationships || {}).forEach(([target, incoming]) => {
+                const next = Object.assign({}, incoming);
+                delete next.custom_info;
+                const keptNote = privateNote(relationships[target]);
+                if (keptNote) next.custom_info = keptNote;
+                merged[target] = next;
+            });
+            relationships = merged;
             closeModal('rel_build_modal');
             render();
             setStatus('Built ' + Number(result.count || 0) + ' relationship(s) from ' + Number(result.event_count || 0) + ' events. Save the NPC to keep them.', false);

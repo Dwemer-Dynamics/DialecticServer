@@ -250,11 +250,15 @@ if (!function_exists('dialecticFormatCompactNpcContextHistory')) {
 }
 
 if (!function_exists('dialecticAppendCompactHistoryToPrompt')) {
-    function dialecticAppendCompactHistoryToPrompt(array $worldContext, string $historyBlock): array
+    function dialecticAppendCompactHistoryToPrompt(array $worldContext, string $historyBlock, bool $markdownEnabled = false): array
     {
         $historyBlock = trim($historyBlock);
         if ($historyBlock === '') {
             return $worldContext;
+        }
+
+        if ($markdownEnabled) {
+            $historyBlock = "# Conversation History\n\n" . preg_replace('/^# /m', '- ', $historyBlock);
         }
 
         foreach ($worldContext as &$entry) {

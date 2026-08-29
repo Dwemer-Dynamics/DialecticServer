@@ -13,7 +13,7 @@ require_once(__DIR__."/npc_tts_status.php");
 function dialecticBuildLatestDiaryContextBlock(string $npcName, array $profileData): string
 {
     $safeNpcName = trim($npcName);
-    if ($safeNpcName === '' || strcasecmp($safeNpcName, 'The Narrator') === 0) {
+    if ($safeNpcName === '') {
         return '';
     }
 
@@ -3072,6 +3072,15 @@ function isCloseExecutionMode()
     return ($mode === "CLOSE");
 }
 
+// Close permits audience-scoped NPC replies, but still excludes random Narrator interjections.
+function dialecticExecutionModeAllowsRechatEvent(string $mode, string $eventType): bool
+{
+    $mode = strtoupper(trim($mode));
+    return in_array($eventType, ['rechat', 'narration'], true)
+        && $mode !== 'WHISPER'
+        && !($mode === 'CLOSE' && $eventType === 'narration');
+}
+
 function isPrivateConversationExecutionMode()
 {
     return isWhisperExecutionMode() || isCloseExecutionMode();
@@ -3126,10 +3135,6 @@ function buildDialogueTargetSuffix($listenerName, $isSpeakingLoudly = false)
 
     if (isWhisperExecutionMode()) {
         return "(whispering to {$listenerName})";
-    }
-
-    if (isCloseExecutionMode()) {
-        return "(speaking privately to {$listenerName})";
     }
 
     if (isShoutExecutionMode()) {

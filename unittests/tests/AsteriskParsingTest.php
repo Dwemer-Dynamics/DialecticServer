@@ -201,23 +201,19 @@ final class AsteriskParsingTest extends TestCase
         );
     }
 
-    public function testCloseModeBuildsPrivateTargetSuffix(): void
+    public function testCloseModeBuildsNormalTargetSuffix(): void
     {
         $GLOBALS['DIALECTIC_EXECUTION_MODE'] = 'CLOSE';
         $GLOBALS['PLAYER_NAME'] = 'Rangroo';
 
         $this->assertSame(
-            '(speaking privately to Doc Mitchell)',
+            '(talking to Doc Mitchell)',
             buildDialogueTargetSuffix('Doc Mitchell')
         );
         $this->assertTrue(isPrivateConversationExecutionMode());
         $this->assertSame(
             '|Rangroo|Doc Mitchell|',
             buildPrivateConversationPeople('Doc Mitchell')
-        );
-        $this->assertSame(
-            'Rangroo: Keep this quiet (Speaking privately to Doc Mitchell)',
-            convertTalkingTagsToPrivate('Rangroo: Keep this quiet (Talking to Doc Mitchell)')
         );
     }
 

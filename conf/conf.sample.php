@@ -41,7 +41,8 @@ $WORLDKNOWLEDGE_RESULT_LIMIT=3; //Maximum World Knowledge articles included in o
 $PLAYER_RESPEECH=true; //Use default diary connector AI to rewrite player speech. Currently only triggers when starting speech with **.
 $PLAYER_SPEECH_STYLE=""; //Instructions for how the player character speaks and communicates. Used as context when rewriting player dialogue.
 $PROMPT_TIMESTAMP=false; //Add rough timestamp subdividers to event context (e.g., 'Moments Ago', 'A while ago') to help the LLM understand temporal relationships.
-$COMPACT_NPC_CONTEXT_HISTORY=true; //Use compact plaintext for prior NPC conversation history while preserving live JSON responses.
+$COMPACT_NPC_CONTEXT_HISTORY=true; //Use compact text instead of separate messages for conversation history. Does not affect the Narrator.
+$PROMPT_HEAD_MARKDOWN_ENABLED=true; //Use Markdown headings instead of XML tags for all prompt sections.
 $use_emotions_expression = false; //Add emotions support. Changes the affect context/json object offered to LLM must be false by default.
 
 //[Advanced Configuration]
@@ -148,6 +149,7 @@ $SCENE_CLASSIFIER_ENABLED=true; // Enable post-request scene tone/genre classifi
 $CORE_CONNECTOR_PROFILES=1;
 $RELLLM_CONNECTOR=5; // Relationship Management default (Mistral Small 3.2 24B)
 $RELATIONSHIP_UPDATE_CHANCE=50; // Percent chance (0-100) an eligible completed NPC response queues a Relationship Management evaluation. 0 disables automatic evaluations.
+$NEVER_CLEAR_RELATIONSHIP_DATA=false; //Keep current NPC relationships when loading older saves. NPCs may remember later events. Off by default.
 
 ;
 //[AI/LLM Connectors]
