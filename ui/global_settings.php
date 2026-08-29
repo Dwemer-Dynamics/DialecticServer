@@ -35,20 +35,28 @@ $saveSuccess = isset($_GET['_saved']) && $_GET['_saved'] === '1';
 $promptContextSectionTitle = 'Context Selections';
 
 $gsSections = [
- 'Prompt' => [
+ 'Prompt & Rechat' => [
  [ 'name' => 'PROMPT_HEAD', 'type' => 'longstring' ],
  [ 'name' => 'EMOTEMOODS', 'type' => 'longstring' ],
- [ 'name' => 'LOCATION_BLACKLIST', 'type' => 'longstring' ],
- [ 'name' => 'ITEM_BLACKLIST', 'type' => 'longstring' ],
- [ 'name' => 'SHORTER_NEARBY_ITEM_LIST', 'type' => 'boolean' ],
- [ 'name' => 'EVENT_TYPE_FILTER', 'type' => 'longstring' ],
- ],
- 'Rechat' => [
+ [ 'name' => 'COMPACT_NPC_CONTEXT_HISTORY', 'type' => 'boolean' ],
+ [ 'name' => 'SHORT_TERM_MEMORY_IN_COMPACT_CHAT', 'type' => 'boolean' ],
+ [ 'name' => 'PROMPT_HEAD_MARKDOWN_ENABLED', 'type' => 'boolean' ],
  [ 'name' => 'RECHAT_MODE', 'type' => 'select', 'values' => ['tight', 'conversational', 'group', 'random'] ],
  [ 'name' => 'ENFORCE_STRICT_RECHAT_RESPONSE', 'type' => 'boolean' ],
  ],
+ 'World Knowledge' => [
+ [ 'name' => 'WORLDKNOWLEDGE_INFINIUM', 'type' => 'boolean' ],
+ [ 'name' => 'WORLDKNOWLEDGE_AMOUNT', 'type' => 'select', 'values' => ['1', '2', '3'] ],
+ [ 'name' => 'WORLDKNOWLEDGE_RESULT_LIMIT', 'type' => 'select', 'values' => ['1', '2', '3', '4', '5'] ],
+ [ 'name' => 'LOCATION_WORLDKNOWLEDGE', 'type' => 'boolean' ],
+ [ 'name' => 'RACE_WORLDKNOWLEDGE', 'type' => 'boolean' ],
+ [ 'name' => 'FACTION_WORLDKNOWLEDGE', 'type' => 'boolean' ],
+ [ 'name' => 'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK', 'type' => 'boolean' ],
+ [ 'name' => 'WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS', 'type' => 'integer', 'min' => 250, 'max' => 3000 ],
+ ],
  'Memory' => [
  [ 'name' => 'FEATURES@MEMORY_EMBEDDING@ENABLED', 'type' => 'boolean' ],
+ [ 'name' => 'FEATURES@MEMORY_EMBEDDING@TXTAI_URL', 'type' => 'url' ],
  [ 'name' => 'FEATURES@MEMORY_EMBEDDING@USE_TEXT2VEC', 'type' => 'boolean' ],
  [ 'name' => 'FEATURES@MEMORY_EMBEDDING@AUTO_CREATE_SUMMARY_INTERVAL', 'type' => 'integer' ],
  ],
@@ -60,6 +68,7 @@ $gsSections = [
  [ 'name' => 'CORE_CONNECTOR_PROFILES', 'type' => 'foreign:core_llm_connector:id:label' ],
  [ 'name' => 'CORE_CONNECTOR_DIRECTOR', 'type' => 'foreign:core_llm_connector:id:label' ],
  [ 'name' => 'RELLLM_CONNECTOR', 'type' => 'foreign:core_llm_connector:id:label' ],
+ [ 'name' => 'NEVER_CLEAR_RELATIONSHIP_DATA', 'type' => 'boolean' ],
  [ 'name' => 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM', 'type' => 'foreign:core_llm_connector:id:label' ],
  ],
  'Context' => [
@@ -68,6 +77,12 @@ $gsSections = [
  [ 'name' => 'HIDE_AMBIENT_COMBAT', 'type' => 'boolean' ],
  [ 'name' => 'POWER_AWARENESS_ENABLED', 'type' => 'boolean' ],
  [ 'name' => 'PROMPT_TIMESTAMP', 'type' => 'boolean' ],
+ ],
+ 'Filters & Blacklists' => [
+ [ 'name' => 'LOCATION_BLACKLIST', 'type' => 'longstring' ],
+ [ 'name' => 'ITEM_BLACKLIST', 'type' => 'longstring' ],
+ [ 'name' => 'SHORTER_NEARBY_ITEM_LIST', 'type' => 'boolean' ],
+ [ 'name' => 'EVENT_TYPE_FILTER', 'type' => 'longstring' ],
  ],
  $promptContextSectionTitle => [],
  'Misc' => [
@@ -78,12 +93,40 @@ $gsSections = [
  ],
 ];
 
+$settingsTabs = [
+ 'prompt-rechat' => '💬 Prompt & Rechat',
+ 'ai-memory' => '🧠 Memory & Others',
+ 'context-knowledge' => '📚 Context & Knowledge',
+ 'global-connectors' => '🔌 Global Connectors',
+];
+
+$sectionTabs = [
+ 'Prompt & Rechat' => 'prompt-rechat',
+ 'Memory' => 'ai-memory',
+ 'Misc' => 'ai-memory',
+ 'World Knowledge' => 'context-knowledge',
+ 'Context' => 'context-knowledge',
+ 'Filters & Blacklists' => 'context-knowledge',
+ $promptContextSectionTitle => 'context-knowledge',
+ 'Global Connectors' => 'global-connectors',
+];
+
+$tabControlPanels = [
+ 'prompt-rechat' => 'settings-panel-prompt-rechat-prompt-rechat',
+ 'ai-memory' => 'settings-panel-ai-memory-memory',
+ 'context-knowledge' => 'settings-panel-context-knowledge-world-knowledge',
+ 'global-connectors' => 'settings-panel-global-connectors-global-connectors',
+];
+
 function pretty_label(string $flatName): string
 {
  if (strpos($flatName, 'FEATURES@MEMORY_EMBEDDING@') === 0) {
- $parts = explode('@', $flatName);
- $last = end($parts) ?: $flatName;
- return ucwords(str_replace('_', ' ', strtolower(trim($last))));
+  $parts = explode('@', $flatName);
+  $last = end($parts) ?: $flatName;
+  if (strtoupper(trim($last)) === 'TXTAI_URL') {
+   return 'MiniMe / TXT2VEC URL';
+  }
+  return ucwords(str_replace('_', ' ', strtolower(trim($last))));
  }
  $customLabels = [
  'CORE_CONNECTOR_PLAYER' => 'Player Respeech',
@@ -93,13 +136,26 @@ function pretty_label(string $flatName): string
  'SCENE_CLASSIFIER_ENABLED' => 'Scene Classifier',
  'CORE_CONNECTOR_PROFILES' => 'Dynamic Profile',
  'CORE_CONNECTOR_DIRECTOR' => 'Director Mode',
- 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 'Custom WorldKnowledge LLM',
+ 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 'World Knowledge Fallback Connector',
+ 'WORLDKNOWLEDGE_INFINIUM' => 'World Knowledge Enabled',
+ 'WORLDKNOWLEDGE_AMOUNT' => 'World Knowledge Amount',
+ 'WORLDKNOWLEDGE_RESULT_LIMIT' => 'World Knowledge Result Limit',
+ 'LOCATION_WORLDKNOWLEDGE' => 'Force Location World Knowledge',
+ 'RACE_WORLDKNOWLEDGE' => 'Force Race / Species World Knowledge',
+ 'FACTION_WORLDKNOWLEDGE' => 'Force Faction World Knowledge',
+ 'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK' => 'Explicit Request Fallback',
+ 'WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS' => 'Fallback Timeout (ms)',
  'RELLLM_CONNECTOR' => 'Relationship Management',
+ 'RELATIONSHIP_UPDATE_CHANCE' => 'Relationship Update Chance',
+ 'NEVER_CLEAR_RELATIONSHIP_DATA' => 'Never Clear Relationship Data',
  'EMOTEMOODS' => 'Emote Moods',
  'RECHAT_MODE' => 'Rechat Mode',
  'ENFORCE_STRICT_RECHAT_RESPONSE' => 'Strict Rechat Targeting',
  'SHORTER_NEARBY_ITEM_LIST' => 'Shorter Nearby Item List',
  'CLEAN_CONTEXT_FOCUS_CHAT_HISTORY' => 'Focus Chat Context',
+ 'COMPACT_NPC_CONTEXT_HISTORY' => 'Compact NPC Context History',
+ 'SHORT_TERM_MEMORY_IN_COMPACT_CHAT' => 'Short Term Memory in Compact History',
+ 'PROMPT_HEAD_MARKDOWN_ENABLED' => 'Compact Prompt Info',
  ];
  if (isset($customLabels[$flatName])) {
  return $customLabels[$flatName];
@@ -123,11 +179,47 @@ function dialectic_ui_ascii_text(string $text): string
 function icon_for_field(string $flatName): string
 {
  $u = strtoupper($flatName);
- if (strpos($u, 'FEATURES@MEMORY_EMBEDDING@') === 0 || strpos($u, 'MEMORY_') !== false) return '&#128172;';
- if ($u === 'PLAYER_NAME') return '&#127991;&#65039;';
- if ($u === 'PROMPT_HEAD') return '&#128285;';
- if ($u === 'EMOTEMOODS') return '&#127917;';
- if ($u === 'PROMPT_TIMESTAMP') return '&#128336;';
+ $icons = [
+ 'PLAYER_NAME' => '&#127991;&#65039;',
+ 'PROMPT_HEAD' => '&#128285;',
+ 'EMOTEMOODS' => '&#127917;',
+ 'RECHAT_MODE' => '&#128257;',
+ 'ENFORCE_STRICT_RECHAT_RESPONSE' => '&#127919;',
+ 'WORLDKNOWLEDGE_INFINIUM' => '&#128218;',
+ 'WORLDKNOWLEDGE_AMOUNT' => '&#128290;',
+ 'WORLDKNOWLEDGE_RESULT_LIMIT' => '&#128209;',
+ 'LOCATION_WORLDKNOWLEDGE' => '&#128205;',
+ 'RACE_WORLDKNOWLEDGE' => '&#129516;',
+ 'FACTION_WORLDKNOWLEDGE' => '&#128737;',
+ 'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK' => '&#128269;',
+ 'WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS' => '&#9201;&#65039;',
+ 'FEATURES@MEMORY_EMBEDDING@ENABLED' => '&#129504;',
+ 'FEATURES@MEMORY_EMBEDDING@TXTAI_URL' => '&#128279;',
+ 'FEATURES@MEMORY_EMBEDDING@USE_TEXT2VEC' => '&#128292;',
+ 'FEATURES@MEMORY_EMBEDDING@AUTO_CREATE_SUMMARY_INTERVAL' => '&#9201;&#65039;',
+ 'SCENE_CLASSIFIER_ENABLED' => '&#127917;',
+ 'RELATIONSHIP_SYSTEM_ENABLED' => '&#128158;',
+ 'RELLLM_CONNECTOR' => '&#128279;',
+ 'RELATIONSHIP_UPDATE_CHANCE' => '&#127922;',
+ 'NEVER_CLEAR_RELATIONSHIP_DATA' => '&#128274;',
+ 'GROUND_ITEMS_DESCRIPTIONS_ONLY' => '&#129704;',
+ 'INVENTORY_ITEMS_DESCRIPTIONS_ONLY' => '&#127890;',
+ 'HIDE_AMBIENT_COMBAT' => '&#128330;&#65039;',
+ 'POWER_AWARENESS_ENABLED' => '&#9876;&#65039;',
+ 'PROMPT_TIMESTAMP' => '&#128336;',
+ 'COMPACT_NPC_CONTEXT_HISTORY' => '&#128476;&#65039;',
+ 'SHORT_TERM_MEMORY_IN_COMPACT_CHAT' => '&#128450;&#65039;',
+ 'PROMPT_HEAD_MARKDOWN_ENABLED' => '&#129534;',
+ 'LOCATION_BLACKLIST' => '&#128205;',
+ 'ITEM_BLACKLIST' => '&#128230;',
+ 'SHORTER_NEARBY_ITEM_LIST' => '&#128220;',
+ 'EVENT_TYPE_FILTER' => '&#128269;',
+ 'AUTO_LOCK_PROFILE' => '&#128274;',
+ 'AUTOFILL_CUSTOM_PROFILES' => '&#10024;',
+ 'AUTOFILL_CUSTOM_PROFILES_TRIGGER' => '&#127919;',
+ 'CLEAN_CONTEXT_FOCUS_CHAT_HISTORY' => '&#129504;',
+ ];
+ if (isset($icons[$u])) return $icons[$u];
  if (strpos($u, 'CORE_CONNECTOR_') === 0) {
  if ($u === 'CORE_CONNECTOR_PLAYER') return '&#127918;';
  if ($u === 'CORE_CONNECTOR_SUMMARY') return '&#128221;';
@@ -138,10 +230,6 @@ function icon_for_field(string $flatName): string
  if ($u === 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM') return '&#128218;';
  return '&#128268;';
  }
- if ($u === 'SCENE_CLASSIFIER_ENABLED') return '&#127917;';
- if ($u === 'RELATIONSHIP_SYSTEM_ENABLED') return '&#128158;';
- if ($u === 'RELLLM_CONNECTOR') return '&#128279;';
- if ($u === 'POWER_AWARENESS_ENABLED') return '&#9876;&#65039;';
  if (strpos($u, 'RESPEECH') !== false) return '&#127908;';
  if (strpos($u, 'SPEECH_STYLE') !== false) return '&#128483;&#65039;';
  if (strpos($u, 'SUMMARY_PROMPT') === 0) return '&#128221;';
@@ -153,7 +241,9 @@ function icon_for_field(string $flatName): string
  if (strpos($u, 'RECHAT') !== false) return '&#128257;';
  if (strpos($u, 'CONTEXT') !== false) return '&#129504;';
  if (strpos($u, 'COMBAT') !== false) return '&#9876;&#65039;';
- return '&#9881;&#65039;';
+ if (strpos($u, 'MEMORY') !== false) return '&#129504;';
+ if (strpos($u, 'COOLDOWN') !== false || strpos($u, 'INTERVAL') !== false) return '&#9201;&#65039;';
+ return '&#129513;';
 }
 
 function select_option_label(string $fieldName, string $optionValue): string
@@ -351,12 +441,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_all'])) {
  Logger::error("Failed writing general_settings from Global Settings UI");
 }
 
-?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css?v=gs2"><style>
+$presetsCssVersion = @filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'global_settings_presets.css') ?: '1';
+$presetsJsVersion = @filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'js' . DIRECTORY_SEPARATOR . 'global_settings_presets.js') ?: '1';
+?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css?v=gs2"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/global_settings_presets.css?v=<?php echo htmlspecialchars(strval($presetsCssVersion)); ?>"><script defer src="<?php echo $webRoot; ?>/ui/js/global_settings_presets.js?v=<?php echo htmlspecialchars(strval($presetsJsVersion)); ?>"></script><style>
 main {
- padding-top: 40px;
- padding-bottom: 40px;
- padding-left: 10%;
- padding-right: 10%;
+ padding: 10px clamp(10px, 2.5vw, 34px) 24px;
  width: 100%;
  margin: 0;
 }
@@ -378,8 +467,8 @@ footer {
 }
 
 .page-header {
- margin: 0 0 16px 0;
- padding: 14px 18px;
+ margin: 0 0 10px 0;
+ padding: 10px 14px;
  background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(28, 28, 28, 0.98));
  border-radius: 10px;
  border: 1px solid #3a3a3a;
@@ -414,6 +503,48 @@ h1.gs-title {
 .header-note {
  color: #b9c7d9;
  font-size: 13px;
+}
+
+.settings-tabs {
+ display: grid;
+ grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+ gap: 8px;
+ margin-bottom: 10px;
+ padding: 8px;
+ border: 1px solid #3a3a3a;
+ border-radius: 10px;
+ background: rgba(30, 30, 30, 0.92);
+}
+
+.settings-tab {
+ position: relative;
+ min-height: 40px;
+ padding: 8px 12px;
+ border: 1px solid #444;
+ border-radius: 7px;
+ background: #303030;
+ color: #ddd;
+ font-weight: 700;
+ cursor: pointer;
+ transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.settings-tab:hover {
+ border-color: rgba(255, 182, 65, 0.55);
+ background: #383838;
+}
+
+body .settings-tabs .settings-tab.is-active {
+ border-color: rgb(255, 182, 65) !important;
+ color: #fff !important;
+ background: rgba(88, 65, 29, 0.95) !important;
+ box-shadow: inset 0 0 0 1px rgba(255, 182, 65, 0.28), 0 0 12px rgba(255, 182, 65, 0.24) !important;
+ transform: translateY(-1px) !important;
+}
+
+.settings-tab:focus-visible {
+ outline: 2px solid rgb(255, 182, 65);
+ outline-offset: 2px;
 }
 
 .content-grid {
@@ -471,6 +602,24 @@ h1.gs-title {
  align-items: center;
 }
 
+.connector-section .provider-grid {
+ grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.connector-section .provider-card {
+ grid-template-columns: 1fr;
+ align-content: start;
+ align-items: start;
+}
+
+.connector-section .provider-body {
+ width: 100%;
+}
+
+.connector-section .provider-help {
+ margin-top: 0;
+}
+
 .provider-head {
  display: flex;
  align-items: center;
@@ -485,7 +634,8 @@ h1.gs-title {
  gap: 10px;
  color: #e0e0e0;
  min-width: 0;
- flex-wrap: wrap;
+ width: 100%;
+ flex-wrap: nowrap;
 }
 
 .provider-icon {
@@ -512,6 +662,14 @@ h1.gs-title {
  gap: 10px;
  width: 100%;
  min-width: 0;
+}
+
+.filter-setting-card {
+ grid-template-columns: minmax(180px, 0.65fr) minmax(420px, 1.7fr) minmax(180px, 0.65fr);
+}
+
+.filter-setting-card .provider-body {
+ width: 100%;
 }
 
 .btn-filter-browse {
@@ -569,9 +727,10 @@ h1.gs-title {
 }
 
 .provider-toggle {
- margin-left: 10px;
+ margin-left: auto;
  display: flex;
  align-items: center;
+ flex: 0 0 auto;
 }
 
 .provider-toggle input[type="checkbox"] {
@@ -1077,6 +1236,11 @@ h1.gs-title {
 }
 
 @media (max-width: 900px) {
+ .settings-tabs,
+ .connector-section .provider-grid {
+ grid-template-columns: 1fr;
+ }
+
  main {
  padding-left: 5%;
  padding-right: 5%;
@@ -1126,10 +1290,10 @@ h1.gs-title {
  grid-template-columns: 1fr;
  }
 }
-</style><main><div class="page-header"><div class="page-header-row"><h1 class="gs-title">Global Settings</h1><div class="page-header-actions"><button type="button" id="global_connector_test_btn" class="btn-action-blue">Test Global Connectors</button><button type="submit" class="btn-save-green" name="save_all" value="1" form="gs_form">Save All</button></div></div></div><?php if ($saveSuccess): ?><div class="result-ok" style="margin-bottom: 16px;">Global settings saved to the database.</div><?php endif; ?><form method="post" action="" id="gs_form"><div class="content-grid"><?php foreach ($gsSections as $sectionTitle => $fields): ?><div class="content-section"><h2><?php echo htmlspecialchars($sectionTitle); ?></h2><div class="provider-grid"><?php if ($sectionTitle === $promptContextSectionTitle): ?><div class="prompt-context-wrap"><?php foreach ($promptContextCatalog as $bucket => $options): ?><div class="prompt-context-group"><h3><?php echo htmlspecialchars(prompt_context_bucket_title($bucket)); ?></h3><div class="prompt-context-grid"><?php foreach ($options as $optionId => $meta): ?><?php
+</style><main><div class="page-header"><div class="page-header-row"><h1 class="gs-title">Global Settings</h1><div class="page-header-actions"><button type="button" id="global_connector_test_btn" class="btn-action-blue">Test Global Connectors</button><button type="submit" class="btn-save-green" name="save_all" value="1" form="gs_form">Save All</button></div></div></div><div class="gs-presets" id="gs-presets" data-endpoint="<?php echo htmlspecialchars($webRoot); ?>/ui/api/global_settings_presets.php"><div class="gs-presets-row"><label class="gs-presets-label" for="gs-preset-select">Preset</label><select class="gs-presets-select" id="gs-preset-select" aria-describedby="gs-preset-desc" disabled><option value="">Loading presets...</option></select><div class="gs-presets-actions"><button type="button" class="btn-primary gs-presets-btn" id="gs-preset-apply" disabled>Apply</button><button type="button" class="gs-presets-btn" id="gs-preset-save" disabled>Save New</button><button type="button" class="gs-presets-btn" id="gs-preset-overwrite" disabled>Overwrite</button><button type="button" class="gs-presets-btn" id="gs-preset-retry" hidden>Retry</button><button type="button" class="gs-presets-help" id="gs-preset-help" aria-expanded="false" aria-controls="gs-preset-help-text" title="How presets work">?<span class="gs-presets-sr">How presets work</span></button></div></div><p class="gs-presets-desc" id="gs-preset-desc"></p><p class="gs-presets-help-text" id="gs-preset-help-text" hidden>Presets store global toggles, limits and context selections. Prompts, service URLs, connectors and profiles stay unchanged. Save New and Overwrite only save the preset; Apply updates active settings and reloads the page.</p><p class="gs-presets-status" id="gs-preset-status" role="status" aria-live="polite"></p><p class="gs-presets-error" id="gs-preset-error" role="alert" hidden></p></div><?php if ($saveSuccess): ?><div class="result-ok" style="margin-bottom: 16px;">Global settings saved to the database.</div><?php endif; ?><div class="settings-tabs" role="tablist" aria-label="Global settings categories"><?php foreach ($settingsTabs as $tabId => $tabLabel): ?><button type="button" class="settings-tab<?php echo $tabId === 'prompt-rechat' ? ' is-active' : ''; ?>" id="settings-tab-<?php echo htmlspecialchars($tabId); ?>" role="tab" aria-selected="<?php echo $tabId === 'prompt-rechat' ? 'true' : 'false'; ?>" aria-controls="<?php echo htmlspecialchars($tabControlPanels[$tabId]); ?>" data-settings-tab="<?php echo htmlspecialchars($tabId); ?>"><?php echo htmlspecialchars($tabLabel); ?></button><?php endforeach; ?></div><form method="post" action="" id="gs_form"><div class="content-grid"><?php foreach ($gsSections as $sectionTitle => $fields): ?><?php $sectionTab = $sectionTabs[$sectionTitle] ?? 'general'; $isInitialTab = $sectionTab === 'prompt-rechat'; $sectionClasses = 'content-section' . ($sectionTitle === 'Global Connectors' ? ' connector-section' : ''); ?><div class="<?php echo htmlspecialchars($sectionClasses); ?>" id="settings-panel-<?php echo htmlspecialchars($sectionTab); ?>-<?php echo htmlspecialchars(preg_replace('/[^a-z0-9]+/i', '-', strtolower($sectionTitle))); ?>" role="tabpanel" aria-labelledby="settings-tab-<?php echo htmlspecialchars($sectionTab); ?>" data-settings-panel="<?php echo htmlspecialchars($sectionTab); ?>" <?php echo $isInitialTab ? '' : 'hidden'; ?>><h2><?php echo htmlspecialchars($sectionTitle); ?></h2><div class="provider-grid"><?php if ($sectionTitle === $promptContextSectionTitle): ?><div class="prompt-context-wrap"><?php foreach ($promptContextCatalog as $bucket => $options): ?><div class="prompt-context-group"><h3><?php echo htmlspecialchars(prompt_context_bucket_title($bucket)); ?></h3><div class="prompt-context-grid"><?php foreach ($options as $optionId => $meta): ?><?php
  $checked = in_array($optionId, $currentPromptContextOptions[$bucket] ?? [], true);
  $inputName = 'prompt_context_' . $bucket . '[]';
- ?><label class="prompt-context-card"><input type="checkbox" name="<?php echo htmlspecialchars($inputName); ?>" value="<?php echo htmlspecialchars($optionId); ?>" <?php echo $checked ? 'checked' : ''; ?>><span><div class="prompt-context-label"><?php echo htmlspecialchars($meta['label'] ?? $optionId); ?></div><div class="prompt-context-desc"><?php echo htmlspecialchars($meta['description'] ?? ''); ?></div></span></label><?php endforeach; ?></div></div><?php endforeach; ?></div><?php continue; ?><?php endif; ?><?php $lastSubsection = null; ?><?php foreach ($fields as $field): ?><?php
+ ?><label class="prompt-context-card"><input type="checkbox" name="<?php echo htmlspecialchars($inputName); ?>" value="<?php echo htmlspecialchars($optionId); ?>" <?php echo $checked ? 'checked' : ''; ?>><span><div class="prompt-context-label"><?php echo htmlspecialchars($meta['label'] ?? $optionId); ?></div><div class="prompt-context-desc"><?php echo htmlspecialchars($meta['description'] ?? ''); ?></div></span></label><?php endforeach; ?></div></div><?php endforeach; ?></div></div></div><?php continue; ?><?php endif; ?><?php $lastSubsection = null; ?><?php foreach ($fields as $field): ?><?php
  $fieldName = $field['name'];
  if ($fieldName === 'PLAYER_NAME') {
  continue;
@@ -1150,11 +1314,52 @@ h1.gs-title {
  $schemaDefinition = dialecticGetSchemaDefinition($fieldName);
  $isReadonly = isset($schemaDefinition['readonly']) && $schemaDefinition['readonly'] === true;
  $readonlyAttr = $isReadonly ? 'readonly' : '';
- ?><div class="provider-card"><div class="provider-head"><div class="provider-title"><div class="provider-icon"><?php echo icon_for_field($fieldName); ?></div><div><?php echo htmlspecialchars($label); ?></div><?php if ($fieldType === 'boolean'): ?><div class="provider-toggle"><input type="hidden" name="<?php echo htmlspecialchars($fieldName); ?>" value="false"><input type="checkbox" name="<?php echo htmlspecialchars($fieldName); ?>" value="true" <?php echo ($current ? 'checked' : ''); ?><?php echo $isReadonly ? 'disabled' : ''; ?>></div><?php endif; ?><?php if ($fieldName === 'RELLLM_CONNECTOR'): ?><div class="provider-toggle"><input type="hidden" name="RELATIONSHIP_SYSTEM_ENABLED" value="false"><input type="checkbox" name="RELATIONSHIP_SYSTEM_ENABLED" value="true" <?php echo (current_value('RELATIONSHIP_SYSTEM_ENABLED') ? 'checked' : ''); ?> title="Enable/Disable Relationship System"></div><?php endif; ?><?php if ($fieldName === 'CORE_CONNECTOR_SCENECLASSIFIER'): ?><div class="provider-toggle"><input type="hidden" name="SCENE_CLASSIFIER_ENABLED" value="false"><input type="checkbox" name="SCENE_CLASSIFIER_ENABLED" value="true" <?php echo (current_value('SCENE_CLASSIFIER_ENABLED') ? 'checked' : ''); ?> title="Enable/Disable Scene Classifier"></div><?php endif; ?><?php if ($fieldName === 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'): ?><div class="provider-toggle"><input type="hidden" name="WORLDKNOWLEDGE_CUSTOM" value="false"><input type="checkbox" name="WORLDKNOWLEDGE_CUSTOM" value="true" <?php echo (current_value('WORLDKNOWLEDGE_CUSTOM') ? 'checked' : ''); ?> title="Enable/Disable Custom WorldKnowledge LLM"></div><?php endif; ?></div></div><div class="provider-body"><?php if ($fieldType === 'boolean'): ?><?php elseif ($fieldType === 'integer'): ?><?php $min = isset($field['min']) ? intval($field['min']) : null; $max = isset($field['max']) ? intval($field['max']) : null; ?><input type="number" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" <?php echo ($min !== null ? 'min="' . $min . '"' : ''); ?><?php echo ($max !== null ? 'max="' . $max . '"' : ''); ?> step="1" <?php echo $readonlyAttr; ?>><?php elseif ($fieldType === 'number'): ?><input type="number" step="0.01" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" <?php echo $readonlyAttr; ?>><?php elseif ($fieldType === 'longstring'): ?><?php if (isset($filterBrowseFieldConfigs[$fieldName])): ?><?php $browseConfig = $filterBrowseFieldConfigs[$fieldName]; ?><div class="filter-browse-wrap"><textarea name="<?php echo htmlspecialchars($fieldName); ?>" rows="4" <?php echo $readonlyAttr; ?>><?php echo htmlspecialchars(strval($current)); ?></textarea><?php if (!$isReadonly): ?><button
+ ?><div class="provider-card<?php echo isset($filterBrowseFieldConfigs[$fieldName]) ? ' filter-setting-card' : ''; ?>"><div class="provider-head"><div class="provider-title"><div class="provider-icon"><?php echo icon_for_field($fieldName); ?></div><div><?php echo htmlspecialchars($label); ?></div><?php if ($fieldType === 'boolean'): ?><div class="provider-toggle"><input type="hidden" name="<?php echo htmlspecialchars($fieldName); ?>" value="false"><input type="checkbox" name="<?php echo htmlspecialchars($fieldName); ?>" value="true" <?php if ($fieldName === 'NEVER_CLEAR_RELATIONSHIP_DATA'): ?>aria-label="Never Clear Relationship Data"<?php endif; ?> <?php echo ($current ? 'checked' : ''); ?><?php echo $isReadonly ? 'disabled' : ''; ?>></div><?php endif; ?><?php if ($fieldName === 'RELLLM_CONNECTOR'): ?><div class="provider-toggle"><input type="hidden" name="RELATIONSHIP_SYSTEM_ENABLED" value="false"><input type="checkbox" name="RELATIONSHIP_SYSTEM_ENABLED" value="true" <?php echo (current_value('RELATIONSHIP_SYSTEM_ENABLED') ? 'checked' : ''); ?> title="Enable/Disable Relationship System"></div><?php endif; ?><?php if ($fieldName === 'CORE_CONNECTOR_SCENECLASSIFIER'): ?><div class="provider-toggle"><input type="hidden" name="SCENE_CLASSIFIER_ENABLED" value="false"><input type="checkbox" name="SCENE_CLASSIFIER_ENABLED" value="true" <?php echo (current_value('SCENE_CLASSIFIER_ENABLED') ? 'checked' : ''); ?> title="Enable/Disable Scene Classifier"></div><?php endif; ?><?php if ($fieldName === 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'): ?><div class="provider-toggle"><input type="hidden" name="WORLDKNOWLEDGE_CUSTOM" value="false"><input type="checkbox" name="WORLDKNOWLEDGE_CUSTOM" value="true" <?php echo (current_value('WORLDKNOWLEDGE_CUSTOM') ? 'checked' : ''); ?> title="Enable/Disable Custom WorldKnowledge LLM"></div><?php endif; ?></div></div><div class="provider-body"><?php if ($fieldType === 'boolean'): ?><?php elseif ($fieldType === 'integer'): ?><?php $min = isset($field['min']) ? intval($field['min']) : null; $max = isset($field['max']) ? intval($field['max']) : null; ?><input type="number" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" <?php echo ($min !== null ? 'min="' . $min . '"' : ''); ?><?php echo ($max !== null ? 'max="' . $max . '"' : ''); ?> step="1" <?php echo $readonlyAttr; ?>><?php elseif ($fieldType === 'number'): ?><input type="number" step="0.01" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" <?php echo $readonlyAttr; ?>><?php elseif ($fieldType === 'longstring'): ?><?php if (isset($filterBrowseFieldConfigs[$fieldName])): ?><?php $browseConfig = $filterBrowseFieldConfigs[$fieldName]; ?><div class="filter-browse-wrap"><textarea name="<?php echo htmlspecialchars($fieldName); ?>" rows="4" <?php echo $readonlyAttr; ?>><?php echo htmlspecialchars(strval($current)); ?></textarea><?php if (!$isReadonly): ?><button
  type="button"
  class="btn-filter-browse js-filter-browse"
  data-field="<?php echo htmlspecialchars($fieldName); ?>"
- ><?php echo htmlspecialchars(strval($browseConfig['button_label'] ?? 'Recent...')); ?></button><?php endif; ?></div><?php else: ?><textarea name="<?php echo htmlspecialchars($fieldName); ?>" rows="4" <?php echo $readonlyAttr; ?>><?php echo htmlspecialchars(strval($current)); ?></textarea><?php endif; ?><?php elseif ($fieldType === 'url'): ?><input type="url" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" <?php echo $readonlyAttr; ?>><?php elseif ($fieldType === 'apikey'): ?><input type="password" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" placeholder="Paste API key" <?php echo $readonlyAttr; ?>><?php elseif ($fieldType === 'select'): ?><select name="<?php echo htmlspecialchars($fieldName); ?>" <?php echo $isReadonly ? 'disabled' : ''; ?>><?php foreach (($field['values'] ?? []) as $option): ?><option value="<?php echo htmlspecialchars(strval($option)); ?>" <?php echo (strval($current) === strval($option) ? 'selected' : ''); ?>><?php echo htmlspecialchars(select_option_label($fieldName, strval($option))); ?></option><?php endforeach; ?></select><?php elseif (strpos($fieldType, 'foreign:') === 0): ?><?php $parts = explode(':', $fieldType); $fkKey = implode(':', array_slice($parts, 1)); $rows = $foreignOptions[$fkKey] ?? []; ?><select name="<?php echo htmlspecialchars($fieldName); ?>" <?php echo $isReadonly ? 'disabled' : ''; ?>><option value="" <?php echo (empty($current) ? 'selected' : ''); ?>>None</option><?php foreach ($rows as $row): ?><option value="<?php echo htmlspecialchars(strval($row[$parts[2]] ?? '')); ?>" <?php echo (strval($current) === strval($row[$parts[2]] ?? '') ? 'selected' : ''); ?>><?php echo htmlspecialchars(strval($row[$parts[3]] ?? '')); ?></option><?php endforeach; ?></select><?php else: ?><input type="text" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" <?php echo $readonlyAttr; ?>><?php endif; ?></div><?php if ($help !== ''): ?><div class="provider-help"><?php echo htmlspecialchars($help); ?></div><?php endif; ?></div><?php endforeach; ?></div></div><?php endforeach; ?></div></form><div id="global-connector-test-modal" class="global-test-modal" aria-hidden="true"><div class="global-test-shell" role="dialog" aria-modal="true" aria-labelledby="global-connector-test-title"><div class="global-test-head"><div><div id="global-connector-test-title" class="global-test-title">Test Global Connectors</div><div class="global-test-subtitle">Testing enabled global connector slots once, then applying shared connector results to every matching slot.</div></div><button type="button" id="global-connector-test-close" class="global-test-close">Close</button></div><div class="global-test-body"><div id="global-connector-test-summary" class="global-test-summary"></div><div class="global-test-progress"><div id="global-connector-test-progress-fill"></div></div><div id="global-connector-test-results"></div></div></div></div><div id="filterBrowseModal" class="filter-modal-backdrop" aria-hidden="true"><div class="filter-modal-panel" role="dialog" aria-modal="true" aria-labelledby="filterBrowseModalTitle"><div class="filter-modal-head"><h2 id="filterBrowseModalTitle">Recent Values</h2><div id="filterBrowseModalHint" class="filter-modal-hint"></div></div><div class="filter-modal-body"><div class="filter-modal-toolbar"><input type="search" id="filterBrowseSearch" placeholder="Search recent values"><div id="filterBrowseStatus" class="filter-modal-status"></div></div><div id="filterBrowseFeedback" class="filter-modal-loading">Loading recent values...</div><div id="filterBrowseList" class="filter-modal-list" hidden></div></div><div class="filter-modal-foot"><div class="filter-modal-note">Checked values stay in the textbox. Uncheck a value here, then save, to remove it from the filter.</div><div class="filter-modal-actions"><button type="button" class="filter-modal-close" id="filterBrowseCancel">Cancel</button><button type="button" class="btn-save-green" id="filterBrowseSave">Save Selection</button></div></div></div></div></main><script>
+ ><?php echo htmlspecialchars(strval($browseConfig['button_label'] ?? 'Recent...')); ?></button><?php endif; ?></div><?php else: ?><textarea name="<?php echo htmlspecialchars($fieldName); ?>" rows="4" <?php echo $readonlyAttr; ?>><?php echo htmlspecialchars(strval($current)); ?></textarea><?php endif; ?><?php elseif ($fieldType === 'url'): ?><input type="url" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" <?php echo $readonlyAttr; ?>><?php elseif ($fieldType === 'apikey'): ?><input type="password" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" placeholder="Paste API key" <?php echo $readonlyAttr; ?>><?php elseif ($fieldType === 'select'): ?><select name="<?php echo htmlspecialchars($fieldName); ?>" <?php echo $isReadonly ? 'disabled' : ''; ?>><?php foreach (($field['values'] ?? []) as $option): ?><option value="<?php echo htmlspecialchars(strval($option)); ?>" <?php echo (strval($current) === strval($option) ? 'selected' : ''); ?>><?php echo htmlspecialchars(select_option_label($fieldName, strval($option))); ?></option><?php endforeach; ?></select><?php elseif (strpos($fieldType, 'foreign:') === 0): ?><?php $parts = explode(':', $fieldType); $fkKey = implode(':', array_slice($parts, 1)); $rows = $foreignOptions[$fkKey] ?? []; ?><select name="<?php echo htmlspecialchars($fieldName); ?>" <?php echo $isReadonly ? 'disabled' : ''; ?>><option value="" <?php echo (empty($current) ? 'selected' : ''); ?>>None</option><?php foreach ($rows as $row): ?><option value="<?php echo htmlspecialchars(strval($row[$parts[2]] ?? '')); ?>" <?php echo (strval($current) === strval($row[$parts[2]] ?? '') ? 'selected' : ''); ?>><?php echo htmlspecialchars(strval($row[$parts[3]] ?? '')); ?></option><?php endforeach; ?></select><?php else: ?><input type="text" name="<?php echo htmlspecialchars($fieldName); ?>" value="<?php echo htmlspecialchars(strval($current)); ?>" <?php echo $readonlyAttr; ?>><?php endif; ?></div><?php if ($help !== ''): ?><div class="provider-help"><?php echo htmlspecialchars($help); ?></div><?php endif; ?></div><?php endforeach; ?></div></div><?php endforeach; ?></div></form><script>
+(() => {
+ const storageKey = 'dialectic-global-settings-tab';
+ const tabs = Array.from(document.querySelectorAll('[data-settings-tab]'));
+ const panels = Array.from(document.querySelectorAll('[data-settings-panel]'));
+ const form = document.getElementById('gs_form');
+ const validTabs = new Set(tabs.map((tab) => tab.dataset.settingsTab));
+ function activateTab(tabId, focusTab = false) {
+  if (!validTabs.has(tabId)) tabId = 'prompt-rechat';
+  tabs.forEach((tab) => {
+   const active = tab.dataset.settingsTab === tabId;
+   tab.classList.toggle('is-active', active);
+   tab.setAttribute('aria-selected', active ? 'true' : 'false');
+   tab.tabIndex = active ? 0 : -1;
+   if (active && focusTab) tab.focus();
+  });
+  panels.forEach((panel) => { panel.hidden = panel.dataset.settingsPanel !== tabId; });
+  try { sessionStorage.setItem(storageKey, tabId); } catch (error) {}
+ }
+ tabs.forEach((tab, index) => {
+  tab.addEventListener('click', () => activateTab(tab.dataset.settingsTab));
+  tab.addEventListener('keydown', (event) => {
+   let nextIndex = null;
+   if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % tabs.length;
+   else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (index - 1 + tabs.length) % tabs.length;
+   else if (event.key === 'Home') nextIndex = 0;
+   else if (event.key === 'End') nextIndex = tabs.length - 1;
+   if (nextIndex !== null) {
+    event.preventDefault();
+    activateTab(tabs[nextIndex].dataset.settingsTab, true);
+   }
+  });
+ });
+ form?.addEventListener('invalid', (event) => {
+  const panel = event.target.closest('[data-settings-panel]');
+  if (panel) activateTab(panel.dataset.settingsPanel);
+ }, true);
+ let initialTab = 'prompt-rechat';
+ try { initialTab = sessionStorage.getItem(storageKey) || initialTab; } catch (error) {}
+ activateTab(initialTab);
+})();
+</script><div id="global-connector-test-modal" class="global-test-modal" aria-hidden="true"><div class="global-test-shell" role="dialog" aria-modal="true" aria-labelledby="global-connector-test-title"><div class="global-test-head"><div><div id="global-connector-test-title" class="global-test-title">Test Global Connectors</div><div class="global-test-subtitle">Testing enabled global connector slots once, then applying shared connector results to every matching slot.</div></div><button type="button" id="global-connector-test-close" class="global-test-close">Close</button></div><div class="global-test-body"><div id="global-connector-test-summary" class="global-test-summary"></div><div class="global-test-progress"><div id="global-connector-test-progress-fill"></div></div><div id="global-connector-test-results"></div></div></div></div><div id="filterBrowseModal" class="filter-modal-backdrop" aria-hidden="true"><div class="filter-modal-panel" role="dialog" aria-modal="true" aria-labelledby="filterBrowseModalTitle"><div class="filter-modal-head"><h2 id="filterBrowseModalTitle">Recent Values</h2><div id="filterBrowseModalHint" class="filter-modal-hint"></div></div><div class="filter-modal-body"><div class="filter-modal-toolbar"><input type="search" id="filterBrowseSearch" placeholder="Search recent values"><div id="filterBrowseStatus" class="filter-modal-status"></div></div><div id="filterBrowseFeedback" class="filter-modal-loading">Loading recent values...</div><div id="filterBrowseList" class="filter-modal-list" hidden></div></div><div class="filter-modal-foot"><div class="filter-modal-note">Checked values stay in the textbox. Uncheck a value here, then save, to remove it from the filter.</div><div class="filter-modal-actions"><button type="button" class="filter-modal-close" id="filterBrowseCancel">Cancel</button><button type="button" class="btn-save-green" id="filterBrowseSave">Save Selection</button></div></div></div></div><div class="gs-preset-modal" id="gs-preset-modal" hidden><div class="gs-preset-modal-panel" role="dialog" aria-modal="true" aria-labelledby="gs-preset-modal-title" aria-describedby="gs-preset-modal-text"><h2 id="gs-preset-modal-title">Preset</h2><p class="gs-preset-modal-text" id="gs-preset-modal-text"></p><div class="gs-preset-modal-field" id="gs-preset-modal-field" hidden><label for="gs-preset-name">Preset name</label><input type="text" id="gs-preset-name" maxlength="60" autocomplete="off" spellcheck="false"></div><p class="gs-preset-modal-error" id="gs-preset-modal-error" role="alert" hidden></p><div class="gs-preset-modal-actions"><button type="button" id="gs-preset-modal-cancel">Cancel</button><button type="button" class="btn-save-green" id="gs-preset-modal-confirm">Confirm</button></div></div></div></main><script>
 (() => {
  const apiUrl = <?php echo json_encode($webRoot . '/ui/api/profile_connector_tests.php', JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
  const modal = document.getElementById('global-connector-test-modal');

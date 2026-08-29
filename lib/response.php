@@ -62,6 +62,13 @@ function dialectic_buffer_response_line(string $speaker, string $action, string 
     if ($speaker === "" && $action === "" && $text === "") {
         return;
     }
+    if (strcasecmp($action, "rolecommand") === 0 && $text === "" &&
+        trim(strval($metadata["command_name"] ?? $metadata["command"] ?? "")) === "") {
+        if (class_exists('Logger')) {
+            Logger::warn('[plugin-response] Dropped empty rolecommand response line');
+        }
+        return;
+    }
 
     $line = [
         "schema" => "dialectic.response.line.v1",
@@ -70,6 +77,12 @@ function dialectic_buffer_response_line(string $speaker, string $action, string 
         "text" => $text,
     ];
 
+    if (strcasecmp($speaker, 'The Narrator') === 0) {
+        $line["display_name"] = function_exists('dialecticGetNarratorRoleplayName')
+            ? dialecticGetNarratorRoleplayName()
+            : 'The Narrator';
+    }
+
     if (strtolower($action) === "say") {
         $textOnly = strtolower(trim(strval($metadata["listener"] ?? ""))) === "__player_text_only" ||
             !empty($metadata["text_only"]);
@@ -77,9 +90,13 @@ function dialectic_buffer_response_line(string $speaker, string $action, string 
         $line["text"] = $text;
         $line["subtitle"] = $text;
         if (!$textOnly) {
-            $line["tts_text"] = $text;
+            $ttsText = trim(strval($metadata["tts_text"] ?? ""));
+            if ($ttsText === "") {
+                $ttsText = $text;
+            }
+            $line["tts_text"] = $ttsText;
             if (function_exists("dialectic_tts_cache_key")) {
-                $line["tts_cache_key"] = dialectic_tts_cache_key(dirname(__DIR__), $speaker, $text);
+                $line["tts_cache_key"] = dialectic_tts_cache_key(dirname(__DIR__), $speaker, $ttsText);
             }
             $explicitTtsCacheKey = trim(strval($metadata["tts_cache_key"] ?? ""));
             if ($explicitTtsCacheKey !== "") {
@@ -116,6 +133,9 @@ function dialectic_buffer_response_line(string $speaker, string $action, string 
             "target_formid",
             "item_refid",
             "item_baseid",
+            "item_plugin",
+            "item_stable_key",
+            "location_refid",
             "baseid",
             "command",
             "command_name",
@@ -130,9 +150,12 @@ function dialectic_buffer_response_line(string $speaker, string $action, string 
             "task_id",
             "speech",
             "request_type",
+            "action_source",
+            "authority",
+            "display_name",
         ];
         foreach ($topLevelMetadataKeys as $metadataKey) {
-        if (isset($metadata[$metadataKey]) && trim(strval($metadata[$metadataKey])) !== "") {
+            if (isset($metadata[$metadataKey]) && trim(strval($metadata[$metadataKey])) !== "") {
                 $line[$metadataKey] = trim(strval($metadata[$metadataKey]));
             }
         }
@@ -172,7 +195,9 @@ function dialectic_buffer_speech_response_line(
     string $phonetic = "",
     $volume = null,
     string $rechatTarget = "",
-    string $utteranceId = ""
+    string $utteranceId = "",
+    string $ttsText = "",
+    string $ttsCacheKey = ""
 ): void {
     $metadata = [
         "expression" => trim($expression),
@@ -182,6 +207,8 @@ function dialectic_buffer_speech_response_line(
         "volume" => $volume,
         "rechat_target" => trim($rechatTarget),
         "utterance_id" => trim($utteranceId),
+        "tts_text" => trim($ttsText),
+        "tts_cache_key" => trim($ttsCacheKey),
     ];
     if (($GLOBALS["gameRequest"][0] ?? "") === "rechat") {
         $previousSpeakerFormId = trim((string)($GLOBALS["RECHAT_REQUEST_PAYLOAD"]["speaker_formid"] ?? ""));
@@ -200,6 +227,12 @@ function dialectic_buffer_command_response_line(string $speaker, string $command
     $commandPayload = $decodedCommand["command_payload"];
     $commandName = $decodedCommand["command_name"];
     $commandArgs = $decodedCommand["command_args"];
+    if (trim($commandName) === "") {
+        if (class_exists('Logger')) {
+            Logger::warn('[plugin-response] Dropped command response without a command name');
+        }
+        return;
+    }
     if ($commandPayload !== "") {
         $metadata["command"] = $commandPayload;
     }
@@ -228,6 +261,18 @@ function dialectic_buffer_command_response_line(string $speaker, string $command
             $metadata["amount"] = $metadata["amount"] ?? ($commandArgs[2] ?? "");
         } elseif (in_array($normalizedCommand, ["pickupitem", "consume"], true)) {
             $metadata["item"] = $metadata["item"] ?? ($commandArgs[0] ?? "");
+        } elseif ($normalizedCommand === "spawncaps") {
+            $metadata["target"] = $metadata["target"] ?? ($commandArgs[0] ?? "");
+            $metadata["amount"] = $metadata["amount"] ?? ($commandArgs[1] ?? "");
+        } elseif ($normalizedCommand === "spawnitem") {
+            $metadata["target"] = $metadata["target"] ?? ($commandArgs[0] ?? "");
+            $metadata["item"] = $metadata["item"] ?? ($commandArgs[1] ?? "");
+            $metadata["amount"] = $metadata["amount"] ?? ($commandArgs[2] ?? "");
+        } elseif ($normalizedCommand === "teleportactor") {
+            $metadata["target"] = $metadata["target"] ?? ($commandArgs[0] ?? "");
+            $metadata["location"] = $metadata["location"] ?? ($commandArgs[1] ?? "");
+        } elseif ($normalizedCommand === "killtarget") {
+            $metadata["target"] = $metadata["target"] ?? ($commandArgs[0] ?? "");
         } elseif ($normalizedCommand === "debugnotification") {
             $metadata["message"] = $metadata["message"] ?? ($commandArgs[0] ?? "");
         } elseif ($normalizedCommand === "refreshnpcvoice") {
@@ -252,7 +297,13 @@ function dialectic_buffer_command_response_line(string $speaker, string $command
         "target_formid",
         "item_refid",
         "item_baseid",
+        "item_plugin",
+        "item_stable_key",
+        "location_refid",
         "baseid",
+        "request_type",
+        "action_source",
+        "authority",
     ] as $key) {
         if (array_key_exists($key, $args) && is_scalar($args[$key]) && trim(strval($args[$key])) !== "") {
             $metadata[$key] = trim(strval($args[$key]));

@@ -461,7 +461,7 @@ handle_csv_export($conn, $schema);
 ob_start();
 
 include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
-?><!-- Ensure main.css is loaded after any reboot.css --><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/diary_adventure.css"><style>
+?><!-- Ensure main.css is loaded after any reboot.css --><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/diary_adventure.css?v=<?php echo (int) @filemtime(__DIR__ . '/css/diary_adventure.css'); ?>"><style>
  @font-face {
  font-family: 'Gothic821';
  src: url('<?php echo $webRoot; ?>/ui/css/font/Gothic821CondensedRegular.otf') format('opentype');
@@ -905,7 +905,7 @@ if ($shouldFetchEvents) {
  foreach ($currentCsvParams as $key => $value) {
  echo "<input type='hidden' name='" . htmlspecialchars($key) . "' value='" . htmlspecialchars($value) . "'>";
  }
- echo "<button type='submit' class='btn-save'>Download Current Diaries</button>";
+        echo "<button type='submit' class='btn-save log-action-button'>Download Current Diaries</button>";
  echo "</form>";
 
  // For all entries, only preserve month and year if they exist
@@ -922,7 +922,7 @@ if ($shouldFetchEvents) {
  foreach ($allCsvParams as $key => $value) {
  echo "<input type='hidden' name='" . htmlspecialchars($key) . "' value='" . htmlspecialchars($value) . "'>";
  }
- echo "<button type='submit' class='btn-save'>Download All Diary Entries</button>";
+    echo "<button type='submit' class='btn-save log-action-button'>Download All Diary Entries</button>";
  echo "</form>";
 
  // Delete all button
@@ -1094,7 +1094,7 @@ if ($shouldFetchEvents) {
  'rowid' => $row['rowid'],
  'topic' => $topic,
  'content' => $displayContent
- ], JSON_HEX_APOS | JSON_HEX_QUOT) . ")'>{$displayContent}</td><td>{$gameTimeDisplay}</td><td>{$timeDisplay}</td><td><button onclick='openEditModal(" . json_encode([
+ ], JSON_HEX_APOS | JSON_HEX_QUOT) . ")'>{$displayContent}</td><td>{$gameTimeDisplay}</td><td>{$timeDisplay}</td><td><button type='button' data-diary-audio-entry='{$row['rowid']}' onclick='event.stopPropagation(); toggleDiaryAudio(this, {$row['rowid']})' class='action-button diary-audio-button'>&#9654; Play</button><button onclick='openEditModal(" . json_encode([
  'rowid' => $row['rowid'],
  'topic' => $topic,
  'content' => $rawContent
@@ -1157,7 +1157,7 @@ if ($shouldFetchEvents) {
  'rowid' => $row['rowid'],
  'topic' => $topic,
  'content' => $displayContent
- ], JSON_HEX_APOS | JSON_HEX_QUOT) . ")'>{$displayContent}</td><td>{$gameTimeDisplay}</td><td>{$timeDisplay}</td><td><button onclick='openEditModal(" . json_encode([
+ ], JSON_HEX_APOS | JSON_HEX_QUOT) . ")'>{$displayContent}</td><td>{$gameTimeDisplay}</td><td>{$timeDisplay}</td><td><button type='button' data-diary-audio-entry='{$row['rowid']}' onclick='event.stopPropagation(); toggleDiaryAudio(this, {$row['rowid']})' class='action-button diary-audio-button'>&#9654; Play</button><button onclick='openEditModal(" . json_encode([
  'rowid' => $row['rowid'],
  'topic' => $topic,
  'content' => $rawContent
@@ -1178,7 +1178,88 @@ if ($shouldFetchEvents) {
  ?></table><?php
  // **Close Database Connection**
  pg_close($conn);
- ?><!-- Edit Modal --><div id="editModal" class="modal-backdrop"><div class="modal-container"><h2>Edit Entry</h2><form id="editForm" onsubmit="return saveEntry(event)"><div class="modal-body"><input type="hidden" id="editRowId" name="rowid"><input type="hidden" id="editTopic" name="topic"><label for="editContent">Content:</label><small>Edit the content of the diary entry below.</small><textarea id="editContent" name="content"></textarea></div><div class="modal-footer"><div class="button-group"><button type="submit" class="btn-save">Save Changes</button><button type="button" onclick="closeEditModal()" class="btn-cancel">Cancel</button></div></div></form></div></div><!-- Entry View Modal --><div id="entryModal" class="modal-backdrop"><div class="modal-container"><div id="entryModalContent" class="entry-content"></div></div></div><script>
+ ?><!-- Edit Modal --><div id="editModal" class="modal-backdrop"><div class="modal-container"><h2>Edit Entry</h2><form id="editForm" onsubmit="return saveEntry(event)"><div class="modal-body"><input type="hidden" id="editRowId" name="rowid"><input type="hidden" id="editTopic" name="topic"><label for="editContent">Content:</label><small>Edit the content of the diary entry below.</small><textarea id="editContent" name="content"></textarea></div><div class="modal-footer"><div class="button-group"><button type="submit" class="btn-save">Save Changes</button><button type="button" onclick="closeEditModal()" class="btn-cancel">Cancel</button></div></div></form></div></div><!-- Entry View Modal --><div id="entryModal" class="modal-backdrop"><div class="modal-container"><div id="entryModalContent" class="entry-content"></div><div class="diary-audio-controls"><button type="button" id="entryModalAudioButton" class="diary-audio-button" onclick="toggleDiaryAudio(this, Number(this.dataset.diaryAudioEntry))">&#9654; Play Audio</button><span id="diaryAudioStatus" class="diary-audio-status" aria-live="polite"></span></div></div></div><script>
+ const diaryAudioEndpoint = <?php echo json_encode($webRoot . '/ui/api/dialectic_diary_audio.php'); ?>;
+ const diaryAudio = new Audio();
+ let activeDiaryEntryId = null;
+ let diaryAudioRequest = null;
+
+ function updateDiaryAudioControls(entryId, label, disabled = false) {
+ document.querySelectorAll(`[data-diary-audio-entry="${entryId}"]`).forEach(button => {
+ const isModalButton = button.id === 'entryModalAudioButton';
+ button.innerHTML = label === 'Play' ? (isModalButton ? '&#9654; Play Audio' : '&#9654; Play') : label;
+ button.disabled = disabled;
+ });
+ }
+
+ function setDiaryAudioStatus(message) {
+ const status = document.getElementById('diaryAudioStatus');
+ if (status) status.textContent = message || '';
+ }
+
+ function stopDiaryAudio() {
+ if (diaryAudioRequest) {
+ diaryAudioRequest.abort();
+ diaryAudioRequest = null;
+ }
+ diaryAudio.pause();
+ diaryAudio.removeAttribute('src');
+ diaryAudio.load();
+ if (activeDiaryEntryId !== null) updateDiaryAudioControls(activeDiaryEntryId, 'Play');
+ activeDiaryEntryId = null;
+ setDiaryAudioStatus('');
+ }
+
+ async function toggleDiaryAudio(button, entryId) {
+ if (!entryId) return;
+ if (activeDiaryEntryId === entryId && diaryAudio.src) {
+ if (diaryAudio.paused) {
+ await diaryAudio.play();
+ updateDiaryAudioControls(entryId, '&#10074;&#10074; Pause');
+ setDiaryAudioStatus('Playing');
+ } else {
+ diaryAudio.pause();
+ updateDiaryAudioControls(entryId, 'Play');
+ setDiaryAudioStatus('Paused');
+ }
+ return;
+ }
+
+ stopDiaryAudio();
+ activeDiaryEntryId = entryId;
+ diaryAudioRequest = new AbortController();
+ updateDiaryAudioControls(entryId, 'Generating...', true);
+ setDiaryAudioStatus('Generating audio with the NPC voice...');
+
+ try {
+ const response = await fetch(`${diaryAudioEndpoint}?entry=${encodeURIComponent(entryId)}`, {
+ cache: 'no-store',
+ signal: diaryAudioRequest.signal
+ });
+ const result = await response.json();
+ if (!response.ok || !result.success || !result.audio_url) {
+ throw new Error(result.error || 'Diary audio could not be generated.');
+ }
+ diaryAudioRequest = null;
+ diaryAudio.src = result.audio_url;
+ await diaryAudio.play();
+ updateDiaryAudioControls(entryId, '&#10074;&#10074; Pause');
+ setDiaryAudioStatus(`Playing ${result.author || 'NPC'} with ${result.connector || 'configured TTS'}`);
+ } catch (error) {
+ if (error.name === 'AbortError') return;
+ console.error('Diary audio failed:', error);
+ updateDiaryAudioControls(entryId, 'Play');
+ setDiaryAudioStatus(error.message || 'Diary audio failed.');
+ activeDiaryEntryId = null;
+ }
+ }
+
+ diaryAudio.addEventListener('ended', () => {
+ if (activeDiaryEntryId !== null) updateDiaryAudioControls(activeDiaryEntryId, 'Play');
+ activeDiaryEntryId = null;
+ setDiaryAudioStatus('');
+ });
+
  // Debug function to help us see what data we're receiving
  function debugLog(data) {
  console.log('Data received:', data);
@@ -1197,6 +1278,10 @@ if ($shouldFetchEvents) {
  try {
  const entryData = typeof data === 'string' ? JSON.parse(data) : data;
  content.innerHTML = entryData.content || '';
+ const audioButton = document.getElementById('entryModalAudioButton');
+ audioButton.dataset.diaryAudioEntry = entryData.rowid;
+ const isCurrentEntryPlaying = activeDiaryEntryId === Number(entryData.rowid) && !diaryAudio.paused;
+ updateDiaryAudioControls(Number(entryData.rowid), isCurrentEntryPlaying ? '&#10074;&#10074; Pause' : 'Play');
  modal.style.display = 'block';
  document.body.classList.add('modal-open');
  // Focus on the modal content
@@ -1207,6 +1292,7 @@ if ($shouldFetchEvents) {
  }
 
  function closeEntryModal() {
+ stopDiaryAudio();
  const modal = document.getElementById('entryModal');
  if (modal) {
  modal.style.display = 'none';

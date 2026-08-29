@@ -14,6 +14,8 @@ require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "chat_helper_functions.
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "data_functions.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "logger.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "utils_game_timestamp.php");
+require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "eventlog_helper.php");
+require_once($enginePath . "ext" . DIRECTORY_SEPARATOR . "relationship_system" . DIRECTORY_SEPARATOR . "npc_save_handler.php");
 
 $GLOBALS["ENGINE_PATH"]=$enginePath;
 
@@ -39,7 +41,7 @@ require_once(__DIR__.DIRECTORY_SEPARATOR."../profile_loader.php");
 $TITLE = "DIALECTIC - NPC Master";
 ob_start();
 include(__DIR__.DIRECTORY_SEPARATOR."../tmpl/head.html");
-?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><style>
+?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/npc_event_history.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/relationship_timeline.css"><style>
 /* Core styling alignment */
 @font-face {
  font-family: 'Gothic821';
@@ -48,8 +50,8 @@ include(__DIR__.DIRECTORY_SEPARATOR."../tmpl/head.html");
  font-style: normal;
 }
 main {
- padding-top: 40px;
- padding-bottom: 40px;
+ padding-top: 10px;
+ padding-bottom: 24px;
 }
 .page-header {
  margin: 0 0 24px 0;
@@ -445,8 +447,29 @@ if (!function_exists('dialecticMergeRelationshipSeedIntoExtendedData')) {
 if (!function_exists('dialecticNpcRelationshipSaveRequested')) {
  function dialecticNpcRelationshipSaveRequested(): bool
  {
+  if (array_key_exists('relationships_jsonb', $_POST)) {
+   return true;
+  }
   $extendedData = json_decode((string)($_POST['extended_data'] ?? ''), true);
   return is_array($extendedData) && array_key_exists('relationships', $extendedData);
+ }
+}
+
+if (!function_exists('dialecticUiSaveAutoLockProfileSettingFromPost')) {
+ function dialecticUiSaveAutoLockProfileSettingFromPost(): void
+ {
+  if (!array_key_exists('auto_lock_profile_present', $_POST)) {
+   return;
+  }
+
+  $raw = $_POST['auto_lock_profile'] ?? '0';
+  $enabled = in_array(strtolower(trim((string)$raw)), ['1', 'true', 'yes', 'on'], true);
+  $description = 'When enabled, saving an NPC profile in the DIALECTIC NPC page automatically locks it to prevent history updates from overwriting manual edits.';
+  if (!dialecticSetGeneralSetting('AUTO_LOCK_PROFILE', $enabled, $description)) {
+   throw new RuntimeException('Failed to save Auto Lock Profiles setting.');
+  }
+
+  $GLOBALS['AUTO_LOCK_PROFILE'] = $enabled;
  }
 }
 
@@ -466,14 +489,18 @@ if (!function_exists('dialecticResolveNpcIdAfterCreate')) {
 
 // Handle Create
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create"])) {
- if (dialecticUiAutoLockProfileEnabled() && !array_key_exists('lock_profile', $_POST)) {
- $_POST['lock_profile'] = 1;
+ dialecticMergePostedRelationshipsIntoExtendedData($_POST);
+ if (dialecticUiAutoLockProfileEnabled()) {
+  $_POST['lock_profile'] = 1;
  }
- $npc->create($_POST);
+ $created = $npc->create($_POST);
+ if ($created === false) {
+  throw new RuntimeException($npc->getLastError());
+ }
  if (dialecticNpcRelationshipSaveRequested()) {
   $createdNpcId = dialecticResolveNpcIdAfterCreate($_POST["npc_name"] ?? '');
   if ($createdNpcId > 0) {
-   dialecticRelationshipTimelineStamp($createdNpcId);
+   dialecticRelationshipTimelineStamp($createdNpcId, 'relationship_profile_editor');
   }
  }
  header("Location: npc_master.php");
@@ -482,13 +509,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create"])) {
 
 // Handle Update
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["update"])) {
- if (dialecticUiAutoLockProfileEnabled() && !array_key_exists('lock_profile', $_POST)) {
- $_POST['lock_profile'] = 1;
+ dialecticMergePostedRelationshipsIntoExtendedData($_POST);
+ if (dialecticUiAutoLockProfileEnabled()) {
+  $_POST['lock_profile'] = 1;
  }
  $_POST["md5"]=md5($_POST["npc_name"]);
- $npc->update($_POST["id"], $_POST);
+ $updated = $npc->update($_POST["id"], $_POST);
+ if ($updated === false) {
+  throw new RuntimeException($npc->getLastError());
+ }
  if (dialecticNpcRelationshipSaveRequested()) {
-  dialecticRelationshipTimelineStamp((int)($_POST["id"] ?? 0));
+  dialecticRelationshipTimelineStamp((int)($_POST["id"] ?? 0), 'relationship_profile_editor');
  }
  header("Location: npc_master.php");
  exit;
@@ -502,18 +533,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
  $id = intval($_POST['id'] ?? 0);
 
 
- // Server-side: extended_data already has feature toggles synced by JS, just ensure it's valid JSON
- // The client-side JS only includes values that differ from profile defaults
- try {
- $postedExt = isset($_POST['extended_data']) ? (string)$_POST['extended_data'] : '';
- if ($postedExt !== '') {
- $tmp = json_decode($postedExt, true);
- if (!is_array($tmp)) {
- $tmp = [];
- }
+ // Preserve existing extended data when the field is omitted and reject malformed
+ // JSON instead of silently replacing the profile data with an empty object.
+ if (array_key_exists('extended_data', $_POST)) {
+  $postedExt = (string)$_POST['extended_data'];
+ } elseif ($id > 0) {
+  $existingNpc = $npc->getById($id);
+  $postedExt = (string)($existingNpc['extended_data'] ?? '{}');
  } else {
- $tmp = [];
+  $postedExt = '{}';
  }
+ $tmp = $npc->decodeJsonObjectForPersistence($postedExt, 'Extended metadata');
 
  if (!empty($_POST["middle_term_enabled"])) { // If enabled on NPC form, but not present in extended_data
  $tmp["middle_term_enabled"] = 1;
@@ -556,10 +586,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
 
  }
 
- $_POST['extended_data'] = json_encode($tmp);
- } catch (Throwable $e) {
- $_POST['extended_data'] = '{}';
- }
+ $_POST['extended_data'] = $npc->encodeJsonObjectForPersistence($tmp, 'Extended metadata');
+ dialecticMergePostedRelationshipsIntoExtendedData($_POST);
 
  // Handle dynamic_profile: if empty string sent, set to NULL (inherit from profile)
  if (array_key_exists('dynamic_profile', $_POST)) {
@@ -570,32 +598,49 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
  $_POST['dynamic_profile'] = ($dynVal === '1' || $dynVal === 1 || $dynVal === true) ? 1 : 0;
  }
  }
- if (dialecticUiAutoLockProfileEnabled() && !array_key_exists('lock_profile', $_POST)) {
- $_POST['lock_profile'] = 1;
+ if (dialecticUiAutoLockProfileEnabled()) {
+  $_POST['lock_profile'] = 1;
  }
  if ($id <= 0) {
- $npc->create($_POST);
+ $created = $npc->create($_POST);
+ if ($created === false) { echo json_encode(["ok"=>false, "error"=>$npc->getLastError()]); exit; }
  $newId = dialecticResolveNpcIdAfterCreate($_POST["npc_name"] ?? '');
  if ($newId <= 0) { echo json_encode(["ok"=>false, "error"=>"Insert failed"]); exit; }
  if (dialecticNpcRelationshipSaveRequested()) {
-  dialecticRelationshipTimelineStamp($newId);
+  dialecticRelationshipTimelineStamp($newId, 'relationship_profile_editor');
  }
  echo json_encode(["ok"=>true, "id"=>$newId]);
  } else {
  $_POST["md5"]=md5($_POST["npc_name"]);
  $ok = $npc->update($id, $_POST);
- if (dialecticNpcRelationshipSaveRequested()) {
-  dialecticRelationshipTimelineStamp($id);
- }
- $npc->backupNpcById($id);// We also make a backup of manually edited NPCs, so when loading a save, will load this record
  if ($ok === false) {
- echo json_encode(["ok"=>false, "error"=>($npc->getLastError() ?? 'Update failed')]);
+ echo json_encode(["ok"=>false, "error"=>$npc->getLastError()]);
  } else {
+ if (dialecticNpcRelationshipSaveRequested()) {
+  dialecticRelationshipTimelineStamp($id, 'relationship_profile_editor');
+ }
+ if ($npc->backupNpcById($id) === false) {
+  Logger::warn("[NPC SAVE] Profile {$id} was updated, but its history backup failed.");
+ }
  echo json_encode(["ok"=>true, "id"=>$id]);
  }
  }
  } catch (Throwable $e) {
  echo json_encode(["ok"=>false, "error"=>$e->getMessage()]);
+ }
+ exit;
+}
+
+// Save global auto-lock preference (AJAX)
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["set_auto_lock_profile"])) {
+ try { while (ob_get_level() > 0) { ob_end_clean(); } } catch (Throwable $e) {}
+ header('Content-Type: application/json');
+ try {
+  $_POST['auto_lock_profile_present'] = '1';
+  dialecticUiSaveAutoLockProfileSettingFromPost();
+  echo json_encode(["ok"=>true, "enabled"=>dialecticUiAutoLockProfileEnabled()]);
+ } catch (Throwable $e) {
+  echo json_encode(["ok"=>false, "error"=>$e->getMessage()]);
  }
  exit;
 }
@@ -646,6 +691,31 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["toggle_lock"])) {
  exit;
 }
 
+// Bulk unlock all NPC profiles (AJAX). The narrator is stored separately in Dialectic.
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["bulk_unlock_npcs"])) {
+ try { while (ob_get_level() > 0) { ob_end_clean(); } } catch (Throwable $e) {}
+ header('Content-Type: application/json');
+ try {
+  $confirm = trim((string)($_POST['confirm'] ?? ''));
+  if ($confirm !== 'Unlock') { echo json_encode(["ok"=>false, "error"=>"Confirmation text mismatch"]); exit; }
+
+  $sql = "WITH upd AS (
+             UPDATE core_npc_master
+             SET lock_profile = 0
+             WHERE COALESCE(lock_profile, 0) = 1
+               AND trim(lower(npc_name)) <> 'the narrator'
+             RETURNING 1
+          )
+          SELECT COUNT(*) AS c FROM upd";
+  $row = $GLOBALS['db']->fetchOne($sql);
+  $unlocked = intval($row['c'] ?? 0);
+  echo json_encode(["ok"=>true, "unlocked"=>$unlocked]);
+ } catch (Throwable $e) {
+  echo json_encode(["ok"=>false, "error"=>$e->getMessage()]);
+ }
+ exit;
+}
+
 // Bulk delete unlocked NPCs except The Narrator (AJAX)
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["bulk_delete_npcs"])) {
  try { while (ob_get_level() > 0) { ob_end_clean(); } } catch (Throwable $e) {}
@@ -653,9 +723,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["bulk_delete_npcs"])) 
  try {
  $confirm = trim((string)($_POST['confirm'] ?? ''));
  if ($confirm !== 'Delete') { echo json_encode(["ok"=>false, "error"=>"Confirmation text mismatch"]); exit; }
- // Delete all unlocked NPCs except The Narrator (by name or id=1)
- // Use trim and case-insensitive comparison for robustness, and ensure lock_profile is explicitly compared as integer
- $sql = "with del as (delete from core_npc_master where (lock_profile is null or lock_profile = 0) and id <> 1 and trim(lower(npc_name)) <> 'the narrator' returning 1) select count(*) as c from del";
+ // The narrator is stored in core_narrator, but preserve any stale imported narrator row by name.
+ $sql = "with del as (delete from core_npc_master where (lock_profile is null or lock_profile = 0) and trim(lower(npc_name)) <> 'the narrator' returning 1) select count(*) as c from del";
  $row = $GLOBALS['db']->fetchOne($sql);
  $deleted = intval($row['c'] ?? 0);
  echo json_encode(["ok"=>true, "deleted"=>$deleted]);
@@ -866,7 +935,7 @@ if (isset($_GET["export"]) && is_numeric($_GET["export"])) {
  }
  if (!empty($exportRow['extended_data'])) {
  $tmp = json_decode((string)$exportRow['extended_data'], true);
- if (is_array($tmp)) { $exportData['extended_data'] = $tmp; }
+ if (is_array($tmp)) { $exportData['extended_data'] = dialecticStripHistorySourceMarker($tmp); }
  }
 
  $filename = preg_replace('/[^a-z0-9_-]+/i', '_', strtolower($exportRow['npc_name'] ?? 'npc')) . '_export.json';
@@ -957,7 +1026,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["import_npc"])) {
 }
 
 // Fetch Data
-$perPage = 12;
+$npcPageSizeOptions = [12, 24, 48, 96];
+$npcDefaultPageSize = 12;
+$perPage = isset($_GET["page_size"]) ? intval($_GET["page_size"]) : $npcDefaultPageSize;
+if (!in_array($perPage, $npcPageSizeOptions, true)) { $perPage = $npcDefaultPageSize; }
 $page = isset($_GET["page"]) ? intval($_GET["page"]) : 1;
 if ($page < 1) $page = 1;
 
@@ -1091,6 +1163,12 @@ if ($page > $totalPages) $page = $totalPages;
 $offset = ($page - 1) * $perPage;
 error_log("{$where} {$order} limit {$perPage} offset {$offset}");
 $data = $npc->getAll("{$where} {$order} limit {$perPage} offset {$offset}");
+// Authoritative result window; the toolbar and status line publish these values so the
+// client never persists a requested page the server already clamped.
+$shownRows = is_array($data) ? count($data) : 0;
+$rangeStart = ($totalRows > 0 && $shownRows > 0) ? ($offset + 1) : 0;
+$rangeEnd = ($rangeStart > 0) ? ($offset + $shownRows) : 0;
+$listFiltered = ($q !== '' || $nameLetterFilter !== '' || $profileIdFilter !== '' || $favOnly || $dynOnly || $mtmOnly || $lockOnly || $salOnly);
 $editItem = null;
 
 if (!function_exists('renderNpcLetterFilter')) {
@@ -1128,16 +1206,74 @@ if (!function_exists('renderNpcToolbar')) {
  $mtmOnly = !empty($args['mtmOnly']);
  $lockOnly = !empty($args['lockOnly']);
  $salOnly = !empty($args['salOnly']);
+ $alpha = strtolower((string)($args['alpha'] ?? 'asc'));
+ if (!in_array($alpha, ['asc','desc'], true)) { $alpha = 'asc'; }
+ $pageSizeOptions = (is_array($args['pageSizeOptions'] ?? null) && count($args['pageSizeOptions']) > 0)
+  ? array_values(array_map('intval', $args['pageSizeOptions']))
+  : [12, 24, 48, 96];
+ $pageSize = (int)($args['pageSize'] ?? $pageSizeOptions[0]);
+ if (!in_array($pageSize, $pageSizeOptions, true)) { $pageSize = (int)$pageSizeOptions[0]; }
+ $rangeStart = max(0, (int)($args['rangeStart'] ?? 0));
+ $rangeEnd = max(0, (int)($args['rangeEnd'] ?? 0));
  $pageWindow = min(10, $totalPages);
  $pageStart = max(1, min($page - 4, $totalPages - $pageWindow + 1));
  $pageEnd = min($totalPages, $pageStart + $pageWindow - 1);
 
-?><div class="pagination npc-toolbar"><div class="npc-toolbar-main"><div class="npc-toolbar-actions"><button id="npc_create_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action">+ Create NPC</button><button id="npc_import_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action" title="Import NPC from JSON file">Import NPC</button><button id="npc_bulk_switch_profile_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action npc-toolbar-btn-switch" title="Switch all NPCs from one profile to another">Mass Switch Profile</button><button id="npc_bulk_delete_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-danger" title="Delete all unlocked NPCs (excludes The Narrator and locked)">❌ Delete All Profiles</button></div><div class="npc-toolbar-tools"><input id="npc_search" type="text" placeholder="Search..." value="<?= htmlspecialchars($q) ?>" /><select id="npc_profile_filter" title="Filter by profile"><option value="">All Profiles</option><?php foreach ($profileRows as $pr): ?><?php $pid = (string)($pr['id'] ?? ''); $lbl = $pr['label'] ?? ('Profile #' . $pid); ?><option value="<?= htmlspecialchars($pid) ?>" <?= ($profileIdFilter !== '' && $profileIdFilter === $pid) ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select></div></div><div class="npc-toolbar-subrow"><div class="npc-toolbar-pager"><button type="button" class="npc-letter-btn npc-page-link<?= $page <= 1 ? ' disabled' : '' ?>" data-page="1" <?= $page <= 1 ? 'disabled aria-disabled="true"' : '' ?>>First</button><button type="button" class="npc-letter-btn npc-page-link<?= $page <= 1 ? ' disabled' : '' ?>" data-page="<?= max(1, $page - 1) ?>" <?= $page <= 1 ? 'disabled aria-disabled="true"' : '' ?>>Prev</button><?php for ($p = $pageStart; $p <= $pageEnd; $p++): ?><button type="button" class="npc-letter-btn npc-page-link<?= $p === $page ? ' active' : '' ?>" data-page="<?= $p ?>" <?= $p === $page ? 'disabled aria-current="page"' : '' ?>><?= $p ?></button><?php endfor; ?><button type="button" class="npc-letter-btn npc-page-link<?= $page >= $totalPages ? ' disabled' : '' ?>" data-page="<?= min($totalPages, $page + 1) ?>" <?= $page >= $totalPages ? 'disabled aria-disabled="true"' : '' ?>>Next</button><button type="button" class="npc-letter-btn npc-page-link<?= $page >= $totalPages ? ' disabled' : '' ?>" data-page="<?= $totalPages ?>" <?= $page >= $totalPages ? 'disabled aria-disabled="true"' : '' ?>>Last</button><div class="npc-page-indicator" title="Current page"><?= $page ?>/<?= $totalPages ?></div></div></div><div class="npc-toolbar-letter-row"><?php renderNpcLetterFilter($nameLetterFilter); ?><div class="npc-toolbar-summary"><div class="npc-filter-dropdown"><button type="button" id="npc_filter_btn<?= $suffix ?>" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action npc-toolbar-filter-btn" title="Filters" aria-label="Filters"> Filters</button><div id="npc_filter_menu<?= $suffix ?>" class="npc-filter-menu" style="display:none;"><label><input type="checkbox" id="npc_filter_fav<?= $suffix ?>" <?= $favOnly ? 'checked' : '' ?>> Favorites</label><label><input type="checkbox" id="npc_filter_dyn<?= $suffix ?>" <?= $dynOnly ? 'checked' : '' ?>> Dynamic profile</label><label><input type="checkbox" id="npc_filter_mtm<?= $suffix ?>" <?= $mtmOnly ? 'checked' : '' ?>> Middle-term memory</label><label><input type="checkbox" id="npc_filter_lock<?= $suffix ?>" <?= $lockOnly ? 'checked' : '' ?>> Locked</label><label><input type="checkbox" id="npc_filter_sal<?= $suffix ?>" <?= $salOnly ? 'checked' : '' ?>> Auto Greeting</label></div></div><div class="npc-total-pill" title="Total NPC profiles"><div class="npc-total-pill-icon"></div><div class="npc-total-pill-value"><?= $totalRows ?></div></div></div></div></div><?php
+?><div class="pagination npc-toolbar" tabindex="-1" data-page="<?= $page ?>" data-total-pages="<?= $totalPages ?>" data-total-rows="<?= $totalRows ?>" data-range-start="<?= $rangeStart ?>" data-range-end="<?= $rangeEnd ?>" data-page-size="<?= $pageSize ?>" data-q="<?= htmlspecialchars($q, ENT_QUOTES) ?>" data-alpha="<?= htmlspecialchars($alpha, ENT_QUOTES) ?>" data-letter="<?= htmlspecialchars($nameLetterFilter, ENT_QUOTES) ?>" data-profile-id="<?= htmlspecialchars($profileIdFilter, ENT_QUOTES) ?>" data-fav="<?= $favOnly ? '1' : '0' ?>" data-dyn="<?= $dynOnly ? '1' : '0' ?>" data-mtm="<?= $mtmOnly ? '1' : '0' ?>" data-lock="<?= $lockOnly ? '1' : '0' ?>" data-sal="<?= $salOnly ? '1' : '0' ?>"><div class="npc-toolbar-main"><div class="npc-toolbar-actions"><button id="npc_create_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action">+ Create NPC</button><button id="npc_import_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action" title="Import NPC from JSON file">&#x1F4E5; Import NPC</button><button id="npc_bulk_switch_profile_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action npc-toolbar-btn-switch" title="Switch all NPCs from one profile to another">&#x1F500; Mass Switch Profile</button><button id="npc_bulk_unlock_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action" title="Unlock every NPC profile">&#x1F513; Unlock All Profiles</button><button id="npc_bulk_delete_btn" type="button" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-danger" title="Delete all unlocked NPCs (excludes The Narrator and locked)">❌ Delete All Profiles</button></div><div class="npc-toolbar-tools"><input id="npc_search" type="text" placeholder="Search..." value="<?= htmlspecialchars($q) ?>" /><select id="npc_profile_filter" title="Filter by profile"><option value="">All Profiles</option><?php foreach ($profileRows as $pr): ?><?php $pid = (string)($pr['id'] ?? ''); $lbl = $pr['label'] ?? ('Profile #' . $pid); ?><option value="<?= htmlspecialchars($pid) ?>" <?= ($profileIdFilter !== '' && $profileIdFilter === $pid) ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select></div></div><div class="npc-toolbar-subrow"><div class="npc-toolbar-pager" role="group" aria-label="NPC list pagination" tabindex="-1"><button type="button" class="npc-letter-btn npc-page-link<?= $page <= 1 ? ' disabled' : '' ?>" data-page="1" data-pager-role="first" <?= $page <= 1 ? 'disabled aria-disabled="true"' : '' ?>>First</button><button type="button" class="npc-letter-btn npc-page-link<?= $page <= 1 ? ' disabled' : '' ?>" data-page="<?= max(1, $page - 1) ?>" data-pager-role="prev" <?= $page <= 1 ? 'disabled aria-disabled="true"' : '' ?>>Prev</button><?php for ($p = $pageStart; $p <= $pageEnd; $p++): ?><button type="button" class="npc-letter-btn npc-page-link<?= $p === $page ? ' active' : '' ?>" data-page="<?= $p ?>" <?= $p === $page ? 'disabled aria-current="page"' : '' ?>><?= $p ?></button><?php endfor; ?><button type="button" class="npc-letter-btn npc-page-link<?= $page >= $totalPages ? ' disabled' : '' ?>" data-page="<?= min($totalPages, $page + 1) ?>" data-pager-role="next" <?= $page >= $totalPages ? 'disabled aria-disabled="true"' : '' ?>>Next</button><button type="button" class="npc-letter-btn npc-page-link<?= $page >= $totalPages ? ' disabled' : '' ?>" data-page="<?= $totalPages ?>" data-pager-role="last" <?= $page >= $totalPages ? 'disabled aria-disabled="true"' : '' ?>>Last</button><div class="npc-page-indicator" title="Page <?= $page ?> of <?= $totalPages ?>"><?= $page ?>/<?= $totalPages ?></div><label class="npc-page-size" title="NPC profiles per page"><span>Per page</span><select id="npc_page_size"><?php foreach ($pageSizeOptions as $psOpt): ?><option value="<?= (int)$psOpt ?>"<?= ((int)$psOpt === $pageSize) ? ' selected' : '' ?>><?= (int)$psOpt ?></option><?php endforeach; ?></select></label></div></div><div class="npc-toolbar-letter-row"><?php renderNpcLetterFilter($nameLetterFilter); ?><label class="npc-auto-lock-profile" title="When enabled, saving an NPC profile automatically locks it to prevent history updates from overwriting manual edits."><input id="npc_auto_lock_profile" type="checkbox" <?= dialecticUiAutoLockProfileEnabled() ? 'checked' : '' ?>> Auto Lock Profiles on Edit</label><div class="npc-toolbar-summary"><div class="npc-filter-dropdown"><button type="button" id="npc_filter_btn<?= $suffix ?>" class="npc-toolbar-btn npc-toolbar-btn-uniform npc-toolbar-btn-action npc-toolbar-filter-btn" title="Filters" aria-label="Filters">&#x2699;&#xFE0F; Filters</button><div id="npc_filter_menu<?= $suffix ?>" class="npc-filter-menu" style="display:none;"><label><input type="checkbox" id="npc_filter_fav<?= $suffix ?>" <?= $favOnly ? 'checked' : '' ?>> Favorites</label><label><input type="checkbox" id="npc_filter_dyn<?= $suffix ?>" <?= $dynOnly ? 'checked' : '' ?>> Dynamic profile</label><label><input type="checkbox" id="npc_filter_mtm<?= $suffix ?>" <?= $mtmOnly ? 'checked' : '' ?>> Middle-term memory</label><label><input type="checkbox" id="npc_filter_lock<?= $suffix ?>" <?= $lockOnly ? 'checked' : '' ?>> Locked</label><label><input type="checkbox" id="npc_filter_sal<?= $suffix ?>" <?= $salOnly ? 'checked' : '' ?>> Auto Greeting</label></div></div><div class="npc-total-pill" title="Total NPC profiles"><div class="npc-total-pill-icon"></div><div class="npc-total-pill-value"><?= $totalRows ?></div></div></div></div></div><?php
+ }
+}
+
+if (!function_exists('renderNpcListStatus')) {
+ // Persistent, compact live region for list updates. Rendered once outside the AJAX
+ // partial so screen readers keep announcing into the same node after each refresh.
+ function renderNpcListStatus($args = [])
+ {
+ $totalRows = max(0, (int)($args['totalRows'] ?? 0));
+ $page = max(1, (int)($args['page'] ?? 1));
+ $totalPages = max(1, (int)($args['totalPages'] ?? 1));
+ $rangeStart = max(0, (int)($args['rangeStart'] ?? 0));
+ $rangeEnd = max(0, (int)($args['rangeEnd'] ?? 0));
+ $filtered = !empty($args['filtered']);
+ echo '<div id="npc_list_status" class="npc-list-status" role="status" aria-live="polite" aria-atomic="true">';
+ if ($totalRows === 0) {
+ echo $filtered ? 'No NPC profiles match the current filters.' : 'No NPC profiles found.';
+ } else {
+ echo 'Showing <span class="npc-list-status-count">'.$rangeStart.'&ndash;'.$rangeEnd.'</span>'
+  .' of <span class="npc-list-status-count">'.$totalRows.'</span> profiles'
+  .' &middot; Page <span class="npc-list-status-count">'.$page.'</span>'
+  .' of <span class="npc-list-status-count">'.$totalPages.'</span>';
+ if ($filtered) { echo ' &middot; filters active'; }
+ }
+ echo '</div>';
  }
 }
 
 if (isset($_GET["edit"])) {
- $editItem = $npc->getById($_GET["edit"]);
+ // The history-source marker is internal bookkeeping and must never reach the editor JSON.
+ $editItem = dialecticStripHistorySourceMarkerFromRow($npc->getById($_GET["edit"]));
+
+ if (!$editItem && isset($_GET['partial']) && $_GET['partial'] === '1') {
+ try { while (ob_get_level() > 0) { ob_end_clean(); } } catch (Throwable $e) {}
+ http_response_code(404);
+ header('Content-Type: text/html; charset=utf-8');
+ ?>
+ <!doctype html>
+ <html lang="en">
+ <head>
+ <meta charset="utf-8">
+ <title>NPC profile unavailable</title>
+ <style>
+ html,body{margin:0;min-height:100%;background:#222;color:#e9efff;font-family:Arial,sans-serif}
+ main{min-height:65vh;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center}
+ h2{margin:0 0 8px;color:rgb(255,182,65)}
+ p{margin:0;color:#cfd9ea;line-height:1.45}
+ </style>
+ </head>
+ <body><main data-npc-load-error="1"><div><h2>NPC profile no longer exists</h2><p>The NPC list changed after this page loaded. Refresh the list and try again.</p></div></main></body>
+ </html>
+ <?php
+ exit;
+ }
 }
 
 // Partial list renderer for AJAX refresh of grid and pagination
@@ -1158,6 +1294,11 @@ if (isset($_GET['list']) && $_GET['list'] === '1') {
  'mtmOnly' => $mtmOnly,
  'lockOnly' => $lockOnly,
  'salOnly' => $salOnly,
+ 'alpha' => $alpha,
+ 'pageSize' => $perPage,
+ 'pageSizeOptions' => $npcPageSizeOptions,
+ 'rangeStart' => $rangeStart,
+ 'rangeEnd' => $rangeEnd,
  ]);
  ?><div class="npc-grid"><?php foreach ($data as $row): ?><?php
  $pid = (string)($row['profile_id'] ?? '');
@@ -1216,7 +1357,7 @@ if (isset($_GET['list']) && $_GET['list'] === '1') {
  if (isset($metaTmp['stats']) && is_array($metaTmp['stats']) && isset($metaTmp['stats']['level'])) {
  $levelDisp = ' ('.intval($metaTmp['stats']['level']).')';
  }
-?><span class="npc-name"><?= htmlspecialchars(($row["npc_name"] ?? '').$levelDisp) ?></span><?php $gch = gender_icon_char($row['gender'] ?? ''); $gcl = gender_icon_class($row['gender'] ?? ''); if ($gch!==''): ?><span class="npc-gender-icon <?= htmlspecialchars($gcl) ?>" title="<?= htmlspecialchars($row['gender'] ?? '') ?>"><?= $gch ?></span><?php endif; ?><?php if (!empty($dynEnabled)): ?><span class="npc-dyn-icon" title="Dynamic profile enabled">&#x267B;&#xFE0F;</span><?php endif; ?><?php if (!empty($mtmEnabled)): ?><span class="npc-mtm-icon" title="Middle-term memory enabled">&#x1F4C3;</span><?php endif; ?><?php if (!empty($imbEnabled)): ?><span class="npc-imb-icon" title="Individual memory bank enabled">&#x1F9E0;</span><?php endif; ?><?php if (!empty($adEnabled)): ?><span class="npc-ad-icon" title="Auto diary enabled">&#x1F4D9;</span><?php endif; ?><?php if (!empty($salEnabled)): ?><span class="npc-sal-icon" title="Auto Greeting enabled">&#x1F44B;</span><?php endif; ?></div><div class="npc-title-actions"><?php if ($tagsDisp !== ''): ?><span class="npc-tags-top" title="<?= htmlspecialchars($tagsDisp) ?>"><?= htmlspecialchars($tagsDisp) ?></span><?php endif; ?><a class="btn btn-toggle <?= !empty($row["npc_favorite"]) ? "active" : "" ?>" href="#" data-favorite-id="<?= $row["id"] ?>" title="Toggle favorite"><?php echo !empty($row["npc_favorite"]) ? "&#x2605;" : "&#x2606;"; ?></a><a class="btn btn-toggle <?= !empty($row["lock_profile"]) ? "active" : "" ?>" href="#" data-lock-id="<?= $row["id"] ?>" title="Toggle lock - Locked profiles are protected from history pullback when loading saves"><?php echo !empty($row["lock_profile"]) ? "&#x1F512;" : "&#x1F513;"; ?></a></div></div><div class="npc-divider"></div><div class="npc-row"><div class="npc-fields"><div class="npc-line"><span class="npc-muted">Gender:</span><span class="npc-gender"><?= htmlspecialchars($row["gender"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">Race:</span><span class="npc-race"><?= htmlspecialchars($row["race"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">Voice:</span><span class="npc-voiceid"><?= htmlspecialchars($row["voiceid"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">RefID:</span><span class="npc-refid"><?= htmlspecialchars($row["refid"] ?? "") ?></span></div><?php $worldknowledgeVal = trim((string)($row["worldknowledge_tags"] ?? "")); $worldknowledgeDisp = ($worldknowledgeVal === "") ? "none" : $worldknowledgeVal; ?><div class="npc-line"><span class="npc-muted">Knowledge Tags:</span><span class="npc-worldknowledge"><?= htmlspecialchars($worldknowledgeDisp) ?></span></div><div class="npc-line"><span class="npc-muted">Profile:</span><span class="npc-profile"><?= htmlspecialchars($profLabel) ?></span></div><?php $tagsVal = trim((string)($row["tags"] ?? "")); $tagsDisp = ($tagsVal === "") ? "none" : $tagsVal; ?></div><div class="npc-right"><?php if ($raceIcon !== ''): ?><img class="npc-race-art" src="<?= htmlspecialchars($raceIcon) ?>" alt="Race icon" /><?php endif; ?></div><div class="npc-right-warn"><?php
+?><span class="npc-name"><?= htmlspecialchars(($row["npc_name"] ?? '').$levelDisp) ?></span><?php $gch = gender_icon_char($row['gender'] ?? ''); $gcl = gender_icon_class($row['gender'] ?? ''); if ($gch!==''): ?><span class="npc-gender-icon <?= htmlspecialchars($gcl) ?>" title="<?= htmlspecialchars($row['gender'] ?? '') ?>"><?= $gch ?></span><?php endif; ?><?php if (!empty($dynEnabled)): ?><span class="npc-dyn-icon" title="Dynamic profile enabled">&#x267B;&#xFE0F;</span><?php endif; ?><?php if (!empty($mtmEnabled)): ?><span class="npc-mtm-icon" title="Middle-term memory enabled">&#x1F4C3;</span><?php endif; ?><?php if (!empty($imbEnabled)): ?><span class="npc-imb-icon" title="Individual memory bank enabled">&#x1F9E0;</span><?php endif; ?><?php if (!empty($adEnabled)): ?><span class="npc-ad-icon" title="Auto diary enabled">&#x1F4D9;</span><?php endif; ?><?php if (!empty($salEnabled)): ?><span class="npc-sal-icon" title="Auto Greeting enabled">&#x1F44B;</span><?php endif; ?></div><div class="npc-title-actions"><?php if ($tagsDisp !== ''): ?><span class="npc-tags-top" title="<?= htmlspecialchars($tagsDisp) ?>"><?= htmlspecialchars($tagsDisp) ?></span><?php endif; ?><a class="btn btn-toggle <?= !empty($row["npc_favorite"]) ? "active" : "" ?>" href="#" data-favorite-id="<?= $row["id"] ?>" title="Toggle favorite"><?php echo !empty($row["npc_favorite"]) ? "&#x2605;" : "&#x2606;"; ?></a><a class="btn btn-toggle" href="#" data-pick-picture-id="<?= $row["id"] ?>" title="Set picture">&#x1F5BC;&#xFE0F;</a><a class="btn btn-toggle <?= !empty($row["lock_profile"]) ? "active" : "" ?>" href="#" data-lock-id="<?= $row["id"] ?>" title="Toggle lock - Locked profiles are protected from history pullback when loading saves"><?php echo !empty($row["lock_profile"]) ? "&#x1F512;" : "&#x1F513;"; ?></a><a class="btn btn-trash<?= !empty($row['lock_profile']) ? ' disabled' : '' ?>" href="<?= !empty($row['lock_profile']) ? '#' : ('?delete='.$row['id']) ?>" onclick="<?= !empty($row['lock_profile']) ? 'alert(\'This NPC is locked and cannot be deleted.\'); return false;' : "return confirm('Delete this NPC?');" ?>" title="<?= !empty($row['lock_profile']) ? 'Locked - cannot delete' : 'Delete' ?>">&#x274C;</a></div></div><div class="npc-divider"></div><div class="npc-row"><div class="npc-fields"><div class="npc-line"><span class="npc-muted">Gender:</span><span class="npc-gender"><?= htmlspecialchars($row["gender"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">Race:</span><span class="npc-race"><?= htmlspecialchars($row["race"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">Voice:</span><span class="npc-voiceid"><?= htmlspecialchars($row["voiceid"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">RefID:</span><span class="npc-refid"><?= htmlspecialchars($row["refid"] ?? "") ?></span></div><?php $worldknowledgeVal = trim((string)($row["worldknowledge_tags"] ?? "")); $worldknowledgeDisp = ($worldknowledgeVal === "") ? "none" : $worldknowledgeVal; ?><div class="npc-line"><span class="npc-muted">Knowledge Tags:</span><span class="npc-worldknowledge"><?= htmlspecialchars($worldknowledgeDisp) ?></span></div><div class="npc-line"><span class="npc-muted">Profile:</span><span class="npc-profile"><?= htmlspecialchars($profLabel) ?></span></div><?php $tagsVal = trim((string)($row["tags"] ?? "")); $tagsDisp = ($tagsVal === "") ? "none" : $tagsVal; ?></div><div class="npc-right"><?php if ($raceIcon !== ''): ?><img class="npc-race-art" src="<?= htmlspecialchars($raceIcon) ?>" alt="Race icon" /><?php endif; ?></div><div class="npc-right-warn"><?php
  if ($row["gamets_last_updated"] != $LAST_INFOSAVE_EVENT) {
  echo "<span title='This NPC is out of sync, this means current NPC sheet has been modified after last save. If you edit this NPC, changes will be lost if you reload a previous savegame. '></span>";
  }
@@ -1354,7 +1495,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["restore_from_history"
  'dynamic_profile' => !empty($histRow['dynamic_profile']) ? 1 : 0,
  'tags' => $histRow['tags'] ?? '',
  'metadata' => $histRow['metadata'] ?? '',
- 'extended_data' => $histRow['extended_data'] ?? '',
+ 'extended_data' => dialecticStripHistorySourceMarker($histRow['extended_data'] ?? ''),
  'md5' => $histRow['md5'] ?? md5($histRow['npc_name'] ?? '')
  ];
 
@@ -1485,14 +1626,17 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  }
  exit;
 }
-?><?php if ($editItem): ?><h2>Edit NPC (ID: <?= htmlspecialchars($editItem["id"]) ?>)</h2><?php endif; ?><?php if (isset($_GET['partial']) && $_GET['partial']=='1') { ob_end_clean(); ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><style>html,body{background:#2a2a2a;margin-bottom:50px;margin-right:5px;} main{background:#2a2a2a; padding:12px;} .form-container{background:#2a2a2a; border:1px solid #4a4a4a; border-radius:8px;}
+?><?php if ($editItem): ?><h2>Edit NPC (ID: <?= htmlspecialchars($editItem["id"]) ?>)</h2><?php endif; ?><?php if (isset($_GET['partial']) && $_GET['partial']=='1') { ob_end_clean(); ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/npc_event_history.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/relationship_timeline.css"><style>html,body{background:#2a2a2a;margin-bottom:50px;margin-right:5px;} main{background:#2a2a2a; padding:12px;} .form-container{background:#2a2a2a; border:1px solid #4a4a4a; border-radius:8px;}
 .modal-inline-actions{display:flex; gap:6px; align-items:center; justify-content:flex-end; margin-bottom:8px;}
 .modal-inline-actions .btn-toggle{background:transparent; border:none; padding:6px; color:#e9efff; font-size:22px; line-height:1; text-decoration:none; cursor:pointer;}
 .modal-inline-actions .btn-toggle:hover{color: rgb(255, 182, 65); text-decoration:none;}
 .modal-inline-actions .btn-toggle.active{color:#ffd700; font-weight:700;}
 .modal-inline-actions .btn-toggle[data-lock]{color:#e9efff;}
 .modal-inline-actions .btn-toggle.active[data-lock]{color: rgb(255, 182, 65);}
-</style><form method="post" onsubmit='return false' style='display:block'><?php } else { ?><form method="post" onsubmit='return consolidation()' style='<?= $editItem!=null?"":"display:none"?>'><?php } ?><style>
+.modal-inline-actions .btn-toggle[data-favorite]:hover,
+.modal-inline-actions .btn-toggle[data-favorite]:focus-visible{color:#ffd700 !important; text-shadow:0 0 8px rgba(255,215,0,.7),0 0 14px rgba(255,215,0,.45) !important;}
+.modal-inline-actions .btn-toggle.active[data-favorite]{color:#ffd700 !important;}
+</style><div data-npc-profile-loaded="1" data-npc-id="<?= htmlspecialchars((string)($editItem['id'] ?? '')) ?>" hidden></div><form method="post" onsubmit='return false' style='display:block'><?php } else { ?><form method="post" onsubmit='return consolidation()' style='<?= $editItem!=null?"":"display:none"?>'><?php } ?><script src="<?php echo $webRoot; ?>/ui/js/npc_event_history.js"></script><style>
  .form-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px 16px; }
  @media (max-width: 900px){ .form-grid { grid-template-columns: 1fr; } }
  .form-item { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
@@ -1512,17 +1656,17 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  .label-with-toggle input[type="checkbox"] { accent-color:#176529; transform: scale(1.8); transform-origin:center; cursor:pointer; }
  .span-2 { grid-column: 1 / -1; margin-bottom:12px; }
  .checkbox-inline { display:flex; align-items:center; gap:8px; }
-</style><?php if ($editItem): ?><input type="hidden" name="id" value="<?= htmlspecialchars($editItem["id"]) ?>"><?php endif; ?><?php $isPartial = (isset($_GET['partial']) && $_GET['partial']=='1'); $isFav = !empty($editItem['npc_favorite']); $isLock = !empty($editItem['lock_profile']); ?><?php if ($isPartial): ?><div class="modal-inline-actions"><input type="hidden" id="modal_favorite_value" name="npc_favorite" value="<?= $isFav ? '1' : '0' ?>" /><input type="hidden" id="modal_lock_value" name="lock_profile" value="<?= $isLock ? '1' : '0' ?>" /><p style="margin:0; color:rgb(255, 182, 65) ;">Tags:</p><input type="text" id="modal_tags_input" name="tags" value="<?= htmlspecialchars($editItem['tags'] ?? '') ?>" placeholder="tags" style="max-width:240px; font-size:12px; padding:4px 6px; border-radius:6px; border:1px solid #4a4a4a; background:#2a2a2a; color:#e9efff;" title="Tags help with searching and grouping" /><a id="modal_fav_btn" class="btn btn-toggle<?= $isFav? ' active':'' ?>" href="#" title="Toggle favorite" data-favorite><?= $isFav? '&#x2605;' : '&#x2606;' ?></a><a id="modal_lock_btn" class="btn btn-toggle<?= $isLock? ' active':'' ?>" href="#" title="Toggle lock - Locked profiles are protected from history pullback when loading saves" data-lock><?= $isLock? '&#x1F512;' : '&#x1F513;' ?></a></div><?php
+</style><?php if ($editItem): ?><input type="hidden" name="id" value="<?= htmlspecialchars($editItem["id"]) ?>"><?php endif; ?><?php $isPartial = (isset($_GET['partial']) && $_GET['partial']=='1'); $isFav = !empty($editItem['npc_favorite']); $isLock = !empty($editItem['lock_profile']); ?><?php if ($isPartial): ?><div class="modal-inline-actions"><input type="hidden" id="modal_favorite_value" name="npc_favorite" value="<?= $isFav ? '1' : '0' ?>" /><p style="margin:0; color:rgb(255, 182, 65) ;">Tags:</p><input type="text" id="modal_tags_input" name="tags" value="<?= htmlspecialchars($editItem['tags'] ?? '') ?>" placeholder="tags" style="max-width:240px; font-size:12px; padding:4px 6px; border-radius:6px; border:1px solid #4a4a4a; background:#2a2a2a; color:#e9efff;" title="Tags help with searching and grouping" /><a id="modal_fav_btn" class="btn btn-toggle<?= $isFav? ' active':'' ?>" href="#" title="Toggle favorite" data-favorite><?= $isFav? '&#x2605;' : '&#x2606;' ?></a></div><?php
  // Render LLM summary container (will live-update via JS)
  $curPid = (string)($editItem['profile_id'] ?? '');
  $pc = ($curPid !== '' && isset($profilesConnById[$curPid])) ? $profilesConnById[$curPid] : null;
  $m = function($id) use ($llmById){ $k = (string)($id ?? ''); return $k !== '' && isset($llmById[$k]) ? $llmById[$k] : ''; };
- ?><div id="profile_llm_summary" style="display:grid; grid-template-columns: 210px 1fr; gap:6px; color:#cfd9ea; border:1px solid #4a4a4a; border-radius:8px; padding:8px; margin-bottom:8px;"><div style="color:rgb(255, 182, 65); font-weight:700; white-space:nowrap;">LLMs</div><div><?= htmlspecialchars($pc ? $m($pc['llm_primary_id'] ?? '') : '') ?>
- | <?= htmlspecialchars($pc ? $m($pc['llm_secondary_id'] ?? '') : '') ?>
- | <?= htmlspecialchars($pc ? $m($pc['llm_tertiary_id'] ?? '') : '') ?>
- | <?= htmlspecialchars($pc ? $m($pc['llm_quaternary_id'] ?? '') : '') ?>
- | <?= htmlspecialchars($pc ? $m($pc['diary_connector_id'] ?? '') : '') ?>
- | <?= htmlspecialchars($pc ? $m($pc['llm_formatter_id'] ?? '') : '') ?></div></div><script>
+ ?><div id="profile_llm_summary" style="display:grid; grid-template-columns: 210px 1fr; gap:6px; color:#cfd9ea; border:1px solid #4a4a4a; border-radius:8px; padding:8px; margin-bottom:8px;"><div style="color:rgb(255, 182, 65); font-weight:700; white-space:nowrap;">Profile LLMs</div><div>&#x1F579;&#xFE0F; <?= htmlspecialchars($pc ? $m($pc['llm_primary_id'] ?? '') : '') ?>
+ | &#x1F3C3; <?= htmlspecialchars($pc ? $m($pc['llm_secondary_id'] ?? '') : '') ?>
+ | &#x1F4AA; <?= htmlspecialchars($pc ? $m($pc['llm_tertiary_id'] ?? '') : '') ?>
+ | &#x1F9EA; <?= htmlspecialchars($pc ? $m($pc['llm_quaternary_id'] ?? '') : '') ?>
+ | &#x1F4D3; <?= htmlspecialchars($pc ? $m($pc['diary_connector_id'] ?? '') : '') ?>
+ | &#x1F9FE; <?= htmlspecialchars($pc ? $m($pc['llm_formatter_id'] ?? '') : '') ?></div></div><script>
  (function(){
  const PROFILE_CONN = <?= json_encode($profilesConnById ?? [], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
  const LLM_LABELS = <?= json_encode($llmById ?? [], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
@@ -1534,12 +1678,12 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  const std = pc ? labelOf(pc.llm_primary_id) : '';
  const fast = pc ? labelOf(pc.llm_secondary_id) : '';
  const pow = pc ? labelOf(pc.llm_tertiary_id) : '';
- return ' ' + std + ' | ' + fast + ' | ' + pow;
+ return '&#x1F579;&#xFE0F; ' + std + ' | &#x1F3C3; ' + fast + ' | &#x1F4AA; ' + pow;
  })();
  const exp = pc ? labelOf(pc.llm_quaternary_id) : '';
  const dia = pc ? labelOf(pc.diary_connector_id) : '';
  const fmt = pc ? labelOf(pc.llm_formatter_id) : '';
- const all = combined + ' | ' + exp + ' | ' + dia + ' | ' + fmt;
+ const all = combined + ' | &#x1F9EA; ' + exp + ' | &#x1F4D3; ' + dia + ' | &#x1F9FE; ' + fmt;
  const rows = [
  ['Profile LLMs', all]
  ];
@@ -1648,8 +1792,288 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  }
  }
  })();
-</script><?php endif; ?><div class="form-grid"><div class="form-item span-2"><label for="npc_name">NPC Name</label><input type="text" id="npc_name" name="npc_name" placeholder="e.g. NCR Ranger" value="<?= htmlspecialchars($editItem["npc_name"] ?? "") ?>"><small class="hint">The character's name. Must match their Fallout in-game name!</small></div><div class="form-item"><label for="profile_id">Profile</label><select id="profile_id" name="profile_id"><option value="">Use Default NPC Profile</option><?php foreach (($profileRows ?? []) as $pr): $pid=(string)($pr['id']??''); $lbl=$pr['label']??('Profile #'.$pid); $sel = ((string)($editItem['profile_id'] ?? '') === $pid) ? ' selected' : ((empty($editItem) && $firstProfileId === $pid) ? ' selected' : ''); ?><option value="<?= htmlspecialchars($pid) ?>"<?= $sel ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select><small class="hint">Select which profile the NPC uses.</small></div><div class="form-item" style='<?= (isset($_GET['partial']) && $_GET['partial']=='1')?"display:none":"" ?>'><label for="lock_profile" class="label-with-toggle">Lock Profile
- <input type="checkbox" id="lock_profile" name="lock_profile" value="1" <?= !empty($editItem["lock_profile"]) ? "checked" : "" ?>></label><small class="hint">Prevents dynamic systems from modifying this NPC's profile.</small></div><div class="form-item" style='<?= (isset($_GET['partial']) && $_GET['partial']=='1')?"display:none":"" ?>'><label for="npc_favorite" class="label-with-toggle">Favorite
+</script><?php endif; ?><div class="npc-editor-tabs" role="tablist" aria-label="NPC editor categories" data-npc-editor-tabs data-storage-key="dialectic-npc-editor-tab">
+    <button type="button" class="npc-editor-tab is-active" role="tab" aria-selected="true" data-npc-editor-tab="general">🧭 General</button>
+    <button type="button" class="npc-editor-tab" role="tab" aria-selected="false" data-npc-editor-tab="bios">📖 Roleplay</button>
+    <button type="button" class="npc-editor-tab" role="tab" aria-selected="false" data-npc-editor-tab="relationships">🤝 Relationships</button>
+    <button type="button" class="npc-editor-tab" role="tab" aria-selected="false" data-npc-editor-tab="actions">&#x1F9ED; Actions</button>
+    <button type="button" class="npc-editor-tab" role="tab" aria-selected="false" data-npc-editor-tab="info">🛠️ Info</button>
+</div>
+<style>
+.npc-editor-tabs {
+    display:grid;
+    grid-template-columns:repeat(6, minmax(0, 1fr));
+    gap:8px;
+    margin-bottom:14px;
+    padding:8px;
+    border:1px solid #3a3a3a;
+    border-radius:10px;
+    background:rgba(30, 30, 30, 0.92);
+}
+.npc-editor-tab {
+    position:relative;
+    min-height:40px;
+    padding:8px 12px;
+    border:1px solid #444;
+    border-radius:7px;
+    background:#303030;
+    color:#ddd;
+    font-weight:700;
+    cursor:pointer;
+    transition:border-color 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.npc-editor-tab:hover { border-color:rgba(255,182,65,0.55); background:#383838; }
+.npc-editor-tabs .npc-editor-tab.is-active {
+    border-color:rgb(255,182,65) !important;
+    color:#fff !important;
+    background:rgba(88,65,29,0.95) !important;
+    box-shadow:inset 0 0 0 1px rgba(255,182,65,0.28), 0 0 12px rgba(255,182,65,0.24) !important;
+    transform:translateY(-1px) !important;
+}
+.npc-editor-tab:focus-visible { outline:2px solid rgb(255,182,65); outline-offset:2px; }
+.npc-editor-panels { display:block; }
+.npc-editor-panel[hidden] { display:none !important; }
+.npc-editor-panel[data-npc-editor-panel="bios"] { grid-template-columns:minmax(0, 1fr); }
+.npc-editor-panel[data-npc-editor-panel="actions"] { grid-template-columns:minmax(0, 1fr); }
+.npc-editor-action-note { margin:0; color:#aaa; font-size:0.86rem; }
+.npc-editor-action-list { display:grid; gap:10px; }
+.npc-editor-action-card {
+    display:grid;
+    grid-template-columns:minmax(0, 1fr) auto;
+    align-items:center;
+    gap:14px;
+    padding:12px;
+    border:1px solid #444;
+    border-radius:7px;
+    background:#282828;
+}
+.npc-editor-action-card h3 { margin:0 0 4px; color:rgb(255,182,65); font-size:1rem; }
+.npc-editor-action-card p { margin:0; color:#aaa; font-size:0.82rem; }
+.npc-editor-action-status { min-height:1.2rem; margin:0; color:#aaa; font-size:0.82rem; }
+.npc-editor-action-status.is-error { color:#ef8f96; }
+@media (max-width:700px) { .npc-editor-tabs { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+@media (max-width:850px) { .npc-editor-action-card { grid-template-columns:minmax(0, 1fr); } }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const knowledgeInput = document.getElementById('worldknowledge_tags');
+  const knowledgeLabel = document.querySelector('label[for="worldknowledge_tags"]');
+  if (!knowledgeInput) return;
+  knowledgeInput.placeholder = 'mojave, wastelander, scientist';
+  if (knowledgeLabel) knowledgeLabel.textContent = 'World Knowledge Classes';
+  const hint = knowledgeInput.nextElementSibling;
+  if (hint && hint.classList.contains('hint')) {
+    hint.textContent = 'Comma-separated article access classes, not retrieval tags. Typical choices: capital_wasteland, mojave, wastelander, historian, scientist, doctor, engineer, merchant, caravaner, tribal, vault_dweller, ghoul, super_mutant, robot, military, ncr, legion, brotherhood, enclave, followers, great_khan, boomers, powder_ganger, raider, courier, or knowall.';
+  }
+});
+
+(function(){
+    const fieldSections = {
+        general: new Set(['npc_name','profile_id','lock_profile','npc_favorite','gender','race','base','refid','oghma_knowledge_tags','worldknowledge_tags','world_knowledge_tags','voiceid','faction','dynamic_profile','middle_term_enabled','individual_memory_enabled','auto_diary_enabled','auto_diary_wait_enabled','salutation_after_a_while','prompt_head']),
+        bios: new Set(['core','npc_static_bio','appearance','personality','occupation','skills','speechstyle','goals']),
+        relationships: new Set(['relationships','relationships_jsonb','middle_term_latest']),
+        actions: new Set([]),
+        history: new Set([]),
+        info: new Set(['emote_moods','metadata','extended_data'])
+    };
+
+    function initNpcEditorTabs(){
+        document.querySelectorAll('[data-npc-editor-tabs]').forEach(function(tablist, index){
+            if (tablist.dataset.initialized === '1') return;
+            const form = tablist.closest('form');
+            const grid = form ? form.querySelector('.form-grid') : null;
+            if (!form || !grid) return;
+            if (!tablist.querySelector('[data-npc-editor-tab="history"]')) {
+                const historyButton = document.createElement('button');
+                historyButton.type = 'button';
+                historyButton.className = 'npc-editor-tab';
+                historyButton.setAttribute('role', 'tab');
+                historyButton.setAttribute('aria-selected', 'false');
+                historyButton.dataset.npcEditorTab = 'history';
+                historyButton.textContent = '📜 History';
+                tablist.appendChild(historyButton);
+            }
+            tablist.dataset.initialized = '1';
+
+            const panels = {};
+            ['general','bios','relationships','actions','info','history'].forEach(function(section){
+                const panel = document.createElement('div');
+                panel.className = 'npc-editor-panel form-grid';
+                if (section === 'history') panel.classList.add('npc-editor-panel-history');
+                panel.dataset.npcEditorPanel = section;
+                panel.id = 'npc-editor-panel-' + section + '-' + index;
+                panel.setAttribute('role', 'tabpanel');
+                panels[section] = panel;
+                const button = tablist.querySelector('[data-npc-editor-tab="' + section + '"]');
+                if (button) button.setAttribute('aria-controls', panel.id);
+            });
+
+            function tokensFor(unit){
+                const nodes = [];
+                if (unit.matches('[id],[name]')) nodes.push(unit);
+                unit.querySelectorAll('[id],[name]').forEach(function(node){ nodes.push(node); });
+                const tokens = [];
+                nodes.forEach(function(node){
+                    if (node.id) tokens.push(node.id);
+                    if (node.getAttribute('name')) tokens.push(node.getAttribute('name'));
+                });
+                return tokens;
+            }
+
+            function sectionFor(unit){
+                if (unit.id === 'relationship-editor-section' || unit.querySelector('#relationship-editor-section')) return 'relationships';
+                const label = unit.querySelector('label:not([for])');
+                if (label && label.textContent.replace(/\s+/g, ' ').trim() === 'Relationships') return 'relationships';
+                const tokens = tokensFor(unit);
+                for (const section of ['relationships','general','bios','info']) {
+                    if (tokens.some(function(token){ return fieldSections[section].has(token); })) return section;
+                }
+                return 'info';
+            }
+
+            function isFieldUnit(unit){
+                if (!(unit instanceof Element)) return false;
+                if (unit.matches('.form-item,#relationship-editor-section,input,textarea,select,details')) return true;
+                return Boolean(unit.querySelector('input,textarea,select,details,#relationship-editor-section'));
+            }
+
+            function moveUnit(unit){
+                if (!isFieldUnit(unit)) return;
+                panels[sectionFor(unit)].appendChild(unit);
+            }
+
+            Array.from(grid.children).forEach(function(unit){
+                if (unit.classList.contains('dynamic-profile-section')) {
+                    Array.from(unit.children).forEach(moveUnit);
+                    unit.hidden = true;
+                    return;
+                }
+                moveUnit(unit);
+            });
+
+            grid.classList.remove('form-grid');
+            grid.classList.add('npc-editor-panels');
+            Object.values(panels).forEach(function(panel){ grid.appendChild(panel); });
+
+            <?php
+            $editorMetadata = json_decode((string)($editItem['metadata'] ?? '{}'), true);
+            $editorReturnLocation = is_array($editorMetadata) && is_array($editorMetadata['npc_manager_return_location'] ?? null)
+                ? $editorMetadata['npc_manager_return_location']
+                : null;
+            ?>
+            const targetId = <?= (int)($editItem['id'] ?? 0) ?>;
+            const targetName = <?= json_encode((string)($editItem['npc_name'] ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+            const savedReturnLocation = <?= json_encode($editorReturnLocation, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+            const initialTeleportAction = savedReturnLocation ? 'return' : 'teleport';
+            const initialReturnName = savedReturnLocation && savedReturnLocation.name ? String(savedReturnLocation.name) : '';
+            const historyController = window.dialecticNpcEventHistory
+                ? window.dialecticNpcEventHistory.mount(panels.history, {
+                    npcId: targetId,
+                    npcName: targetName,
+                    apiUrl: '../api/dialectic_npc_manager.php'
+                })
+                : null;
+            panels.actions.innerHTML = `
+                <p class="npc-editor-action-note">The game must be running and unpaused for Visit, Teleport, and Return NPC.</p>
+                <div class="npc-editor-action-list">
+                    <article class="npc-editor-action-card">
+                        <div><h3>Visit</h3><p>Move the player to this NPC's current position.</p></div>
+                        <button type="button" class="btn-cancel" data-npc-action="visit">Visit</button>
+                    </article>
+                    <article class="npc-editor-action-card">
+                        <div><h3 data-npc-teleport-title>${initialTeleportAction === 'return' ? 'Return NPC' : 'Teleport'}</h3><p data-npc-teleport-description>${initialTeleportAction === 'return' ? 'Send this NPC back to ' + (initialReturnName || 'their previous location') + '.' : "Move this NPC to the player's current position and save their previous location."}</p></div>
+                        <button type="button" class="btn-cancel" data-npc-action="${initialTeleportAction}" data-npc-teleport-button>${initialTeleportAction === 'return' ? 'Return NPC' : 'Teleport'}</button>
+                    </article>
+                </div>
+                <p class="npc-editor-action-status" data-npc-action-status role="status" aria-live="polite"></p>`;
+
+            const actionStatus = panels.actions.querySelector('[data-npc-action-status]');
+            const teleportButton = panels.actions.querySelector('[data-npc-teleport-button]');
+            const teleportTitle = panels.actions.querySelector('[data-npc-teleport-title]');
+            const teleportDescription = panels.actions.querySelector('[data-npc-teleport-description]');
+            panels.actions.querySelectorAll('[data-npc-action]').forEach(function(button){
+                button.disabled = targetId <= 0;
+                button.addEventListener('click', async function(){
+                    const action = button.dataset.npcAction;
+                    button.disabled = true;
+                    actionStatus.textContent = 'Sending action...';
+                    actionStatus.classList.remove('is-error');
+                    try {
+                        const response = await fetch('../api/dialectic_npc_manager.php', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({operation:'action', action:action, id:targetId})
+                        });
+                        const payload = await response.json();
+                        if (!response.ok || !payload || !payload.success) {
+                            throw new Error((payload && payload.error) || ('HTTP ' + response.status));
+                        }
+                        actionStatus.textContent = (payload.data && payload.data.message) || 'Action sent.';
+                        if (button === teleportButton && payload.data && payload.data.next_action) {
+                            const nextAction = payload.data.next_action;
+                            const returnName = payload.data.return_location ? String(payload.data.return_location) : '';
+                            button.dataset.npcAction = nextAction;
+                            button.textContent = nextAction === 'return' ? 'Return NPC' : 'Teleport';
+                            teleportTitle.textContent = nextAction === 'return' ? 'Return NPC' : 'Teleport';
+                            teleportDescription.textContent = nextAction === 'return'
+                                ? 'Send this NPC back to ' + (returnName || 'their previous location') + '.'
+                                : "Move this NPC to the player's current position and save their previous location.";
+                        }
+                    } catch (error) {
+                        actionStatus.textContent = 'Action failed: ' + (error.message || error);
+                        actionStatus.classList.add('is-error');
+                    } finally {
+                        button.disabled = targetId <= 0;
+                    }
+                });
+            });
+            if (targetId <= 0) actionStatus.textContent = 'Save this NPC before using actions.';
+
+            const storageKey = tablist.dataset.storageKey || 'npc-editor-tab';
+            function activate(section){
+                if (!panels[section]) section = 'general';
+                tablist.querySelectorAll('[data-npc-editor-tab]').forEach(function(button){
+                    const active = button.dataset.npcEditorTab === section;
+                    button.classList.toggle('is-active', active);
+                    button.setAttribute('aria-selected', active ? 'true' : 'false');
+                    button.tabIndex = active ? 0 : -1;
+                });
+                Object.entries(panels).forEach(function(entry){ entry[1].hidden = entry[0] !== section; });
+                if (section === 'history' && historyController) historyController.load();
+                try { window.localStorage.setItem(storageKey, section); } catch (_e) {}
+            }
+
+            tablist.addEventListener('click', function(event){
+                const button = event.target.closest('[data-npc-editor-tab]');
+                if (button) activate(button.dataset.npcEditorTab);
+            });
+            tablist.addEventListener('keydown', function(event){
+                if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+                const buttons = Array.from(tablist.querySelectorAll('[data-npc-editor-tab]'));
+                let next = buttons.indexOf(document.activeElement);
+                if (event.key === 'Home') next = 0;
+                else if (event.key === 'End') next = buttons.length - 1;
+                else next = (next + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+                event.preventDefault();
+                buttons[next].focus();
+                activate(buttons[next].dataset.npcEditorTab);
+            });
+
+            let initial = 'general';
+            const resetForModal = <?= isset($_GET['partial']) && $_GET['partial'] === '1' ? 'true' : 'false' ?>;
+            if (!resetForModal) {
+                try { initial = window.localStorage.getItem(storageKey) || initial; } catch (_e) {}
+            }
+            activate(initial);
+        });
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initNpcEditorTabs);
+    window.setTimeout(initNpcEditorTabs, 0);
+})();
+</script>
+<div class="form-grid"><div class="form-item span-2"><label for="npc_name">NPC Name</label><input type="text" id="npc_name" name="npc_name" placeholder="e.g. NCR Ranger" value="<?= htmlspecialchars($editItem["npc_name"] ?? "") ?>"><small class="hint">The character's name. Must match their Fallout in-game name!</small></div><div class="form-item"><label for="profile_id">Profile</label><select id="profile_id" name="profile_id"><option value="">Use Default NPC Profile</option><?php foreach (($profileRows ?? []) as $pr): $pid=(string)($pr['id']??''); $lbl=$pr['label']??('Profile #'.$pid); $sel = ((string)($editItem['profile_id'] ?? '') === $pid) ? ' selected' : ((empty($editItem) && $firstProfileId === $pid) ? ' selected' : ''); ?><option value="<?= htmlspecialchars($pid) ?>"<?= $sel ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select><small class="hint">Select which profile the NPC uses.</small></div><div class="form-item"><label for="lock_profile" class="label-with-toggle">Lock This NPC
+ <input type="hidden" name="lock_profile" value="0"><input type="checkbox" id="lock_profile" name="lock_profile" value="1" <?= !empty($editItem["lock_profile"]) ? "checked" : "" ?>></label><small class="hint">Prevents dynamic systems from modifying this NPC's profile.</small></div><div class="form-item" style='<?= (isset($_GET['partial']) && $_GET['partial']=='1')?"display:none":"" ?>'><label for="npc_favorite" class="label-with-toggle">Favorite
  <input type="checkbox" id="npc_favorite" name="npc_favorite" value="1" <?= !empty($editItem["npc_favorite"]) ? "checked" : "" ?>></label><small class="hint">Pin this NPC for quick access.</small></div><div class="form-item"><label for="gender">Gender</label><input type="text" id="gender" name="gender" placeholder="female, male" value="<?= htmlspecialchars($editItem["gender"] ?? "") ?>"><small class="hint">Used for prompts.</small></div><div class="form-item"><label for="race">Race</label><input type="text" id="race" name="race" placeholder="human, ghoul, super mutant" value="<?= htmlspecialchars($editItem["race"] ?? "") ?>"><small class="hint">Lore-accurate race label used in prompts.</small></div><div class="form-item"><label for="base">Base</label><input type="text" id="base" name="base" placeholder="Bandit Reaver" value="<?= htmlspecialchars($editItem["base"] ?? "") ?>"><small class="hint">Optional: base form identifier or template this NPC derives from.</small></div><div class="form-item"><label for="refid">Ref ID</label><input type="text" id="refid" name="refid" placeholder="Game reference ID (000A2C94)" value="<?= htmlspecialchars($editItem["refid"] ?? "") ?>"><small class="hint">Fallout reference ID for in-game linkage.</small></div><div class="form-item"><label for="worldknowledge_tags">Knowledge Tags</label><input type="text" id="worldknowledge_tags" name="worldknowledge_tags" placeholder="Comma-separated knowledge tags" value="<?= htmlspecialchars($editItem["worldknowledge_tags"] ?? "") ?>"><small class="hint">Used by knowledge systems for lookup restrictions.</small></div><div class="form-item"><label for="voiceid">Voice ID</label><input type="text" id="voiceid" name="voiceid" placeholder="Optional TTS voice id" value="<?= htmlspecialchars($editItem["voiceid"] ?? "") ?>"><small class="hint">Voice ID for TTS.</small></div><?php
  // Check profile-level settings for these features
  $profileDynEnabled = false;
@@ -1795,6 +2219,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  <input type="checkbox" id="auto_diary_enabled" name="auto_diary_enabled" value="1" <?= $adChecked ? "checked" : "" ?> data-profile-default="<?= $profileAutoDiaryEnabled ? '1' : '0' ?>"></label><small class="hint">Automatically generate diary entries for this NPC when they are nearby during sleep/wait events.<?= $adFromProfile ? ' <strong style="color:rgb(255, 182, 65);">(Inherited from profile)</strong>' : '' ?></small></div><div class="form-item"><label for="auto_diary_wait_enabled" class="label-with-toggle">Auto Diary Wait
  <input type="checkbox" id="auto_diary_wait_enabled" name="auto_diary_wait_enabled" value="1" <?= $adWaitChecked ? "checked" : "" ?> data-profile-default="<?= $profileAutoDiaryWaitEnabled ? '1' : '0' ?>"></label><small class="hint">When Auto Diary is enabled, this controls whether diary entries are created during wait events. If disabled, auto diary will only trigger on sleep events.<?= $adWaitFromProfile ? ' <strong style="color:rgb(255, 182, 65);">(Inherited from profile)</strong>' : '' ?></small></div><div class="form-item"><label for="salutation_after_a_while" class="label-with-toggle">Auto Greeting
 <input type="checkbox" id="salutation_after_a_while" name="salutation_after_a_while" value="1" <?= $salChecked ? "checked" : "" ?> data-profile-default="<?= $profileSalEnabled ? '1' : '0' ?>"></label><small class="hint">NPC will automatically greet you after you have been away for a while.</small></div><div class="form-item span-2"><label for="prompt_head">Prompt Head Override</label><textarea id="prompt_head" name="prompt_head" placeholder="High-level system instructions injected before the core."><?= htmlspecialchars($editItem["prompt_head"] ?? "") ?></textarea><small class="hint">System preamble inserted before other sections. Do not worry if it is empty, as will pull from global settings prompt head.</small></div><div class="form-item span-2"><label for="core">Core</label><textarea id="core" name="core" placeholder="Unchanging rules, boundaries, and core identity."><?= htmlspecialchars($editItem["core"] ?? "") ?></textarea><small class="hint">Core NPC description. 1-2 sentences describing the character.</small></div><div class="form-item span-2"><label for="npc_static_bio">Backstory</label><textarea id="npc_static_bio" name="npc_static_bio" placeholder="Fixed background, history, and facts."><?= htmlspecialchars($editItem["npc_static_bio"] ?? "") ?></textarea><small class="hint">Historical facts and background information.</small></div><div class="form-item span-2"><label for="appearance">Appearance</label><textarea id="appearance" name="appearance" placeholder="Physical appearance."><?= htmlspecialchars($editItem["appearance"] ?? "") ?></textarea><small class="hint">Physical appearance. Keep it limited to character cosmetics, not equipment.</small></div><div class="dynamic-profile-section span-2"><div class="form-item"><label for="personality">Personality</label><textarea id="personality" name="personality" placeholder="Personality traits and speaking characteristics."><?= htmlspecialchars($editItem["personality"] ?? "") ?></textarea><small class="hint">Traits and quirks that guide tone and behavior.</small></div><div class="form-item"><label for="occupation">Occupation</label><textarea id="occupation" name="occupation" placeholder="Role, job, affiliations."><?= htmlspecialchars($editItem["occupation"] ?? "") ?></textarea><small class="hint">Primary role or job. Include relevant guilds or factions.</small></div><div class="form-item"><label for="skills">Skills</label><textarea id="skills" name="skills" placeholder="Strengths, abilities, and specialties."><?= htmlspecialchars($editItem["skills"] ?? "") ?></textarea><small class="hint">Highlight notable competencies of the NPC.</small></div><div class="form-item"><label for="speechstyle">Speech Style</label><textarea id="speechstyle" name="speechstyle" placeholder="Dialect, cadence, verbal tics."><?= htmlspecialchars($editItem["speechstyle"] ?? "") ?></textarea><small class="hint">How the NPC speaks their dialogue.</small></div><div class="form-item"><label for="goals">Goals</label><textarea id="goals" name="goals" placeholder="Short and long-term objectives."><?= htmlspecialchars($editItem["goals"] ?? "") ?></textarea><small class="hint">Motivations and goals for the NPC.</small></div><div class="form-item span-2"><label for="emote_moods">Emote Moods Override</label><textarea id="emote_moods" name="emote_moods" placeholder="Allowed mood/emote set (comma-separated)."><?= htmlspecialchars($editItem["emote_moods"] ?? "") ?></textarea><small class="hint">Whitelist of mood/emote cues the NPC may use (e.g., calm, angry, playful). <strong>Overrides</strong> the global EMOTEMOODS setting. Leave empty to use global default.</small></div><?php
+ include($enginePath . "ext" . DIRECTORY_SEPARATOR . "relationship_system" . DIRECTORY_SEPARATOR . "relationship_editor.php");
  $mtmLatest = '';
  try {
  if (!empty($editItem['extended_data'])){
@@ -1939,7 +2364,12 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  $itemBaseId = isset($item['baseid']) ? htmlspecialchars((string)$item['baseid'], ENT_QUOTES, 'UTF-8') : '&mdash;';
  ?><tr style="border-bottom:1px solid #3a3a3a;"><td style="padding:6px 8px; color:#cfd9ea;"><?= $itemName ?></td><td style="padding:6px 8px; text-align:center; color:#9fb1c9;"><?= $itemType !== null ? $itemType : '&mdash;' ?></td><td style="padding:6px 8px; text-align:center; color:<?= $itemEquipped ? 'rgb(255, 182, 65)' : '#777' ?>;"><?= $itemEquipped ? 'Yes' : 'No' ?></td><td style="padding:6px 8px; text-align:right; color:#9fb1c9;"><?= $itemCondition !== null ? number_format($itemCondition, 1) : '&mdash;' ?></td><td style="padding:6px 8px; text-align:right; color:#9fb1c9; font-family:monospace; font-size:11px;"><?= $itemBaseId ?></td><td style="padding:6px 8px; text-align:right; color:#9fb1c9; font-weight:600;"><?= $itemCount ?></td></tr><?php endforeach; ?></tbody></table><div style="margin-top:12px; padding:8px; background:#1a1a1a; border-radius:6px; border:1px solid #4a4a4a;"><strong style="color:rgb(255, 182, 65);">Total Items:</strong><span style="color:#cfd9ea;"><?= count($metadataInventory) ?> unique items</span></div></div><?php else: ?><div style="color:#9fb1c9;">No inventory data found in metadata.</div><?php endif; ?></div></details></div><div class="form-item span-2"><details class="npc-metadata-collapse" id="npc_metadata_collapse"><summary>Metadata (JSON)</summary><div class="npc-metadata-collapse-body"><textarea name="metadata" style="display:none"><?= htmlspecialchars($editItem["metadata"] ?? "") ?></textarea><small class="hint">General NPC metadata used by systems.</small><div id="metadata"></div></div></details></div><div class="form-item span-2"><label for="extended_data">Setting Overrides</label><small class="hint">Override global and profile settings for this specific NPC. Changes here take precedence over all other configurations.</small><?php
  // Configure override editor for NPC mode
- $reservedKeys = [ 'middle_term_enabled', 'individual_memory_enabled', 'auto_diary_enabled', 'auto_diary_wait_enabled', 'dialectic_core_migrated', 'salutation_after_a_while'];
+ $reservedKeys = [
+  'middle_term_enabled', 'individual_memory_enabled', 'auto_diary_enabled',
+  'auto_diary_wait_enabled', 'dialectic_core_migrated', 'salutation_after_a_while',
+  'relationships', 'relationships_locked', 'relationships_analyzed',
+  'relationships_model', 'relationships_last_eval', 'relationships_inferred'
+ ];
  $extendedDataRaw = isset($editItem["extended_data"]) ? $editItem["extended_data"] : '{}';
  $extendedDataObj = json_decode($extendedDataRaw, true) ?: [];
  $npcOverrideCatalog = dialecticGetOverrideableGeneralSettingsCatalog();
@@ -2090,6 +2520,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  }
 
  const fd = new FormData(form);
+ const individualMemoryInput = form.querySelector('#individual_memory_enabled');
+ if (individualMemoryInput) {
+ fd.set('individual_memory_enabled', individualMemoryInput.checked ? '1' : '0');
+ }
  fd.append('inline_update_npc','1');
  if (!fd.has('id') && <?= json_encode(!empty($editItem['id'])) ?>){ fd.append('id', <?= json_encode($editItem['id'] ?? '') ?>); }
  const res = await fetch('npc_master.php', { method:'POST', body: fd });
@@ -2110,14 +2544,12 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  </script><script>
  (function(){
  const favBtn = document.getElementById('modal_fav_btn');
- const lockBtn = document.getElementById('modal_lock_btn');
  const favValue = document.getElementById('modal_favorite_value');
- const lockValue = document.getElementById('modal_lock_value');
  const idVal = <?= json_encode($editItem['id'] ?? '') ?>;
  function setToggle(btn, input, active){
  if (btn) {
  btn.classList.toggle('active', active);
- btn.textContent = btn.hasAttribute('data-favorite') ? (active ? '\u2605' : '\u2606') : (active ? '\uD83D\uDD12' : '\uD83D\uDD13');
+ btn.textContent = active ? '\u2605' : '\u2606';
  }
  if (input) {
  input.value = active ? '1' : '0';
@@ -2135,21 +2567,6 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  const res = await fetch('npc_master.php', { method:'POST', body: fd });
  let json={}; try{ json=await res.json(); }catch(_e){}
  if (json && json.ok){ const active = Number(json.favorite||0)===1; setToggle(favBtn, favValue, active); }
- }catch(_e){}
- });
- }
- if (lockBtn){
- lockBtn.addEventListener('click', async function(e){
- e.preventDefault();
- if (!idVal) {
- setToggle(lockBtn, lockValue, !(lockValue && lockValue.value === '1'));
- return;
- }
- try{
- const fd = new FormData(); fd.append('toggle_lock','1'); fd.append('id', idVal);
- const res = await fetch('npc_master.php', { method:'POST', body: fd });
- let json={}; try{ json=await res.json(); }catch(_e){}
- if (json && json.ok){ const active = Number(json.locked||0)===1; setToggle(lockBtn, lockValue, active); }
  }catch(_e){}
  });
  }
@@ -2241,11 +2658,15 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
 .btn-toggle { background:transparent; border:none; padding:6px; color:#e9efff; font-size:22px; line-height:1; text-decoration:none; transition: color .15s ease, text-shadow .15s ease; }
 /* Navbar-like glow for lock on cards */
 .btn-toggle[data-lock-id]:hover,
-.btn-toggle[data-lock-id]:focus-visible { color: rgb(255, 182, 65); background:transparent; text-decoration:none; text-shadow: 0 0 6px rgba(255, 182, 65, 0.6), 0 0 12px rgba(255, 182, 65, 0.35); }
-.btn-toggle[data-favorite-id]:hover,
-.btn-toggle[data-favorite-id]:focus-visible { color:#ffd700; text-shadow: 0 0 8px rgba(255, 215, 0, 0.7), 0 0 14px rgba(255, 215, 0, 0.45); }
+.btn-toggle[data-lock-id]:focus-visible,
+.btn-toggle[data-pick-picture-id]:hover,
+.btn-toggle[data-pick-picture-id]:focus-visible { color: rgb(255, 182, 65); background:transparent; text-decoration:none; text-shadow: 0 0 6px rgba(255, 182, 65, 0.6), 0 0 12px rgba(255, 182, 65, 0.35); }
+.npc-title-actions .btn-toggle[data-favorite-id]:hover,
+.npc-title-actions .btn-toggle[data-favorite-id]:focus-visible { color:#ffd700 !important; text-shadow: 0 0 8px rgba(255, 215, 0, 0.7), 0 0 14px rgba(255, 215, 0, 0.45) !important; }
 .btn-toggle.active { color: rgb(255, 182, 65); font-weight:700; text-decoration:none; }
-.btn-toggle.active[data-favorite-id] { color:#ffd700; }
+.npc-title-actions .btn-toggle.active[data-favorite-id] { color:#ffd700 !important; }
+.btn-trash { background:transparent; border:none; padding:6px; color:#e9efff; font-size:20px; line-height:1; text-decoration:none; transition: color .15s ease, text-shadow .15s ease; }
+.btn-trash:hover, .btn-trash:focus-visible { color:#ff6b6b; text-shadow: 0 0 6px rgba(255, 107, 107, 0.7), 0 0 12px rgba(255, 107, 107, 0.45); }
 .btn-toggle[data-lock-id] {
  display:inline-flex;
  align-items:center;
@@ -2318,6 +2739,12 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  max-height:calc(85vh - 100px);
  background: rgba(34, 34, 34, 0.95);
 }
+.npc-modal-frame-wrap{position:relative;min-height:260px}
+.npc-modal-load-status{position:absolute;inset:0;z-index:3;display:none;align-items:center;justify-content:center;padding:24px;background:#222;color:#e9efff;text-align:center}
+.npc-modal-load-status.is-visible{display:flex}
+.npc-modal-load-status strong{display:block;margin-bottom:8px;color:rgb(255,182,65);font-size:18px}
+.npc-modal-load-status p{margin:0;color:#cfd9ea;line-height:1.45}
+.npc-modal-load-status button{margin-top:14px}
 .modal-close {
  background:#3a3a3a;
  color:#fff;
@@ -2544,7 +2971,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  justify-content:flex-start;
  gap:12px;
  padding:14px;
- margin:16px 0 0 0;
+ margin:0;
  background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
  border-radius: 10px;
  border: 1px solid #3a3a3a;
@@ -2567,18 +2994,37 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  gap:8px;
  flex-wrap:wrap;
 }
-.pagination.npc-toolbar .npc-toolbar-actions {
- flex:1 1 1192px;
- min-width:1192px;
+.pagination.npc-toolbar .npc-toolbar-main {
+ align-items:flex-start;
  flex-wrap:nowrap;
 }
+.pagination.npc-toolbar .npc-toolbar-actions {
+ flex:1 1 0;
+ min-width:0;
+ flex-wrap:wrap;
+}
 .pagination.npc-toolbar .npc-toolbar-tools {
- flex:0 0 320px;
- width:320px;
- min-width:320px;
- flex-direction:column;
- align-items:stretch;
- justify-content:flex-start;
+ flex:0 0 auto;
+ width:auto;
+ min-width:0;
+ margin-left:auto;
+ flex-direction:row;
+ align-items:center;
+ justify-content:flex-end;
+ flex-wrap:nowrap;
+}
+.pagination.npc-toolbar .npc-auto-lock-profile {
+ display:flex;
+ align-items:center;
+ gap:8px;
+ color:#e9efff;
+ font-size:13px;
+ font-weight:600;
+ cursor:pointer;
+}
+.pagination.npc-toolbar .npc-auto-lock-profile input {
+ accent-color:rgb(255,182,65);
+ cursor:pointer;
 }
 .pagination.npc-toolbar .npc-toolbar-pager {
  flex:1 1 auto;
@@ -2677,16 +3123,16 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  font-size:13px;
 }
 .pagination.npc-toolbar .npc-toolbar-tools input[type="text"] {
- flex:0 0 auto;
- width:100%;
+ flex:0 0 220px;
+ width:220px;
  min-width:0;
- max-width:none;
+ max-width:220px;
 }
 .pagination.npc-toolbar .npc-toolbar-tools select {
- flex:0 0 auto;
- width:100%;
+ flex:0 0 180px;
+ width:180px;
  min-width:0;
- max-width:none;
+ max-width:180px;
 }
 .pagination.npc-toolbar .npc-page-link {
  display:inline-flex;
@@ -2708,6 +3154,60 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  color:rgb(255, 182, 65);
  font-weight:700;
  padding:0 4px;
+}
+.pagination.npc-toolbar:focus {
+ outline:none;
+}
+.pagination.npc-toolbar:focus-visible {
+ outline:2px solid rgba(255, 182, 65, 0.6);
+ outline-offset:2px;
+}
+.pagination.npc-toolbar .npc-toolbar-pager:focus {
+ outline:none;
+}
+.pagination.npc-toolbar .npc-toolbar-pager:focus-visible {
+ outline:2px solid rgba(255, 182, 65, 0.75);
+ outline-offset:3px;
+ border-radius:8px;
+}
+.pagination.npc-toolbar .npc-page-size {
+ display:inline-flex;
+ align-items:center;
+ gap:6px;
+ margin-left:2px;
+ color:#9fb1c9;
+ font-size:12px;
+ font-weight:600;
+ white-space:nowrap;
+ cursor:pointer;
+}
+.pagination.npc-toolbar .npc-page-size select {
+ flex:0 0 auto;
+ width:auto;
+ min-width:0;
+ max-width:none;
+ padding:3px 6px;
+ font-size:12px;
+ line-height:1.2;
+ border-radius:6px;
+ border:1px solid #4a4a4a;
+ background:#2a2a2a;
+ color:#e9efff;
+ cursor:pointer;
+}
+.npc-list-status {
+ margin:6px 2px 0;
+ min-height:15px;
+ font-size:12px;
+ line-height:1.3;
+ color:#9fb1c9;
+}
+.npc-list-status .npc-list-status-count {
+ color:rgb(255, 182, 65);
+ font-weight:700;
+}
+.npc-list-status[data-state="error"] {
+ color:#ffb4b4;
 }
 .pagination.npc-toolbar .npc-total-pill {
  display:flex;
@@ -2747,6 +3247,9 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  }
 }
 @media (max-width: 780px) {
+ .pagination.npc-toolbar .npc-toolbar-main {
+ flex-wrap:wrap;
+ }
  .pagination.npc-toolbar .npc-toolbar-tools,
  .pagination.npc-toolbar .npc-toolbar-actions,
  .pagination.npc-toolbar .npc-toolbar-pager,
@@ -2766,6 +3269,9 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  flex:1 1 100%;
  width:100%;
  min-width:0;
+ margin-left:0;
+ flex-wrap:wrap;
+ justify-content:flex-start;
  }
  .pagination.npc-toolbar .npc-toolbar-letter-row {
  align-items:flex-start;
@@ -2792,11 +3298,23 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  'mtmOnly' => $mtmOnly,
  'lockOnly' => $lockOnly,
  'salOnly' => $salOnly,
-]); ?><div style="margin:10px 0; padding:10px 14px; background:rgba(255, 182, 65,0.08); border:1px solid rgba(255, 182, 65,0.25); border-radius:8px; font-size:12.5px; color:#cfd9ea; line-height:1.5;"><strong style="color:rgb(255, 182, 65);">History Pullback:</strong>
+ 'alpha' => $alpha,
+ 'pageSize' => $perPage,
+ 'pageSizeOptions' => $npcPageSizeOptions,
+ 'rangeStart' => $rangeStart,
+ 'rangeEnd' => $rangeEnd,
+]); renderNpcListStatus([
+ 'totalRows' => $totalRows,
+ 'page' => $page,
+ 'totalPages' => $totalPages,
+ 'rangeStart' => $rangeStart,
+ 'rangeEnd' => $rangeEnd,
+ 'filtered' => $listFiltered,
+]); ?><div style="margin:8px 0 10px; padding:10px 14px; background:rgba(255, 182, 65,0.08); border:1px solid rgba(255, 182, 65,0.25); border-radius:8px; font-size:12.5px; color:#cfd9ea; line-height:1.5;"><strong style="color:rgb(255, 182, 65);">History Pullback:</strong>
  Every time a save game is loaded, DIALECTIC snapshots all NPC profiles and restores <strong>unlocked</strong> NPCs to their state at the save's game timestamp.
  Loading an older save will roll back unlocked profiles to that point in time. NPCs created <em>after</em> the save's timestamp may disappear entirely.
  <br><span style="color:rgb(255, 182, 65);">Lock a profile to protect it from pullback.</span>
- You can view and restore previous versions of any NPC via the <strong>View History</strong> button in the edit modal.
+ You can view and restore previous profile versions via the <strong>Profile Versions</strong> button in the edit modal.
 </div><div class="npc-grid"><?php foreach ($data as $row): ?><?php
  $pid = (string)($row['profile_id'] ?? '');
  $profLabel = $profilesById[$pid] ?? '';
@@ -2849,18 +3367,60 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  if (isset($metaTmp['stats']) && is_array($metaTmp['stats']) && isset($metaTmp['stats']['level'])) {
  $levelDisp2 = ' ('.intval($metaTmp['stats']['level']).')';
  }
- ?><span class="npc-name"><?= htmlspecialchars(($row["npc_name"] ?? '').$levelDisp2) ?></span><?php $gch = gender_icon_char($row['gender'] ?? ''); $gcl = gender_icon_class($row['gender'] ?? ''); if ($gch!==''): ?><span class="npc-gender-icon <?= htmlspecialchars($gcl) ?>" title="<?= htmlspecialchars($row['gender'] ?? '') ?>"><?= $gch ?></span><?php endif; ?><?php if (!empty($row['dynamic_profile'])): ?><span class="npc-dyn-icon" title="Dynamic profile enabled">&#x267B;&#xFE0F;</span><?php endif; ?><?php if (!empty($mtmEnabled)): ?><span class="npc-mtm-icon" title="Middle-term memory enabled">&#x1F4C3;</span><?php endif; ?><?php if (!empty($imbEnabled)): ?><span class="npc-imb-icon" title="Individual memory bank enabled">&#x1F9E0;</span><?php endif; ?><?php if (!empty($adEnabled)): ?><span class="npc-ad-icon" title="Auto diary enabled">&#x1F4D9;</span><?php endif; ?><?php if (!empty($salEnabled)): ?><span class="npc-sal-icon" title="Auto Greeting enabled">&#x1F44B;</span><?php endif; ?></div><div class="npc-title-actions"><?php if ($tagsDisp !== ''): ?><span class="npc-tags-label">Tags:</span><span class="npc-tags-top" title="Use Search to filter by these tags: <?= htmlspecialchars($tagsDisp) ?>"><?= htmlspecialchars($tagsDisp) ?></span><?php endif; ?><a class="btn btn-toggle <?= !empty($row["npc_favorite"]) ? "active" : "" ?>" href="#" data-favorite-id="<?= $row["id"] ?>" title="Toggle favorite"><?php echo !empty($row["npc_favorite"]) ? "&#x2605;" : "&#x2606;"; ?></a><a class="btn btn-toggle <?= !empty($row["lock_profile"]) ? "active" : "" ?>" href="#" data-lock-id="<?= $row["id"] ?>" title="Toggle lock - Locked profiles are protected from history pullback when loading saves"><?php echo !empty($row["lock_profile"]) ? "&#x1F512;" : "&#x1F513;"; ?></a></div></div><div class="npc-divider"></div><div class="npc-row"><div class="npc-fields"><div class="npc-line"><span class="npc-muted">Gender:</span><span class="npc-gender"><?= htmlspecialchars($row["gender"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">Race:</span><span class="npc-race"><?= htmlspecialchars($row["race"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">Voice:</span><span class="npc-voiceid"><?= htmlspecialchars($row["voiceid"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">RefID:</span><span class="npc-refid"><?= htmlspecialchars($row["refid"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">Knowledge Tags:</span><span class="npc-worldknowledge"><?= htmlspecialchars($worldknowledgeDisp) ?></span></div><div class="npc-line"><span class="npc-muted">Profile:</span><span class="npc-profile"><?= htmlspecialchars($profLabel) ?></span></div></div><div class="npc-right"><?php if ($raceIcon !== ''): ?><img class="npc-race-art" src="<?= htmlspecialchars($raceIcon) ?>" alt="Race icon" /><?php endif; ?></div><div class="npc-right-warn"><?php
+ ?><span class="npc-name"><?= htmlspecialchars(($row["npc_name"] ?? '').$levelDisp2) ?></span><?php $gch = gender_icon_char($row['gender'] ?? ''); $gcl = gender_icon_class($row['gender'] ?? ''); if ($gch!==''): ?><span class="npc-gender-icon <?= htmlspecialchars($gcl) ?>" title="<?= htmlspecialchars($row['gender'] ?? '') ?>"><?= $gch ?></span><?php endif; ?><?php if (!empty($row['dynamic_profile'])): ?><span class="npc-dyn-icon" title="Dynamic profile enabled">&#x267B;&#xFE0F;</span><?php endif; ?><?php if (!empty($mtmEnabled)): ?><span class="npc-mtm-icon" title="Middle-term memory enabled">&#x1F4C3;</span><?php endif; ?><?php if (!empty($imbEnabled)): ?><span class="npc-imb-icon" title="Individual memory bank enabled">&#x1F9E0;</span><?php endif; ?><?php if (!empty($adEnabled)): ?><span class="npc-ad-icon" title="Auto diary enabled">&#x1F4D9;</span><?php endif; ?><?php if (!empty($salEnabled)): ?><span class="npc-sal-icon" title="Auto Greeting enabled">&#x1F44B;</span><?php endif; ?></div><div class="npc-title-actions"><?php if ($tagsDisp !== ''): ?><span class="npc-tags-label">Tags:</span><span class="npc-tags-top" title="Use Search to filter by these tags: <?= htmlspecialchars($tagsDisp) ?>"><?= htmlspecialchars($tagsDisp) ?></span><?php endif; ?><a class="btn btn-toggle <?= !empty($row["npc_favorite"]) ? "active" : "" ?>" href="#" data-favorite-id="<?= $row["id"] ?>" title="Toggle favorite"><?php echo !empty($row["npc_favorite"]) ? "&#x2605;" : "&#x2606;"; ?></a><a class="btn btn-toggle" href="#" data-pick-picture-id="<?= $row["id"] ?>" title="Set picture">&#x1F5BC;&#xFE0F;</a><a class="btn btn-toggle <?= !empty($row["lock_profile"]) ? "active" : "" ?>" href="#" data-lock-id="<?= $row["id"] ?>" title="Toggle lock - Locked profiles are protected from history pullback when loading saves"><?php echo !empty($row["lock_profile"]) ? "&#x1F512;" : "&#x1F513;"; ?></a><a class="btn btn-trash<?= !empty($row['lock_profile']) ? ' disabled' : '' ?>" href="<?= !empty($row['lock_profile']) ? '#' : ('?delete='.$row['id']) ?>" onclick="<?= !empty($row['lock_profile']) ? 'alert(\'This NPC is locked and cannot be deleted.\'); return false;' : "return confirm('Delete this NPC?');" ?>" title="<?= !empty($row['lock_profile']) ? 'Locked - cannot delete' : 'Delete' ?>">&#x274C;</a></div></div><div class="npc-divider"></div><div class="npc-row"><div class="npc-fields"><div class="npc-line"><span class="npc-muted">Gender:</span><span class="npc-gender"><?= htmlspecialchars($row["gender"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">Race:</span><span class="npc-race"><?= htmlspecialchars($row["race"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">Voice:</span><span class="npc-voiceid"><?= htmlspecialchars($row["voiceid"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">RefID:</span><span class="npc-refid"><?= htmlspecialchars($row["refid"] ?? "") ?></span></div><div class="npc-line"><span class="npc-muted">Knowledge Tags:</span><span class="npc-worldknowledge"><?= htmlspecialchars($worldknowledgeDisp) ?></span></div><div class="npc-line"><span class="npc-muted">Profile:</span><span class="npc-profile"><?= htmlspecialchars($profLabel) ?></span></div></div><div class="npc-right"><?php if ($raceIcon !== ''): ?><img class="npc-race-art" src="<?= htmlspecialchars($raceIcon) ?>" alt="Race icon" /><?php endif; ?></div><div class="npc-right-warn"><?php
  if ($row["gamets_last_updated"] != $LAST_INFOSAVE_EVENT) {
  echo "<span title='This NPC is out of sync, this means current NPC sheet has been modified after last save. If you edit this NPC, changes will be lost if you reload a previous savegame. '></span>";
  }
  ?></div></div></div><?php endforeach; ?></div><?php endif; ?><div id="npc_modal" class="modal-backdrop"><div class="modal-container"><div class="modal-header"><h2 class="modal-title">Edit NPC</h2><div class="modal-actions"><button id="npc_modal_save_header" class="btn-save">Save</button><button id="npc_modal_export" class="btn-cancel" title="Export NPC biography to JSON file">Export Bio</button><button id="npc_modal_import_to" class="btn-cancel" title="Import biography from another NPC's export file">Import Bio</button><button id="npc_modal_reset" class="btn-cancel" title="Reimport bio template fields">Reset NPC</button><button id="npc_modal_diary" class="btn-cancel">View Diary</button><button id="npc_modal_history" class="btn-cancel">View History</button><button id="npc_modal_regen" class="btn-cancel" title="Will use AI to regenerate this profile. Intended for custom NPCs without biography descriptions.">AI Generate Profile</button><button id="npc_modal_close" class="btn-cancel">Close</button></div></div><div class="modal-body"><div id="npc_modal_tabs" style="display:flex; gap:8px; padding:8px; border-bottom:1px solid #4a4a4a; background:#2a2a2a; position:sticky; top:0; z-index:2;"><button type="button" class="pf-tab active" data-pane="pane_manual"> Manual</button><button type="button" class="pf-tab" data-pane="pane_bio"> NPC Biographies</button></div><div id="pane_manual" class="pf-pane active" style="padding:0;"><iframe id="npc_modal_iframe" src="about:blank" style="width:100%; height:70vh; border:0; background:transparent;"></iframe></div><div id="pane_bio" class="pf-pane" style="display:none; padding:10px;"><div style="display:flex; gap:12px; align-items:flex-start;"><div style="flex: 0 0 340px; max-width:340px; border:1px solid #4a4a4a; border-radius:8px; padding:8px; background:#2a2a2a;"><div style="display:flex; flex-direction:column; gap:6px; align-items:stretch; margin-bottom:8px;"><select id="bio_letter" style="padding:6px 8px; border:1px solid #4a4a4a; border-radius:6px; background:#2a2a2a; color:#e9efff;"><option value="">All</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option><option>F</option><option>G</option><option>H</option><option>I</option><option>J</option><option>K</option><option>L</option><option>M</option><option>N</option><option>O</option><option>P</option><option>Q</option><option>R</option><option>S</option><option>T</option><option>U</option><option>V</option><option>W</option><option>X</option><option>Y</option><option>Z</option></select><input id="bio_search_input" type="text" placeholder="Search bio database..." style="padding:6px 8px; border:1px solid #4a4a4a; border-radius:6px; background:#2a2a2a; color:#e9efff;"></div><div id="bio_list" style="height:58vh; overflow:auto; display:flex; flex-direction:column; gap:6px;"></div><div id="bio_pager" style="display:flex; gap:6px; align-items:center; justify-content:center; margin-top:6px;"></div></div><div style="flex: 1 1 auto; min-width:0; border:1px solid #4a4a4a; border-radius:8px; padding:8px; background:#2a2a2a;"><div style="margin-bottom:8px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;"><label class="label-with-toggle"><input id="bio_inc_core" type="checkbox" checked> Core</label><label class="label-with-toggle"><input id="bio_inc_ext" type="checkbox" checked> Extended Profile</label><label class="label-with-toggle"><input id="bio_inc_worldknowledge" type="checkbox" checked> Knowledge Tags</label><label class="label-with-toggle"><input id="bio_inc_vm" type="checkbox" checked> Voice & Meta</label><select id="bio_profile_id" title="Assign Profile" style="margin-left:auto; padding:6px 8px; border:1px solid #4a4a4a; border-radius:6px; background:#2a2a2a; color:#e9efff;"><option value=""> Profile </option><?php foreach (($profileRows ?? []) as $pr): $pid=(string)($pr['id']??''); $lbl=$pr['label']??('Profile #'.$pid); $sel = ($firstProfileId === $pid) ? ' selected' : ''; ?><option value="<?= htmlspecialchars($pid) ?>"<?= $sel ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select><button id="bio_use_template" type="button" class="btn-base btn-primary">Use Template</button></div><div id="bio_detail" style="height:58vh; overflow:auto;"><div style="color:#9fb1c9">Select a template on the left</div></div></div></div></div></div></div></div><!-- Gallery picker overlay --><div id="gallery_picker" class="modal-backdrop" style="z-index:10001;"><div class="modal-container" style="max-width:1200px; width:95%;"><div class="modal-header"><h2 class="modal-title">Choose Picture</h2><div class="modal-actions"><button id="gallery_picker_close" class="btn-cancel">Close</button></div></div><div class="modal-body" style="height:80vh;"><iframe id="gallery_picker_iframe" src="about:blank" style="width:100%; height:100%; border:0; background:transparent;"></iframe></div></div></div><!-- NPC History viewer overlay --><div id="history_viewer" class="modal-backdrop" style="z-index:10002;"><div class="modal-container" style="max-width:1100px; width:95%;"><div class="modal-header"><h2 class="modal-title">NPC History</h2><div class="modal-actions"><button id="history_close" class="btn-cancel">Close</button><button id="history_generation" class="btn-cancel" title="Note: Will do a LLM request.">Evolution report (AI request)</button></div></div><div class="modal-body" style="height:75vh; display:flex; gap:10px;"><div id="history_list" style="flex: 0 0 320px; max-width:320px; border-right:1px solid #4a4a4a; overflow:auto; padding:8px;"></div><div id="history_detail" style="flex: 1 1 auto; min-width:0; overflow:auto; padding:8px;"><div style="color:#9fb1c9">Select a snapshot to view details</div></div></div></div></div><script>
 (function(){
  const PROFILES_BY_ID = <?= json_encode($profilesById ?? [], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
+ const PROFILE_META_BY_ID = <?= json_encode($profileMetaById ?? [], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
  const PROFILE_OPTIONS = <?= json_encode($profileOptions ?? [], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
  const modal = document.getElementById('npc_modal');
  const iframe = document.getElementById('npc_modal_iframe');
+ const manualPane = document.getElementById('pane_manual');
+ const loadStatus = document.createElement('div');
+ loadStatus.id = 'npc_modal_load_status';
+ loadStatus.className = 'npc-modal-load-status';
+ loadStatus.setAttribute('role', 'status');
+ loadStatus.setAttribute('aria-live', 'polite');
+ loadStatus.innerHTML = '<div><strong id="npc_modal_load_title">Loading profile...</strong><p id="npc_modal_load_message">Retrieving the latest NPC data.</p><button id="npc_modal_retry" type="button" class="btn-cancel" style="display:none;">Retry</button></div>';
+ if (manualPane) {
+ manualPane.classList.add('npc-modal-frame-wrap');
+ manualPane.insertBefore(loadStatus, iframe);
+ }
+ const loadTitle = document.getElementById('npc_modal_load_title');
+ const loadMessage = document.getElementById('npc_modal_load_message');
+ const retryBtn = document.getElementById('npc_modal_retry');
+ let modalUrl = '';
+ let expectedNpcId = '';
+ let modalRequestId = 0;
+
+ function setModalLoadState(state, message){
+ const ready = state === 'ready';
+ if (iframe) iframe.style.visibility = ready ? 'visible' : 'hidden';
+ loadStatus.classList.toggle('is-visible', !ready);
+ if (loadTitle) loadTitle.textContent = state === 'error' ? 'Unable to load NPC profile' : 'Loading profile...';
+ if (loadMessage) loadMessage.textContent = message || (state === 'error' ? 'Refresh the NPC list and try again.' : 'Retrieving the latest NPC data.');
+ if (retryBtn) retryBtn.style.display = state === 'error' ? '' : 'none';
+ document.querySelectorAll('#npc_modal .modal-actions button').forEach(function(button){
+ if (button.id !== 'npc_modal_close') button.disabled = !ready;
+ });
+ }
+
+ function loadModalUrl(){
+ if (!modalUrl) return;
+ const requestId = ++modalRequestId;
+ setModalLoadState('loading');
+ const separator = modalUrl.includes('?') ? '&' : '?';
+ iframe.src = modalUrl + separator + '_modal_request=' + encodeURIComponent(String(requestId));
+ }
+
  function openModal(url){
- iframe.src = url;
+ modalUrl = url;
+ const match = url.match(/[?&]edit=([^&]+)/);
+ expectedNpcId = match ? String(decodeURIComponent(match[1])) : '';
+ loadModalUrl();
  modal.style.display = 'flex';
  document.body.style.overflow = 'hidden';
  try {
@@ -2894,7 +3454,16 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
 
 
  }
- function closeModal(){ modal.style.display = 'none'; document.body.style.overflow = 'auto'; try { iframe.src='about:blank'; } catch(_){} }
+ function closeModal(){
+ modalRequestId++;
+ modalUrl = '';
+ expectedNpcId = '';
+ modal.style.display = 'none';
+ document.body.style.overflow = 'auto';
+ setModalLoadState('ready');
+ try { iframe.src='about:blank'; } catch(_){}
+ }
+ if (retryBtn) retryBtn.addEventListener('click', loadModalUrl);
  const headerSave = document.getElementById('npc_modal_save_header');
  if (headerSave){
  window.NPC_UPDATE_SAVE_STATE = function(){
@@ -2911,12 +3480,24 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  try {
  iframe.addEventListener('load', function(){
  try {
+ if (!modalUrl || iframe.src === 'about:blank') return;
  const doc = iframe && iframe.contentDocument;
  const nameEl = doc ? doc.getElementById('npc_name') : null;
+ const loadedMarker = doc ? doc.querySelector('[data-npc-profile-loaded="1"]') : null;
+ const loadError = doc ? doc.querySelector('[data-npc-load-error="1"]') : null;
+ const loadedNpcId = loadedMarker ? String(loadedMarker.getAttribute('data-npc-id') || '') : '';
+ if (loadError || !nameEl || (expectedNpcId && loadedNpcId !== expectedNpcId)) {
+ setModalLoadState('error', loadError ? 'This NPC profile no longer exists. Refresh the NPC list and try again.' : 'The server returned incomplete or stale NPC data.');
+ return;
+ }
  if (nameEl){
  ['input','change','keyup'].forEach(evt=> nameEl.addEventListener(evt, window.NPC_UPDATE_SAVE_STATE));
  }
- } catch(_e){}
+ setModalLoadState('ready');
+ } catch(_e){
+ setModalLoadState('error', 'The NPC profile response could not be read.');
+ return;
+ }
  window.NPC_UPDATE_SAVE_STATE();
  });
  } catch(_e){}
@@ -3354,10 +3935,13 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  })();
 
 
- // View History button wiring
- (function(){
- const btn = document.getElementById('npc_modal_history');
- const overlay = document.getElementById('history_viewer');
+  // Profile Versions button wiring
+  (function(){
+    const btn = document.getElementById('npc_modal_history');
+    const overlay = document.getElementById('history_viewer');
+    if (btn) btn.textContent = 'Profile Versions';
+    const profileVersionsTitle = overlay ? overlay.querySelector('.modal-title') : null;
+    if (profileVersionsTitle) profileVersionsTitle.textContent = 'NPC Profile Versions';
  const listBox = document.getElementById('history_list');
  const detailBox = document.getElementById('history_detail');
  const closeBtn = document.getElementById('history_close');
@@ -3753,6 +4337,51 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  window.bindNpcBulkDelete = bindBulk;
  bindBulk(document.getElementById('npc_bulk_delete_btn'));
  })();
+ // Bulk unlock wiring
+ (function(){
+ function bindBulkUnlock(btn){
+ if (!btn || btn.dataset.bound === '1') return;
+ btn.dataset.bound = '1';
+ btn.addEventListener('click', function(){
+ const box = document.createElement('div');
+ box.style.position='fixed'; box.style.inset='0'; box.style.zIndex='10050'; box.style.display='flex'; box.style.alignItems='center'; box.style.justifyContent='center'; box.style.background='rgba(0,0,0,0.65)';
+ box.innerHTML = '<div style="background:#2a2a2a; border:1px solid #4a4a4a; border-radius:8px; padding:16px; max-width:520px; width:92%; color:#e9efff;">\
+ <div style="font-weight:700; color:rgb(255,182,65); margin-bottom:8px;">Unlock All NPC Profiles</div>\
+ <div style="font-size:13px; color:#cfd9ea; margin-bottom:8px;">This unlocks every NPC profile.</div>\
+ <div style="font-size:12px; color:#ffd166; margin-bottom:12px;">If Auto Lock Profiles on Edit is enabled, a profile will lock again after it is edited and saved.</div>\
+ <label style="display:block; font-size:13px; margin:6px 0; color:#cfd9ea;">Type <b style="color:#ffd166">Unlock</b> to confirm:</label>\
+ <input id="bulk_unlock_confirm" type="text" style="width:100%; padding:8px; border-radius:6px; border:1px solid #4a4a4a; background:#2a2a2a; color:#e9efff;"/>\
+ <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">\
+ <button id="bulk_unlock_cancel" class="btn-cancel">Cancel</button>\
+ <button id="bulk_unlock_ok" class="btn-rel-build" disabled>Unlock All Profiles</button>\
+ </div></div>';
+ document.body.appendChild(box);
+ const confirmEl = box.querySelector('#bulk_unlock_confirm');
+ const okEl = box.querySelector('#bulk_unlock_ok');
+ const cancelEl = box.querySelector('#bulk_unlock_cancel');
+ function updateState(){ okEl.disabled = String(confirmEl.value || '').trim() !== 'Unlock'; }
+ confirmEl.addEventListener('input', updateState); updateState(); confirmEl.focus();
+ cancelEl.addEventListener('click', function(){ document.body.removeChild(box); });
+ okEl.addEventListener('click', async function(){
+ okEl.disabled = true;
+ try {
+ const fd = new FormData(); fd.append('bulk_unlock_npcs', '1'); fd.append('confirm', String(confirmEl.value || ''));
+ const res = await fetch('npc_master.php', { method:'POST', body: fd });
+ let j = {}; try { j = await res.json(); } catch(_){ j = { ok:false, error:'Invalid JSON response' }; }
+ document.body.removeChild(box);
+ if (j && j.ok) {
+ try { const toast=document.getElementById('toast'); if (toast){ toast.querySelector('.message').textContent='Unlocked '+String(j.unlocked||0)+' NPC profiles'; toast.classList.add('show'); setTimeout(()=>toast.classList.remove('show'), 2400); } } catch(_){}
+ refreshList(1);
+ } else {
+ alert('Bulk unlock failed: ' + (j && j.error ? j.error : 'Unknown'));
+ }
+ } catch(_e) { okEl.disabled = false; }
+ });
+ });
+ }
+ window.bindNpcBulkUnlock = bindBulkUnlock;
+ bindBulkUnlock(document.getElementById('npc_bulk_unlock_btn'));
+ })();
  // Bulk profile switch wiring
  (function(){
  const profileOptions = Array.isArray(PROFILE_OPTIONS) ? PROFILE_OPTIONS : [];
@@ -3870,6 +4499,162 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  bindBulkSwitch(document.getElementById('npc_bulk_switch_profile_btn'));
  })();
  let listAbort = null;
+ let listRequestId = 0;
+ const NPC_DEFAULT_PAGE_SIZE = <?= (int)$npcDefaultPageSize ?>;
+ // Read the state the server actually served (never what was requested), so a clamped
+ // page or normalized filter can be written back to the address bar verbatim.
+ function readNpcListState(root){
+ const el = (root && root.matches && root.matches('.pagination')) ? root : document.querySelector('.pagination.npc-toolbar');
+ if (!el) return null;
+ const asInt = function(name, fallback){ const v = parseInt(el.getAttribute(name) || '', 10); return Number.isFinite(v) ? v : fallback; };
+ const asStr = function(name){ return String(el.getAttribute(name) || ''); };
+ const asBool = function(name){ return el.getAttribute(name) === '1'; };
+ return {
+ page: Math.max(1, asInt('data-page', 1)),
+ totalPages: Math.max(1, asInt('data-total-pages', 1)),
+ totalRows: Math.max(0, asInt('data-total-rows', 0)),
+ rangeStart: Math.max(0, asInt('data-range-start', 0)),
+ rangeEnd: Math.max(0, asInt('data-range-end', 0)),
+ pageSize: Math.max(1, asInt('data-page-size', NPC_DEFAULT_PAGE_SIZE)),
+ q: asStr('data-q'),
+ alpha: asStr('data-alpha') === 'desc' ? 'desc' : 'asc',
+ letter: asStr('data-letter'),
+ profileId: asStr('data-profile-id'),
+ fav: asBool('data-fav'),
+ dyn: asBool('data-dyn'),
+ mtm: asBool('data-mtm'),
+ lock: asBool('data-lock'),
+ sal: asBool('data-sal')
+ };
+ }
+ function npcListStateIsFiltered(st){
+ return !!(st && (st.q || st.letter || st.profileId || st.fav || st.dyn || st.mtm || st.lock || st.sal));
+ }
+ // Mirror the confirmed state into the current history entry so reload and link sharing
+ // reproduce the visible list. replaceState keeps the modal back-guard entry intact.
+ function syncNpcListUrl(st){
+ if (!st) return;
+ try {
+ const url = new URL(window.location.href);
+ const p = url.searchParams;
+ const put = function(key, value){
+ if (value === '' || value === null || value === undefined) p.delete(key);
+ else p.set(key, String(value));
+ };
+ p.delete('list');
+ p.delete('partial');
+ put('q', st.q);
+ put('letter', st.letter);
+ put('profile_id', st.profileId);
+ put('fav', st.fav ? '1' : '');
+ put('dyn', st.dyn ? '1' : '');
+ put('mtm', st.mtm ? '1' : '');
+ put('lock', st.lock ? '1' : '');
+ put('sal', st.sal ? '1' : '');
+ put('alpha', st.alpha === 'desc' ? 'desc' : '');
+ put('page', st.page > 1 ? st.page : '');
+ put('page_size', st.pageSize !== NPC_DEFAULT_PAGE_SIZE ? st.pageSize : '');
+ const query = p.toString();
+ history.replaceState(history.state, document.title, url.pathname + (query ? '?' + query : '') + url.hash);
+ } catch(_e){}
+ }
+ function renderNpcListStatus(st){
+ const el = document.getElementById('npc_list_status');
+ if (!el || !st) return;
+ const filtered = npcListStateIsFiltered(st);
+ let html;
+ if (st.totalRows <= 0){
+ html = filtered ? 'No NPC profiles match the current filters.' : 'No NPC profiles found.';
+ } else {
+ const n = function(v){ return '<span class="npc-list-status-count">' + String(v) + '</span>'; };
+ html = 'Showing ' + n(st.rangeStart + '\u2013' + st.rangeEnd) + ' of ' + n(st.totalRows) + ' profiles'
+ + ' \u00B7 Page ' + n(st.page) + ' of ' + n(st.totalPages)
+ + (filtered ? ' \u00B7 filters active' : '');
+ }
+ el.removeAttribute('data-state');
+ el.innerHTML = html;
+ }
+ function announceNpcListError(){
+ const el = document.getElementById('npc_list_status');
+ if (!el) return;
+ el.setAttribute('data-state', 'error');
+ el.textContent = 'Could not refresh the NPC profile list. The previous results are still shown.';
+ }
+ // Focus survives the partial swap: remember what was focused, then re-focus the
+ // equivalent node in the replacement markup (or the nearest sensible anchor).
+ // The toolbar renders control ids with a "_top" suffix on the full page and without it
+ // in the AJAX partial, so candidates always cover both spellings.
+ function npcFocusIdSelector(id){
+ const esc = function(v){ return (window.CSS && CSS.escape) ? CSS.escape(v) : v; };
+ if (/_top$/.test(id)) return '#' + esc(id) + ', #' + esc(id.replace(/_top$/, ''));
+ return '#' + esc(id) + ', #' + esc(id + '_top');
+ }
+ function captureNpcListFocus(oldPag, oldGrid){
+ try {
+ const active = document.activeElement;
+ if (!active || active === document.body || active === document.documentElement) return null;
+ const inGrid = !!(oldGrid && oldGrid.contains(active));
+ const inPag = !!(oldPag && oldPag.contains(active));
+ if (!inGrid && !inPag) return null;
+ const desc = {
+ selector: '',
+ fallbackSelector: '',
+ group: inGrid ? 'grid' : (active.closest('.npc-toolbar-pager') ? 'pager' : 'toolbar'),
+ caretStart: null,
+ caretEnd: null
+ };
+ if (active.id){
+ desc.selector = npcFocusIdSelector(active.id);
+ } else {
+ const keys = ['data-pager-role','data-page','data-letter','data-favorite-id','data-lock-id','data-pick-picture-id','data-id'];
+ for (let i = 0; i < keys.length; i++){
+ const val = active.getAttribute(keys[i]);
+ if (val !== null){ desc.selector = '[' + keys[i] + '="' + String(val).replace(/["\\]/g, '\\$&') + '"]'; break; }
+ }
+ }
+ // A refreshed toolbar renders the filter menu closed, so hand focus back to the
+ // button that opens it rather than to a now-hidden checkbox.
+ if (active.closest('.npc-filter-menu')) desc.fallbackSelector = '#npc_filter_btn_top, #npc_filter_btn';
+ else if (desc.group === 'pager') desc.fallbackSelector = '.npc-toolbar-pager';
+ try {
+ const tag = active.tagName;
+ const type = String(active.type || '').toLowerCase();
+ if (tag === 'TEXTAREA' || (tag === 'INPUT' && (type === '' || type === 'text' || type === 'search'))){
+ desc.caretStart = active.selectionStart;
+ desc.caretEnd = active.selectionEnd;
+ }
+ } catch(_e){}
+ return desc;
+ } catch(_e){ return null; }
+ }
+ function npcFocusCandidate(selector){
+ if (!selector) return null;
+ let el = null;
+ try { el = document.querySelector(selector); } catch(_e){ return null; }
+ if (!el) return null;
+ if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.isConnected === false) return null;
+ // Skip anything the refreshed markup renders hidden (e.g. a collapsed filter menu).
+ if (typeof el.checkVisibility === 'function'){ if (!el.checkVisibility()) return null; }
+ else if (el.offsetParent === null && el.getClientRects && el.getClientRects().length === 0) return null;
+ return el;
+ }
+ function restoreNpcListFocus(desc){
+ if (!desc) return;
+ const target = npcFocusCandidate(desc.selector)
+ || npcFocusCandidate(desc.fallbackSelector)
+ || npcFocusCandidate('.pagination.npc-toolbar');
+ if (!target) return;
+ try { target.focus({ preventScroll: true }); } catch(_e){ try { target.focus(); } catch(__e){} }
+ if (desc.caretStart != null && typeof target.setSelectionRange === 'function'){
+ try { target.setSelectionRange(desc.caretStart, desc.caretEnd == null ? desc.caretStart : desc.caretEnd); } catch(_e){}
+ }
+ }
+ function bindNpcPageSize(select){
+ if (!select || select.dataset.bound === '1') return;
+ select.dataset.bound = '1';
+ // Changing how many rows fit invalidates the current offset.
+ select.addEventListener('change', function(){ refreshList(1); });
+ }
  function bindNpcLetterButtons(root){
  const scope = root || document;
  scope.querySelectorAll('.npc-letter-btn[data-letter]').forEach(btn=>{
@@ -3896,12 +4681,36 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  });
  });
  }
+ function bindAutoLockProfile(control){
+ if (!control || control.dataset.bound === '1') return;
+ control.dataset.bound = '1';
+ control.addEventListener('change', async function(){
+ const requested = !!control.checked;
+ control.disabled = true;
+ try {
+ const fd = new FormData();
+ fd.append('set_auto_lock_profile', '1');
+ fd.append('auto_lock_profile', requested ? '1' : '0');
+ const res = await fetch('npc_master.php', { method:'POST', body:fd });
+ let json = {};
+ try { json = await res.json(); } catch(_e) { json = { ok:false, error:'Invalid response' }; }
+ if (!json || !json.ok) {
+ control.checked = !requested;
+ alert('Failed to save Auto Lock Profiles: ' + (json && json.error ? json.error : 'Unknown error'));
+ }
+ } catch(_e) {
+ control.checked = !requested;
+ alert('Failed to save Auto Lock Profiles.');
+ } finally {
+ control.disabled = false;
+ }
+ });
+ }
+ bindAutoLockProfile(document.getElementById('npc_auto_lock_profile'));
  async function refreshList(page){
  const params = new URLSearchParams(window.location.search);
  const si = document.getElementById('npc_search');
- const wasFocused = document.activeElement && document.activeElement.id === 'npc_search';
- const caretStart = wasFocused && si && typeof si.selectionStart === 'number' ? si.selectionStart : null;
- const caretEnd = wasFocused && si && typeof si.selectionEnd === 'number' ? si.selectionEnd : null;
+ const focusDesc = captureNpcListFocus(document.querySelector('.pagination'), document.querySelector('.npc-grid'));
  if (si) params.set('q', si.value || '');
  const lf = document.getElementById('npc_letter_filter');
  params.set('letter', lf ? (lf.value || '') : '');
@@ -3920,21 +4729,32 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  params.set('lock', locked && locked.checked ? '1' : '');
  params.set('sal', sal && sal.checked ? '1' : '');
  } catch(_e){}
- params.set('alpha', 'asc');
+ const currentState = readNpcListState();
+ params.set('alpha', (currentState && currentState.alpha) ? currentState.alpha : 'asc');
+ const pageSizeSel = document.getElementById('npc_page_size');
+ if (pageSizeSel && pageSizeSel.value) params.set('page_size', String(pageSizeSel.value));
  if (page) params.set('page', String(page));
+ params.delete('partial');
  params.set('list','1');
  if (listAbort) { try { listAbort.abort(); } catch(_){} }
+ const requestId = ++listRequestId;
  listAbort = new AbortController();
+ try {
  const res = await fetch('npc_master.php?'+params.toString(), { signal: listAbort.signal });
+ if (!res.ok) throw new Error('HTTP ' + String(res.status));
  const html = await res.text();
+ if (requestId !== listRequestId) return;
  const temp = document.createElement('div'); temp.innerHTML = html;
  const newPag = temp.querySelector('.pagination');
  const newGrid = temp.querySelector('.npc-grid');
- if (newPag && newGrid){
+ if (!newPag || !newGrid) throw new Error('Incomplete NPC list response');
  const oldPag = document.querySelector('.pagination');
  const oldGrid = document.querySelector('.npc-grid');
  if (oldPag && oldPag.parentElement) oldPag.parentElement.replaceChild(newPag, oldPag);
  if (oldGrid && oldGrid.parentElement) oldGrid.parentElement.replaceChild(newGrid, oldGrid);
+ const confirmedState = readNpcListState(newPag);
+ syncNpcListUrl(confirmedState);
+ renderNpcListStatus(confirmedState);
  // rebind events on new elements
  document.querySelectorAll('.npc-card').forEach(card=>{
  card.addEventListener('click', function(ev){
@@ -3979,6 +4799,8 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  try { if (window.bindNpcImportButton) window.bindNpcImportButton(document.getElementById('npc_import_btn')); } catch(_){}
  // rebind bulk delete in refreshed DOM
  try { if (window.bindNpcBulkDelete) window.bindNpcBulkDelete(document.getElementById('npc_bulk_delete_btn')); } catch(_){}
+ // rebind bulk unlock in refreshed DOM
+ try { if (window.bindNpcBulkUnlock) window.bindNpcBulkUnlock(document.getElementById('npc_bulk_unlock_btn')); } catch(_){}
  // rebind mass switch in refreshed DOM
  try { if (window.bindNpcBulkSwitchProfile) window.bindNpcBulkSwitchProfile(document.getElementById('npc_bulk_switch_profile_btn')); } catch(_){}
  // Hook pagination links to AJAX
@@ -3990,17 +4812,26 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  bindNpcPageButtons(newPag);
  const newSearch = document.getElementById('npc_search');
  if (newSearch){
- // Rebind with debounce and restore focus/caret
+ // Rebind with debounce; focus and caret are restored by restoreNpcListFocus below.
  newSearch.addEventListener('input', function(){ refreshListDebounced(1); });
- if (wasFocused){
- try {
- newSearch.focus();
- if (caretStart!=null && caretEnd!=null) newSearch.setSelectionRange(caretStart, caretEnd);
- } catch(_e){}
- }
  }
  const newProfileSel = document.getElementById('npc_profile_filter');
  if (newProfileSel){ newProfileSel.addEventListener('change', function(){ refreshList(1); }); }
+ bindAutoLockProfile(document.getElementById('npc_auto_lock_profile'));
+ bindNpcPageSize(document.getElementById('npc_page_size'));
+ restoreNpcListFocus(focusDesc);
+ } catch(error) {
+ if (error && error.name === 'AbortError') return;
+ console.error('NPC profile list refresh failed:', error);
+ announceNpcListError();
+ try {
+ const toast = document.getElementById('toast');
+ if (toast) {
+ toast.querySelector('.message').textContent = 'Unable to refresh NPC profiles. The current list was kept.';
+ toast.classList.add('show');
+ setTimeout(()=>toast.classList.remove('show'), 3000);
+ }
+ } catch(_e){}
  }
  }
  // Simple debounce for input
@@ -4014,6 +4845,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  if (profileSel){ profileSel.addEventListener('change', function(){ refreshList(1); }); }
  bindNpcLetterButtons(document);
  bindNpcPageButtons(document);
+ bindNpcPageSize(document.getElementById('npc_page_size'));
+ // Normalize the address bar to the state the server actually rendered (for example a
+ // page number that was clamped into range) without adding a history entry.
+ try { syncNpcListUrl(readNpcListState()); } catch(_e){}
  // Removed alpha toggle; default remains ascending (favorites first)
  // Toggle buttons
  // Filter dropdown toggles
@@ -4077,7 +4912,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  div.id = 'npc_card_'+id;
  div.setAttribute('data-id', id);
  div.innerHTML = `
- <div class="npc-title"><div class="npc-title-left"><span class="npc-name"></span></div><div class="npc-title-actions"><span class="npc-tags-top" style="display:none"></span><a class="btn btn-toggle" href="#" data-favorite-id="${id}" title="Toggle favorite">&#x2606;</a><a class="btn btn-toggle" href="#" data-lock-id="${id}" title="Toggle lock - Locked profiles are protected from history pullback when loading saves">&#x1F513;</a></div></div><div class="npc-divider"></div><div class="npc-row"><div class="npc-fields"><div class="npc-line"><span class="npc-muted">Gender:</span><span class="npc-gender"></span></div><div class="npc-line"><span class="npc-muted">Race:</span><span class="npc-race"></span></div><div class="npc-line"><span class="npc-muted">Voice:</span><span class="npc-voiceid"></span></div><div class="npc-line"><span class="npc-muted">RefID:</span><span class="npc-refid"></span></div><div class="npc-line"><span class="npc-muted">Knowledge Tags:</span><span class="npc-worldknowledge"></span></div><div class="npc-line"><span class="npc-muted">Profile:</span><span class="npc-profile"></span></div></div><div class="npc-right"></div></div>
+ <div class="npc-title"><div class="npc-title-left"><span class="npc-name"></span></div><div class="npc-title-actions"><span class="npc-tags-top" style="display:none"></span><a class="btn btn-toggle" href="#" data-favorite-id="${id}" title="Toggle favorite">&#x2606;</a><a class="btn btn-toggle" href="#" data-pick-picture-id="${id}" title="Set picture">&#x1F5BC;&#xFE0F;</a><a class="btn btn-toggle" href="#" data-lock-id="${id}" title="Toggle lock - Locked profiles are protected from history pullback when loading saves">&#x1F513;</a><a class="btn btn-trash" href="?delete=${id}" onclick="return confirm('Delete this NPC?');" title="Delete">&#x274C;</a></div></div><div class="npc-divider"></div><div class="npc-row"><div class="npc-fields"><div class="npc-line"><span class="npc-muted">Gender:</span><span class="npc-gender"></span></div><div class="npc-line"><span class="npc-muted">Race:</span><span class="npc-race"></span></div><div class="npc-line"><span class="npc-muted">Voice:</span><span class="npc-voiceid"></span></div><div class="npc-line"><span class="npc-muted">RefID:</span><span class="npc-refid"></span></div><div class="npc-line"><span class="npc-muted">Knowledge Tags:</span><span class="npc-worldknowledge"></span></div><div class="npc-line"><span class="npc-muted">Profile:</span><span class="npc-profile"></span></div></div><div class="npc-right"></div></div>
  `;
  grid.prepend(div);
  // Wire edit button
@@ -4104,12 +4939,14 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  } catch(_){}
  const profId = String(data.profile_id||'');
  setText('.npc-profile', PROFILES_BY_ID[profId] || '');
- // Toggle Middle-term memory icon () based on extended_data.middle_term_enabled
+ const profileMeta = PROFILE_META_BY_ID[profId] || {};
+ let effectiveExtendedData = {};
+ try { effectiveExtendedData = JSON.parse(String(data.extended_data||'').trim() || '{}') || {}; } catch(_e){}
+ // Toggle Middle-term memory icon () using the NPC override or inherited profile setting.
  try {
- const mtm = (function(){
- const raw = String(data.extended_data||'').trim(); if (!raw) return 0;
- try { const o = JSON.parse(raw); return (o && Number(o.middle_term_enabled||0)===1) ? 1 : 0; } catch(_e){ return 0; }
- })();
+ const mtm = Object.prototype.hasOwnProperty.call(effectiveExtendedData, 'middle_term_enabled')
+     ? Number(effectiveExtendedData.middle_term_enabled || 0) === 1
+     : Boolean(profileMeta.mtm);
  const left = card.querySelector('.npc-title-left');
  if (left){
  let icon = left.querySelector('.npc-mtm-icon');
@@ -4130,12 +4967,11 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  else { if (icon){ icon.remove(); } }
  }
  } catch(_e){}
- // Toggle Auto Diary icon () based on extended_data.auto_diary_enabled
+ // Toggle Auto Diary icon () using the NPC override or inherited profile setting.
  try {
- const ad = (function(){
- const raw = String(data.extended_data||'').trim(); if (!raw) return 0;
- try { const o = JSON.parse(raw); return (o && Number(o.auto_diary_enabled||0)===1) ? 1 : 0; } catch(_e){ return 0; }
- })();
+ const ad = Object.prototype.hasOwnProperty.call(effectiveExtendedData, 'auto_diary_enabled')
+     ? Number(effectiveExtendedData.auto_diary_enabled || 0) === 1
+     : Boolean(profileMeta.ad);
  const left = card.querySelector('.npc-title-left');
  if (left){
  let icon = left.querySelector('.npc-ad-icon');

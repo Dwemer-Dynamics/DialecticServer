@@ -178,6 +178,13 @@ class sql
         $startTime = microtime(true);
         $this->re_connect();
         $i=0;
+        $values = [];
+
+        if (empty($data)) {
+            Logger::error("SQL: Insert query refused because no values were provided for {$table}. " . $this->extract_caller());
+            return false;
+        }
+
         $columns = implode(', ', array_keys($data));
         foreach (array_keys($data) as $d) {
             $values[]='$'.(++$i);
@@ -186,7 +193,7 @@ class sql
 
         $query = "INSERT INTO $table ($columns) VALUES ($values)";
         $params = array_values($data);
-        $result = pg_query_params(self::$link, $query, $params);
+        $result = @pg_query_params(self::$link, $query, $params);
         
         $endTime = microtime(true);
         $elapsedTime = $endTime - $startTime;
@@ -202,7 +209,54 @@ class sql
         }
         if (!$result) {
             Logger::error("SQL: Insert query failed {$query} " . $this->GetLastError() . $this->extract_caller() );
+            return false;
         }
+
+        return true;
+    }
+
+    public function insertReturningId($table, $data, $idColumn = 'id')
+    {
+        $startTime = microtime(true);
+        $this->re_connect();
+
+        if (empty($data)) {
+            Logger::error("SQL: Insert returning ID refused because no values were provided for {$table}. " . $this->extract_caller());
+            return 0;
+        }
+
+        foreach (array_merge([$table, $idColumn], array_keys($data)) as $identifier) {
+            if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', (string)$identifier)) {
+                Logger::error("SQL: Invalid identifier for insertReturningId");
+                return 0;
+            }
+        }
+
+        $values = [];
+        foreach (array_keys($data) as $index => $column) {
+            $values[] = '$' . ($index + 1);
+        }
+
+        $columns = implode(', ', array_keys($data));
+        $query = "INSERT INTO {$table} ({$columns}) VALUES (" . implode(', ', $values) . ") RETURNING {$idColumn}";
+        $result = @pg_query_params(self::$link, $query, array_values($data));
+
+        $elapsedTime = microtime(true) - $startTime;
+        if (!isset($GLOBALS["DB_EXECUTION_TIME"])) {
+            $GLOBALS["DB_EXECUTION_TIME"] = 0;
+        }
+        $GLOBALS["DB_EXECUTION_TIME"] += $elapsedTime;
+
+        if ($this->debug_level > 2 && $elapsedTime > $this->queryTimeThreshold) {
+            Logger::warn("SQL: Insert query execution time exceeded threshold {$elapsedTime} seconds. {$query} " . $this->extract_caller());
+        }
+        if (!$result) {
+            Logger::error("SQL: Insert query failed {$query} " . $this->GetLastError() . $this->extract_caller());
+            return 0;
+        }
+
+        $row = pg_fetch_assoc($result);
+        return isset($row[$idColumn]) ? (int)$row[$idColumn] : 0;
     }
 
     public function query($query)
@@ -470,6 +524,11 @@ class sql
         $params = [];
         $i = 0;
 
+        if (empty($data)) {
+            Logger::error("SQL: updateRow refused because no values were provided for {$table}. " . $this->extract_caller());
+            return false;
+        }
+
         foreach ($data as $column => $value) {
             $setClauses[] = "$column = $" . (++$i);
             $params[] = $value;
@@ -479,7 +538,7 @@ class sql
 
         $query = "UPDATE $table SET $set WHERE $where";
         $this->re_connect();
-        $result = pg_query_params(self::$link, $query, $params);
+        $result = @pg_query_params(self::$link, $query, $params);
         
         $endTime = microtime(true);
         $elapsedTime = $endTime - $startTime;
@@ -495,7 +554,10 @@ class sql
         }
         if (!$result) {
             Logger::error("SQL: updateRow failed {$query} " .$this->GetLastError() . $this->extract_caller() );
+            return false;
         }
+
+        return true;
     }
 
     public function upsertRow($table, $data, $where) {

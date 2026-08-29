@@ -1,6 +1,8 @@
 <?php
 
 require_once(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."lib".DIRECTORY_SEPARATOR."emote_moods.php");
+require_once(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."lib".DIRECTORY_SEPARATOR."wav_utils.php");
+require_once(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."lib".DIRECTORY_SEPARATOR."voice_clone_resolver.php");
 
 /**
  * Inworld TTS Implementation
@@ -139,6 +141,10 @@ function getInworldLastError(): string {
 
 function clearInworldLastError(): void {
     unset($GLOBALS["INWORLD_LAST_ERROR_MESSAGE"]);
+}
+
+function findInworldVoiceSamplePath(string $voiceName): string {
+    return dialectic_resolve_voice_clone_wav($voiceName, ['sync_sample' => false]);
 }
 
 function ensureInworldDb() {
@@ -355,7 +361,38 @@ function deleteCachedInworldVoiceId($voiceName, ?array $config = null): void {
     }
 
     $optKeyEscaped = $db->escape(getInworldVoiceCacheKey($voiceName, $config));
-    $db->execQuery("DELETE FROM conf_opts WHERE id = '{$optKeyEscaped}'");
+    // Remove obsolete fingerprint rows left by the older Dialectic clone flow.
+    $fingerprintKey = $db->escape(getInworldVoiceCacheKey($voiceName, $config) . '__sample_sha256');
+    $db->execQuery("DELETE FROM conf_opts WHERE id IN ('{$optKeyEscaped}', '{$fingerprintKey}')");
+}
+
+function getInworldVoiceMetadataKey($voiceName, ?array $config = null): string {
+    return 'inworld_voice_meta_' . substr(md5(getInworldVoiceCachePrefix($config)), 0, 12) . '__' . $voiceName;
+}
+
+function getInworldVoiceMetadata($voiceName, ?array $config = null): array {
+    $db = ensureInworldDb();
+    if (!$db) return [];
+    $key = $db->escape(getInworldVoiceMetadataKey($voiceName, $config));
+    $row = $db->fetchOne("SELECT value FROM conf_opts WHERE id = '{$key}' LIMIT 1");
+    $decoded = json_decode(strval($row['value'] ?? ''), true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function storeInworldVoiceMetadata($voiceName, $voiceId, $samplePath, bool $managed, ?array $config = null): void {
+    $db = ensureInworldDb();
+    if (!$db) return;
+    $metadata = ['voice_id' => trim(strval($voiceId)), 'managed' => $managed, 'sample_sha256' => is_file($samplePath) ? hash_file('sha256', $samplePath) : '', 'created_at' => gmdate('c')];
+    $key = $db->escape(getInworldVoiceMetadataKey($voiceName, $config));
+    $value = $db->escape(json_encode($metadata, JSON_UNESCAPED_SLASHES));
+    $db->execQuery("INSERT INTO conf_opts (id, value) VALUES ('{$key}', '{$value}') ON CONFLICT(id) DO UPDATE SET value = '{$value}'");
+}
+
+function deleteInworldVoiceMetadata($voiceName, ?array $config = null): void {
+    $db = ensureInworldDb();
+    if (!$db) return;
+    $key = $db->escape(getInworldVoiceMetadataKey($voiceName, $config));
+    $db->execQuery("DELETE FROM conf_opts WHERE id = '{$key}'");
 }
 
 function getInworldCachedVoicesMap(?array $config = null): array {
@@ -373,6 +410,9 @@ function getInworldCachedVoicesMap(?array $config = null): array {
     $rows = $db->fetchAll("SELECT id, value FROM conf_opts WHERE id LIKE '{$prefixEscaped}%'");
     foreach ($rows as $row) {
         $voiceName = substr(strval($row['id'] ?? ''), strlen($prefix));
+        if (str_ends_with($voiceName, '__sample_sha256')) {
+            continue;
+        }
         $voiceId = trim(strval($row['value'] ?? ''));
         if ($voiceName === '' || $voiceId === '') {
             continue;
@@ -530,6 +570,23 @@ function getExistingInworldVoiceIdByName($voiceName, ?array $config = null): str
     return '';
 }
 
+function getInworldVoiceStatus(string $voiceName, ?array $config = null): array {
+    $config = is_array($config) ? $config : getInworldActiveConfig();
+    $samplePath = findInworldVoiceSamplePath($voiceName);
+    $cachedVoiceId = getCachedInworldVoiceId($voiceName, $config);
+    $remoteVoiceId = getExistingInworldVoiceIdByName($voiceName, $config);
+
+    return [
+        'voice' => $voiceName,
+        'local_sample' => $samplePath !== '',
+        'sample_path' => $samplePath,
+        'cached' => $cachedVoiceId !== '',
+        'cached_voice_id' => $cachedVoiceId,
+        'remote' => $remoteVoiceId !== '',
+        'remote_voice_id' => $remoteVoiceId,
+    ];
+}
+
 
 /**
  * Get or create Inworld voice ID for a given voice sample
@@ -552,48 +609,22 @@ function getOrCreateInworldVoice($voiceName) {
         return $cachedVoiceId;
     }
 
+    $voiceSamplePath = findInworldVoiceSamplePath($voiceName);
     $existingVoiceId = getExistingInworldVoiceIdByName($voiceName, $config);
     if ($existingVoiceId !== '') {
         Logger::info("Found existing Inworld voice for {$voiceName}: {$existingVoiceId}");
         storeCachedInworldVoiceId($voiceName, $existingVoiceId, $config);
+        storeInworldVoiceMetadata($voiceName, $existingVoiceId, $voiceSamplePath, false, $config);
         return $existingVoiceId;
     }
     
     // No cached voice ID, need to clone the voice
     Logger::info("No cached Inworld voice ID found for {$voiceName}, cloning voice...");
-    
-    // Try multiple path formats
-    $baseDir = dirname(__FILE__);
-    $possiblePaths = array(
-        $baseDir . "/../data/voices/{$voiceName}.wav",
-        $baseDir . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "data" . DIRECTORY_SEPARATOR . "voices" . DIRECTORY_SEPARATOR . "{$voiceName}.wav",
-        __DIR__ . "/../data/voices/{$voiceName}.wav"
-    );
-    
-    $voiceSamplePath = null;
-    foreach ($possiblePaths as $testPath) {
-        $normalized = realpath($testPath);
-        if ($normalized !== false && file_exists($normalized)) {
-            $voiceSamplePath = $normalized;
-            break;
-        }
-    }
-    
-    if ($voiceSamplePath === null || !file_exists($voiceSamplePath)) {
-        setInworldLastError("Voice sample not found for {$voiceName}.");
-        Logger::error("Voice sample not found: {$voiceName}.wav");
-        Logger::error("Searched paths:");
-        foreach ($possiblePaths as $testPath) {
-            $normalized = realpath($testPath);
-            Logger::error("  - {$testPath} " . ($normalized !== false && file_exists($normalized) ? "(found)" : "(not found)"));
-        }
-        // Check if voices directory exists
-        $voicesDir = dirname(__FILE__) . "/../data/voices";
-        if (!is_dir($voicesDir)) {
-            Logger::error("Voices directory does not exist: {$voicesDir}");
-        } else {
-            Logger::error("Voices directory exists but file not found. Available files: " . implode(", ", array_slice(scandir($voicesDir), 2)));
-        }
+
+    if ($voiceSamplePath === '') {
+        $message = "Voice sample not found for {$voiceName} in data/voices.";
+        setInworldLastError($message);
+        Logger::error($message);
         return false;
     }
     
@@ -611,6 +642,7 @@ function getOrCreateInworldVoice($voiceName) {
     }
     
     storeCachedInworldVoiceId($voiceName, $inworldVoiceId, $config);
+    storeInworldVoiceMetadata($voiceName, $inworldVoiceId, $voiceSamplePath, true, $config);
     clearInworldLastError();
     
     Logger::info("Successfully cloned voice {$voiceName} to Inworld with ID: {$inworldVoiceId}");
@@ -626,7 +658,7 @@ function getOrCreateInworldVoice($voiceName) {
  * @param array|null $config Resolved connector-scoped Inworld configuration
  * @return string|false The Inworld voice ID or false on error
  */
-function cloneVoiceToInworld($voiceName, $voiceSamplePath, ?array $config = null) {
+function cloneVoiceToInworld($voiceName, $voiceSamplePath, ?array $config = null, string $displayName = '') {
     $config = is_array($config) ? $config : getInworldActiveConfig();
     $apiCredential = trim(strval($config['api_key'] ?? ''));
 
@@ -671,10 +703,13 @@ function cloneVoiceToInworld($voiceName, $voiceSamplePath, ?array $config = null
     Logger::info("Read " . number_format(strlen($audioContent)) . " bytes from voice file");
     
     $audioBase64 = base64_encode($audioContent);
+    if ($displayName === '') {
+        $displayName = $voiceName;
+    }
     
     // Prepare request data
     $data = array(
-        'displayName' => $voiceName,
+        'displayName' => $displayName,
         'langCode' => $language,
         'voiceSamples' => array(
             array(
@@ -744,7 +779,19 @@ function cloneVoiceToInworld($voiceName, $voiceSamplePath, ?array $config = null
     $result = json_decode($response, true);
     
     if (!isset($result['voice']['voiceId'])) {
-        setInworldLastError('Invalid response from Inworld clone API.');
+        $validationErrors = [];
+        foreach (($result['audioSamplesValidated'] ?? []) as $validatedSample) {
+            foreach (($validatedSample['errors'] ?? []) as $validationError) {
+                $text = trim(strval(is_array($validationError) ? ($validationError['text'] ?? '') : $validationError));
+                if ($text !== '') {
+                    $validationErrors[] = $text;
+                }
+            }
+        }
+        $message = !empty($validationErrors)
+            ? 'Inworld rejected the voice sample: ' . implode('; ', array_unique($validationErrors))
+            : 'Invalid response from Inworld clone API.';
+        setInworldLastError($message);
         Logger::error("Invalid response from Inworld clone API: " . $response);
         return false;
     }
@@ -752,6 +799,67 @@ function cloneVoiceToInworld($voiceName, $voiceSamplePath, ?array $config = null
     clearInworldLastError();
     
     return $result['voice']['voiceId'];
+}
+
+function deleteInworldRemoteVoice($voiceId, ?array $config = null): bool {
+    $config = is_array($config) ? $config : getInworldActiveConfig();
+    $apiCredential = trim(strval($config['api_key'] ?? ''));
+    $voiceId = trim(strval($voiceId));
+    if ($apiCredential === '' || $voiceId === '') return false;
+    $context = stream_context_create(['http' => ['method' => 'DELETE', 'header' => "Authorization: Basic {$apiCredential}\r\nAccept: application/json\r\n", 'ignore_errors' => true, 'timeout' => 30]]);
+    $response = @file_get_contents('https://api.inworld.ai/voices/v1/voices/' . rawurlencode($voiceId), false, $context);
+    $statusLine = $http_response_header[0] ?? '';
+    $httpCode = preg_match('/\s(\d{3})\s/', $statusLine, $matches) ? intval($matches[1]) : 0;
+    if ($httpCode >= 200 && $httpCode < 300) {
+        unset($GLOBALS['INWORLD_REMOTE_VOICES_CACHE']);
+        return true;
+    }
+    setInworldLastError("Inworld delete API returned HTTP {$httpCode}.");
+    Logger::warn("Failed to delete Inworld voice {$voiceId}: HTTP {$httpCode}; " . substr(strval($response), 0, 500));
+    return false;
+}
+
+function rebuildInworldVoice($voiceName) {
+    clearInworldLastError();
+    $config = getInworldActiveConfig();
+    $samplePath = findInworldVoiceSamplePath($voiceName);
+    if ($samplePath === '') {
+        setInworldLastError("Voice sample not found for {$voiceName}.");
+        return false;
+    }
+    $oldVoiceId = getCachedInworldVoiceId($voiceName, $config);
+    $oldMetadata = getInworldVoiceMetadata($voiceName, $config);
+    $displayName = $voiceName . '_r' . gmdate('YmdHis');
+    $newVoiceId = cloneVoiceToInworld($voiceName, $samplePath, $config, $displayName);
+    if ($newVoiceId === false || $newVoiceId === '') return false;
+    $audio = generateInworldTTS('Voice synchronization test.', $newVoiceId);
+    if (!is_string($audio) || $audio === '') {
+        $error = getInworldLastError();
+        deleteInworldRemoteVoice($newVoiceId, $config);
+        setInworldLastError($error !== '' ? $error : 'The new Inworld clone failed validation.');
+        return false;
+    }
+    storeCachedInworldVoiceId($voiceName, $newVoiceId, $config);
+    storeInworldVoiceMetadata($voiceName, $newVoiceId, $samplePath, true, $config);
+    if ($oldVoiceId !== '' && $oldVoiceId !== $newVoiceId && !empty($oldMetadata['managed']) && trim(strval($oldMetadata['voice_id'] ?? '')) === $oldVoiceId) deleteInworldRemoteVoice($oldVoiceId, $config);
+    clearInworldLastError();
+    return $newVoiceId;
+}
+
+function deleteManagedInworldVoice($voiceName): bool {
+    clearInworldLastError();
+    $config = getInworldActiveConfig();
+    $voiceId = getCachedInworldVoiceId($voiceName, $config);
+    $metadata = getInworldVoiceMetadata($voiceName, $config);
+    if ($voiceId === '' || empty($metadata['managed']) || trim(strval($metadata['voice_id'] ?? '')) !== $voiceId) {
+        setInworldLastError('This Inworld voice is not marked as managed by this installation; only its cached ID can be forgotten.');
+        return false;
+    }
+    if (!deleteInworldRemoteVoice($voiceId, $config)) return false;
+    deleteCachedInworldVoiceId($voiceName, $config);
+    deleteInworldVoiceMetadata($voiceName, $config);
+    clearInworldLastError();
+    return true;
 }
 
 /**
@@ -897,17 +1005,29 @@ function generateInworldTTS($text, $voiceId, $mood = 'normal', $outputFile = nul
                 if ($chunkAudio !== false) {
                     $chunkCount++;
                     
-                    // IMPORTANT: Inworld returns each chunk with a WAV header
-                    // We need to strip the WAV header (first 44 bytes) from each chunk
-                    // and only keep the raw PCM data
-                    $wavHeaderSize = 44;
-                    if (strlen($chunkAudio) > $wavHeaderSize) {
-                        // Check if this chunk starts with a WAV header (RIFF signature)
-                        if (substr($chunkAudio, 0, 4) === 'RIFF') {
-                            Logger::trace("Chunk #{$chunkCount} has WAV header, stripping it");
-                            // Strip the WAV header, keep only raw PCM data
-                            $chunkAudio = substr($chunkAudio, $wavHeaderSize);
+                    // Inworld returns an independent WAV for each streamed chunk. Parse the
+                    // RIFF chunks instead of assuming a fixed 44-byte header; metadata chunks
+                    // left in the PCM stream produce clicks/static and corrupt timing.
+                    if (substr($chunkAudio, 0, 4) === 'RIFF') {
+                        $parsedWav = dialecticWavExtractPcmData($chunkAudio);
+                        if (empty($parsedWav['ok'])) {
+                            Logger::warn("Invalid Inworld WAV chunk #{$chunkCount}: " . strval($parsedWav['error'] ?? 'unknown'));
+                            continue;
                         }
+                        if (intval($parsedWav['channels'] ?? 0) !== 1 || intval($parsedWav['sample_rate'] ?? 0) <= 0) {
+                            Logger::warn("Unsupported Inworld WAV chunk #{$chunkCount} format: " . json_encode($parsedWav));
+                            continue;
+                        }
+                        $GLOBALS['INWORLD_AUDIO_FORMAT'] = [
+                            'format' => 's16le',
+                            'sample_rate' => intval($parsedWav['sample_rate']),
+                            'channels' => intval($parsedWav['channels']),
+                        ];
+                        Logger::trace(
+                            "Chunk #{$chunkCount} WAV parsed rate={$parsedWav['sample_rate']} channels={$parsedWav['channels']} pcm_bytes=" .
+                            strlen(strval($parsedWav['data'] ?? ''))
+                        );
+                        $chunkAudio = strval($parsedWav['data'] ?? '');
                     }
                     
                     $audioData .= $chunkAudio;
@@ -918,7 +1038,7 @@ function generateInworldTTS($text, $voiceId, $mood = 'normal', $outputFile = nul
         }
     }
     
-    Logger::debug("Extracted {$chunkCount} audio chunks, total audio size: " . number_format(strlen($audioData)) . " bytes (WAV headers stripped)");
+    Logger::debug("Extracted {$chunkCount} audio chunks, total PCM size: " . number_format(strlen($audioData)) . " bytes");
     
     if (empty($audioData)) {
         Logger::error("No audio data extracted from Inworld response");
@@ -1083,10 +1203,16 @@ $GLOBALS["TTS_IN_USE"] = function($textString, $mood, $stringforhash) {
     $inworldVoiceId = getOrCreateInworldVoice($voiceName);
     
     if ($inworldVoiceId === false || empty($inworldVoiceId)) {
-        Logger::error("Failed to get or create Inworld voice for {$voiceName}");
-        return false;
+        $fallbackVoiceId = trim(strval($config['fallback_voice_id'] ?? ''));
+        if ($fallbackVoiceId !== '' && strpos($fallbackVoiceId, '__') !== false) {
+            Logger::warn("Using configured Inworld fallback voice for {$voiceName}: {$fallbackVoiceId}");
+            $inworldVoiceId = $fallbackVoiceId;
+        } else {
+            Logger::error("Failed to get or create Inworld voice for {$voiceName}: " . getInworldLastError());
+            return false;
+        }
     }
-    
+
     // Validate voice ID format (should be workspace__voice format)
     if (strpos($inworldVoiceId, '__') === false) {
         Logger::error("Invalid Inworld voice ID format for {$voiceName}: {$inworldVoiceId}");
@@ -1112,8 +1238,8 @@ $GLOBALS["TTS_IN_USE"] = function($textString, $mood, $stringforhash) {
             
     // pronunciation: 
     $textString = str_ireplace(
-        ['Dialectic',    'Aeter',      'f-f-f' ], // Change from
-        ['/hËˆÉ›É¹Éª.kÉ™/','/ËˆiËÎ¸É™(r)/', 'f... f'], // to this. Could be International Phonetic Alphabet (IPA) format, wrapped in slashes. 
+        ['Aeter', 'f-f-f'], // Change from
+        ['/ËˆiËÎ¸É™(r)/', 'f... f'], // to this. Could be International Phonetic Alphabet (IPA) format, wrapped in slashes.
         $textString
     );
     

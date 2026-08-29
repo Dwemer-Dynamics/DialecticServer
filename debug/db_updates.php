@@ -115,6 +115,10 @@ try {
         $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/core_stt_connector.sql"));
         $db->execQuery("SET search_path TO public");
     }
+    if ($checkTableExists("core_itt_connector") == -1) {
+        $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/core_itt_connector.sql"));
+        $db->execQuery("SET search_path TO public");
+    }
     if ($checkTableExists("core_tts_connector") == -1) {
         $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/core_tts_connector.sql"));
         $db->execQuery("SET search_path TO public");
@@ -615,6 +619,7 @@ if (!$existsColumn[0]["column_name"]) {
 $db->execQuery("
     CREATE TABLE IF NOT EXISTS public.worldknowledge (
         topic character varying NOT NULL,
+        aliases text NOT NULL DEFAULT '',
         topic_desc character varying NOT NULL,
         native_vector tsvector,
         knowledge_class text,
@@ -624,6 +629,7 @@ $db->execQuery("
         category text
     )
 ");
+$db->execQuery("ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS aliases text NOT NULL DEFAULT ''");
 $db->execQuery("ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS native_vector tsvector");
 $db->execQuery("ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS knowledge_class text");
 $db->execQuery("ALTER TABLE public.worldknowledge ADD COLUMN IF NOT EXISTS topic_desc_basic text");
@@ -831,6 +837,25 @@ if ($checkVersion("memory_summary")<20260319001) {
 
     $updateVersion("memory_summary",20260319001);
     Logger::info("Applied patch memory_summary 20260319001");
+}
+
+if ($checkVersion("memory_summary") < 20260730001) {
+    Logger::debug("Applying memory_summary 20260730001 - normalize diary memory owners");
+
+    $migrationOk = $db->execQuery("
+        UPDATE public.memory_summary
+        SET companions = '|' || trim(both '|' from trim(companions)) || '|'
+        WHERE classifier = 'diary'
+          AND nullif(trim(companions), '') IS NOT NULL
+          AND companions NOT LIKE '|%|'
+    ") !== false;
+
+    if ($migrationOk) {
+        $updateVersion("memory_summary", 20260730001);
+        Logger::info("Applied patch memory_summary 20260730001");
+    } else {
+        Logger::error("Failed to apply patch memory_summary 20260730001");
+    }
 }
 
 if ($checkVersion("rolemaster")<20250414001) {
@@ -1194,6 +1219,16 @@ if ($checkTableExists("core_npc_master_history") == -1) {
 } else
     Logger::info(__FILE__." core_npc_master_history exists");
 
+$db->execQuery(
+    "CREATE INDEX IF NOT EXISTS idx_core_npc_master_history_restore
+     ON public.core_npc_master_history (
+         npc_id,
+         gamets_last_updated DESC NULLS LAST,
+         created DESC,
+         history_id DESC
+     )"
+);
+
 if ($checkTableExists("core_stt_connector") == -1) {
     $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/core_stt_connector.sql"));
 } else
@@ -1323,7 +1358,7 @@ if ($checkVersion("core_profiles") < 20260626001) {
             'RECHAT_ALLOW_ACTIONS' => false,
             'DYNAMIC_PROFILE_FIELDS' => ['personality', 'speechstyle', 'goals'],
             'RPG_COMMENTS' => ['levelup', 'combat_end', 'lockpick', 'sleep'],
-            'RPG_COMMENTS_CHANCE' => 50,
+            'RPG_COMMENTS_CHANCE' => 20,
             'COMBAT_BARK_COOLDOWN' => 30,
             'AUTO_DIARY_ENABLED' => false,
             'AUTO_DIARY_WAIT_ENABLED' => true,
@@ -1417,6 +1452,7 @@ try {
         ["name"=>"core_llm_connector","file"=>__DIR__."/../lib/core/database_schema/core_llm_connector.sql"],
         ["name"=>"core_tts_connector","file"=>__DIR__."/../lib/core/database_schema/core_tts_connector.sql"],
         ["name"=>"core_stt_connector","file"=>__DIR__."/../lib/core/database_schema/core_stt_connector.sql"],
+        ["name"=>"core_itt_connector","file"=>__DIR__."/../lib/core/database_schema/core_itt_connector.sql"],
         ["name"=>"core_profiles",     "file"=>__DIR__."/../lib/core/database_schema/core_profiles.sql"],
         ["name"=>"core_npc_master",   "file"=>__DIR__."/../lib/core/database_schema/core_npc_master.sql"]
     ];
@@ -1544,6 +1580,50 @@ if ($checkVersion("fallout_bio_templates_seed") < 20260615007) {
     }
 }
 
+if ($checkVersion("fallout_creature_bio_templates_seed") < 20260824001) {
+    Logger::debug("Applying fallout_creature_bio_templates_seed 20260824001");
+    try {
+        $db->execQuery("
+            CREATE TABLE IF NOT EXISTS public.bio_template_actor_map (
+                id bigserial PRIMARY KEY,
+                template_name character varying(128) NOT NULL,
+                base_plugin text NOT NULL,
+                base_local_formid character varying(8) NOT NULL,
+                reference_plugin text,
+                reference_local_formid character varying(8),
+                exact_name text,
+                is_nonverbal_creature boolean NOT NULL DEFAULT false,
+                CHECK ((reference_plugin IS NULL) = (reference_local_formid IS NULL))
+            )
+        ");
+        $db->execQuery("
+            CREATE UNIQUE INDEX IF NOT EXISTS bio_template_actor_map_identity_uidx
+                ON public.bio_template_actor_map (
+                    template_name,
+                    base_plugin,
+                    base_local_formid,
+                    COALESCE(reference_plugin, ''),
+                    COALESCE(reference_local_formid, '')
+                )
+        ");
+        $sqlFile = __DIR__ . "/../data/fallout_creature_bio_templates.sql";
+        if (!file_exists($sqlFile)) {
+            throw new RuntimeException("Creature bio template seed file not found: " . $sqlFile);
+        }
+        $sqlContent = file_get_contents($sqlFile);
+        if ($sqlContent === false || trim($sqlContent) === '') {
+            throw new RuntimeException("Creature bio template seed file is empty: " . $sqlFile);
+        }
+        if (!$db->execQuery(preg_replace('/^\xEF\xBB\xBF/', '', $sqlContent))) {
+            throw new RuntimeException("Creature bio template SQL did not execute cleanly.");
+        }
+        $updateVersion("fallout_creature_bio_templates_seed", 20260824001);
+        Logger::info("Applied official TTW creature bio templates 20260824001");
+    } catch (Exception $e) {
+        Logger::error("Error applying official TTW creature bio templates: " . $e->getMessage());
+    }
+}
+
 // Remove DB-layer protection for The Narrator to allow deletion via UI
 // Version 20250124001
 if ($checkVersion("narrator_protection")<20250124001) {
@@ -1666,6 +1746,18 @@ if ($checkTableExists("import_rules") == -1) {
     $db->execQuery(file_get_contents(__DIR__."/../data/import_rules.sql"));
 } else
     Logger::info(__FILE__." import_rules exists");
+
+if ($checkVersion("import_rules") < 20260730001) {
+    try {
+        if ($db->execQuery("ALTER TABLE public.import_rules ADD COLUMN IF NOT EXISTS match_faction text") === false) {
+            throw new RuntimeException("Could not add import_rules.match_faction");
+        }
+        $updateVersion("import_rules", 20260730001);
+        Logger::info("Applied patch import_rules 20260730001 - add faction matching");
+    } catch (Throwable $e) {
+        Logger::error("Failed to apply patch import_rules 20260730001: " . $e->getMessage());
+    }
+}
 
 // Usage column
 $db->execQuery("ALTER TABLE public.audit_request ADD COLUMN IF NOT EXISTS usage jsonb");
@@ -2243,6 +2335,7 @@ if ($checkVersion("core_narrator")<20250101001) {
     if ($count === 0) {
         // Seed with defaults from conf.php if available, otherwise use hardcoded defaults
         $defaults = [
+            'roleplay_name' => 'The Narrator',
             'enabled' => isset($GLOBALS["NARRATOR_TALKS"]) ? ($GLOBALS["NARRATOR_TALKS"] ? '1' : '0') : '1',
             'welcome_enabled' => isset($GLOBALS["NARRATOR_WELCOME"]) ? ($GLOBALS["NARRATOR_WELCOME"] ? '1' : '0') : '0',
             'random_enabled' => isset($GLOBALS["RANDOM_NARATION"]) ? ($GLOBALS["RANDOM_NARATION"] ? '1' : '0') : '0',
@@ -2352,6 +2445,7 @@ if ($checkVersion("core_narrator")<20250101002) {
             
             $defaults = [
                 'profile_id' => $profileId,
+                'roleplay_name' => 'The Narrator',
                 'voiceid' => 'TheNarrator',
                 'core' => "The Narrator is a male voice within the player's mind. His job is to help the player as they navigate the Fallout wasteland. Provide unique insight and descriptions of what is going on in the world.",
                 'background' => "A guiding voice that describes the world, events, and transitions. He is not a character, but a voice within the player's mind.",
@@ -2431,6 +2525,24 @@ if ($checkVersion("core_narrator")<20260522001) {
 
     $updateVersion("core_narrator", 20260522001);
     Logger::info("Applied patch core_narrator 20260522001 - Added auto_diary_enabled toggle");
+}
+
+//----------------------------------------------------
+// NARRATOR ROLEPLAY NAME - Prompt-facing narrator alias
+// Version 20260714001
+//----------------------------------------------------
+
+if ($checkVersion("core_narrator")<20260714001) {
+    Logger::debug("Applying core_narrator migration 20260714001 - Adding narrator roleplay name");
+
+    $db->execQuery("
+        INSERT INTO public.core_narrator (id, value)
+        VALUES ('roleplay_name', 'The Narrator')
+        ON CONFLICT (id) DO NOTHING
+    ");
+
+    $updateVersion("core_narrator", 20260714001);
+    Logger::info("Applied patch core_narrator 20260714001 - Added narrator roleplay name");
 }
 
 //----------------------------------------------------
@@ -3128,6 +3240,15 @@ if ($checkVersion("dialectic_chat_event_types") < 20260613001) {
 
 //----------------------------------------------------
 
+if ($checkVersion('global_settings_presets') < 20260828001 || $checkTableExists('global_settings_presets') == -1) {
+    $schema = file_get_contents(__DIR__ . '/../lib/core/database_schema/global_settings_presets.sql');
+    if ($schema !== false && $db->execQuery($schema) !== false) {
+        $updateVersion('global_settings_presets', 20260828001);
+    } else {
+        Logger::error('Could not prepare global settings preset storage.');
+    }
+}
+
 if ($checkVersion("general_settings") < 20260502002) {
     Logger::debug("Applying general_settings 20260502002 - create database-backed general settings table");
     $b_ok = true;
@@ -3421,6 +3542,199 @@ if ($checkVersion("core_action") < 20260624003) {
     }
 }
 
+if ($checkVersion("core_profiles") < 20260717001) {
+    Logger::debug("Applying core_profiles 20260717001 - restore profile diary generation settings");
+    try {
+        $diaryDefaults = [
+            'DIARY_PROMPT' => "Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#'s recent dialogues and events into #DIALECTIC_NAME#'s diary. WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.",
+            'DIARY_COOLDOWN' => 120,
+            'CONTEXT_HISTORY_DIARY' => 100,
+        ];
+
+        $rows = $db->fetchAll("SELECT id, metadata FROM public.core_profiles ORDER BY id ASC");
+        foreach ($rows as $row) {
+            $profileId = intval($row['id'] ?? 0);
+            if ($profileId <= 0) {
+                continue;
+            }
+
+            $metadataRaw = $row['metadata'] ?? '{}';
+            $metadata = is_array($metadataRaw) ? $metadataRaw : json_decode(strval($metadataRaw), true);
+            if (!is_array($metadata)) {
+                $metadata = [];
+            }
+            foreach ($diaryDefaults as $key => $value) {
+                if (!array_key_exists($key, $metadata)) {
+                    $metadata[$key] = $value;
+                }
+            }
+
+            $metadataJson = json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $metadataLiteral = $db->escapeLiteral(is_string($metadataJson) ? $metadataJson : '{}');
+            $db->execQuery("UPDATE public.core_profiles SET metadata = {$metadataLiteral}::jsonb WHERE id = {$profileId}");
+        }
+
+        $updateVersion("core_profiles", 20260717001);
+        Logger::info("Applied patch core_profiles 20260717001 - restored profile diary generation settings");
+    } catch (Throwable $e) {
+        Logger::error("Error restoring profile diary settings: " . $e->getMessage());
+    }
+}
+
+if ($checkVersion("core_action") < 20260716002) {
+    Logger::debug("Applying core_action 20260716002 - add Fallout narrator actions without protected kill targets");
+
+    $b_ok = true;
+    try {
+        $seedPath = realpath(__DIR__ . '/../data/core_action_seed.sql');
+        if ($seedPath === false || !is_file($seedPath)) {
+            throw new RuntimeException("Missing core_action seed file");
+        }
+
+        $seedSql = trim(strval(file_get_contents($seedPath)));
+        if ($seedSql === '') {
+            throw new RuntimeException("Empty core_action seed file");
+        }
+
+        $db->execQuery($seedSql);
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error applying Fallout narrator action seed: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("core_action", 20260716002);
+        Logger::info("Applied patch core_action 20260716002");
+    }
+}
+
+if ($checkVersion("core_action") < 20260719001) {
+    Logger::debug("Applying core_action 20260719001 - add equipment actions");
+
+    $b_ok = true;
+    try {
+        $seedPath = realpath(__DIR__ . '/../data/core_action_seed.sql');
+        if ($seedPath === false || !is_file($seedPath)) {
+            throw new RuntimeException("Missing core_action seed file");
+        }
+
+        $seedSql = trim(strval(file_get_contents($seedPath)));
+        if ($seedSql === '') {
+            throw new RuntimeException("Empty core_action seed file");
+        }
+
+        $db->execQuery($seedSql);
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error applying equipment action seed: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("core_action", 20260719001);
+        Logger::info("Applied patch core_action 20260719001");
+    }
+}
+
+if ($checkVersion("core_action") < 20260823001) {
+    Logger::debug("Applying core_action 20260823001 - distinguish temporary follow from party recruitment");
+
+    $followPlayerDescription = '#DIALECTIC_NAME# temporarily follows #PLAYER_NAME# without joining the party or follower roster. Do not use for requests to join the party or become a companion; use Join_#PLAYER_NAME#_Party.';
+    $makeFollowerDescription = '#DIALECTIC_NAME# joins #PLAYER_NAME# as a recruited follower and party member, and begins following. Use for requests to join the party, become a follower or companion, join the squad, or travel as an ally.';
+    $followPlayerDescriptionLiteral = $db->escapeLiteral($followPlayerDescription);
+    $makeFollowerDescriptionLiteral = $db->escapeLiteral($makeFollowerDescription);
+
+    $db->execQuery("UPDATE public.core_action SET description = {$followPlayerDescriptionLiteral}, updated_at = NOW() WHERE code_name = 'FollowPlayer'");
+    $db->execQuery("UPDATE public.core_action SET description = {$makeFollowerDescriptionLiteral}, updated_at = NOW() WHERE code_name = 'MakeFollower'");
+
+    $db->execQuery("
+        UPDATE public.core_action_custom
+           SET description = {$followPlayerDescriptionLiteral}, updated_at = NOW()
+         WHERE code_name = 'FollowPlayer'
+           AND description = '#DIALECTIC_NAME# follows #PLAYER_NAME#.'
+    ");
+    $db->execQuery("
+        UPDATE public.core_action_custom
+           SET description = {$makeFollowerDescriptionLiteral}, updated_at = NOW()
+         WHERE code_name = 'MakeFollower'
+           AND description IN (
+               '#DIALECTIC_NAME# joins #PLAYER_NAME#, forming a squad or adventuring party.',
+               '#DIALECTIC_NAME# joins #PLAYER_NAME# as a follower.'
+           )
+    ");
+
+    $updateVersion("core_action", 20260823001);
+    Logger::info("Applied patch core_action 20260823001");
+}
+
+if ($checkVersion("core_action") < 20260823002) {
+    Logger::debug("Applying core_action 20260823002 - keep generic follow separate from party recruitment");
+
+    $followDescription = 'Temporarily move to and follow the specified target actor without joining the party or follower roster. Do not use for requests to join the party or become a companion; use Join_#PLAYER_NAME#_Party.';
+    $followDescriptionLiteral = $db->escapeLiteral($followDescription);
+
+    $db->execQuery("UPDATE public.core_action SET description = {$followDescriptionLiteral}, updated_at = NOW() WHERE code_name = 'Follow'");
+    $db->execQuery("
+        UPDATE public.core_action_custom
+           SET description = {$followDescriptionLiteral}, updated_at = NOW()
+         WHERE code_name = 'Follow'
+           AND description IN (
+               'Move to and follow the specified target actor',
+               'Move to and follow the specified target actor.'
+           )
+    ");
+
+    $updateVersion("core_action", 20260823002);
+    Logger::info("Applied patch core_action 20260823002");
+}
+
+if ($checkVersion("core_action") < 20260823003) {
+    Logger::debug("Applying core_action 20260823003 - simplify follower controls");
+
+    $followDescription = '#DIALECTIC_NAME# joins #PLAYER_NAME#\'s party and follows #PLAYER_NAME# permanently.';
+    $followReturnMessage = '#DIALECTIC_NAME# joins #PLAYER_NAME#\'s party and follows #PLAYER_NAME#.';
+    $stopDescription = '#DIALECTIC_NAME# leaves #PLAYER_NAME#\'s party and stops following #PLAYER_NAME#.';
+    $followDescriptionLiteral = $db->escapeLiteral($followDescription);
+    $followReturnMessageLiteral = $db->escapeLiteral($followReturnMessage);
+    $stopDescriptionLiteral = $db->escapeLiteral($stopDescription);
+    $emptyParameters = '{"type":"object","required":[],"properties":{}}';
+
+    foreach (['public.core_action', 'public.core_action_custom'] as $tableName) {
+        $db->execQuery("
+            UPDATE {$tableName}
+               SET action_name = 'Follow',
+                   description = {$followDescriptionLiteral},
+                   return_message = {$followReturnMessageLiteral},
+                   parameters_json = '{$emptyParameters}'::jsonb,
+                   game_function = TRUE,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"status\":\"active\",\"dispatch\":\"plugin_command\",\"followup\":{\"enabled\":false}}'::jsonb,
+                   updated_at = NOW()
+             WHERE code_name = 'Follow'
+        ");
+        $db->execQuery("
+            UPDATE {$tableName}
+               SET action_name = 'Stop_Following',
+                   description = {$stopDescriptionLiteral},
+                   return_message = {$stopDescriptionLiteral},
+                   parameters_json = '{$emptyParameters}'::jsonb,
+                   game_function = TRUE,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"status\":\"active\",\"dispatch\":\"plugin_command\",\"followup\":{\"enabled\":false}}'::jsonb,
+                   updated_at = NOW()
+             WHERE code_name = 'StopFollowing'
+        ");
+        $db->execQuery("
+            UPDATE {$tableName}
+               SET is_activated = FALSE,
+                   game_function = FALSE,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"status\":\"legacy_alias\"}'::jsonb,
+                   updated_at = NOW()
+             WHERE code_name IN ('FollowPlayer', 'MakeFollower')
+        ");
+    }
+
+    $updateVersion("core_action", 20260823003);
+    Logger::info("Applied patch core_action 20260823003");
+}
+
 if ($checkVersion("core_tts_connector_metadata") < 20260626001) {
     Logger::debug("Applying core_tts_connector_metadata 20260626001 - remove copied connector metadata references");
 
@@ -3562,7 +3876,7 @@ if ($checkVersion("core_tts_connector_omnivoice") < 20260708001) {
             SELECT
                 'omnivoice',
                 'OmniVoice Default',
-                '{\"language\":\"en\",\"voicelogic\":\"voicetype\",\"fallback_male\":\"default_male\",\"fallback_female\":\"default_female\"}'::jsonb,
+                '{\"language\":\"en\",\"voicelogic\":\"voicetype\",\"fallback_male\":\"maleadult02\",\"fallback_female\":\"femaleadult02\"}'::jsonb,
                 NULL,
                 'http://127.0.0.1:8021',
                 'voiceid'
@@ -3578,7 +3892,7 @@ if ($checkVersion("core_tts_connector_omnivoice") < 20260708001) {
                SET driver = 'omnivoice',
                    url = 'http://127.0.0.1:8021',
                    voice_field = 'voiceid',
-                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"language\":\"en\",\"voicelogic\":\"voicetype\",\"fallback_male\":\"default_male\",\"fallback_female\":\"default_female\"}'::jsonb
+                   metadata = COALESCE(metadata, '{}'::jsonb) || '{\"language\":\"en\",\"voicelogic\":\"voicetype\",\"fallback_male\":\"maleadult02\",\"fallback_female\":\"femaleadult02\"}'::jsonb
              WHERE lower(coalesce(label, '')) = 'omnivoice default'
         ");
     } catch (Throwable $e) {
@@ -3766,6 +4080,12 @@ $playthroughMetadataRow = $db->fetchOne("
     SELECT
         to_regclass('dialectic_meta.playthrough_profiles')::text AS profiles_relation,
         to_regclass('dialectic_meta.settings')::text AS settings_relation,
+        (SELECT pg_get_functiondef(p.oid)
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'dialectic_meta'
+            AND p.proname = 'clone_schema'
+          LIMIT 1) AS clone_function_definition,
         (SELECT COUNT(DISTINCT p.proname)
            FROM pg_proc p
            JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -3775,11 +4095,12 @@ $playthroughMetadataRow = $db->fetchOne("
 $playthroughMetadataIncomplete = (
     empty($playthroughMetadataRow['profiles_relation']) ||
     empty($playthroughMetadataRow['settings_relation']) ||
-    intval($playthroughMetadataRow['clone_functions'] ?? 0) !== 3
+    intval($playthroughMetadataRow['clone_functions'] ?? 0) !== 3 ||
+    stripos((string)($playthroughMetadataRow['clone_function_definition'] ?? ''), 'sync_schema_sequences(dest_schema)') === false
 );
 
-if ($checkVersion("playthrough_metadata_schema") < 20260713002 || $playthroughMetadataIncomplete) {
-    Logger::debug("Applying playthrough_metadata_schema 20260713002 - create playthrough metadata and clone functions");
+if ($checkVersion("playthrough_metadata_schema") < 20260730001 || $playthroughMetadataIncomplete) {
+    Logger::debug("Applying playthrough_metadata_schema 20260730001 - refresh clone functions and repair sequences");
 
     $b_ok = true;
     try {
@@ -3793,6 +4114,9 @@ if ($checkVersion("playthrough_metadata_schema") < 20260713002 || $playthroughMe
             if (!$db->execQuery($sql)) {
                 throw new RuntimeException("Failed to execute playthrough schema file: {$sqlPath}");
             }
+        }
+        if (!$db->execQuery("SELECT dialectic_meta.sync_schema_sequences('public')")) {
+            throw new RuntimeException("Failed to repair public schema sequences");
         }
 
         $metadataRow = $db->fetchOne("
@@ -3820,8 +4144,8 @@ if ($checkVersion("playthrough_metadata_schema") < 20260713002 || $playthroughMe
     }
 
     if ($b_ok) {
-        $updateVersion("playthrough_metadata_schema", 20260713002);
-        Logger::info("Applied patch playthrough_metadata_schema 20260713002");
+        $updateVersion("playthrough_metadata_schema", 20260730001);
+        Logger::info("Applied patch playthrough_metadata_schema 20260730001");
     }
 }
 
@@ -3831,9 +4155,17 @@ $relationshipQueueRow = $db->fetchOne("
      WHERE table_schema = 'public'
        AND table_name IN ('relationship_eval_queue', 'relationship_init_queue')
 ");
-$relationshipQueuesMissing = intval($relationshipQueueRow['total'] ?? 0) !== 2;
+$relationshipQueueColumnRow = $db->fetchOne("
+    SELECT COUNT(*) AS total
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name IN ('relationship_eval_queue', 'relationship_init_queue')
+       AND column_name IN ('retry_count', 'last_error')
+");
+$relationshipQueuesIncomplete = intval($relationshipQueueRow['total'] ?? 0) !== 2
+    || intval($relationshipQueueColumnRow['total'] ?? 0) !== 4;
 
-if ($checkVersion("relationship_async_queues") < 20260713002 || $relationshipQueuesMissing) {
+if ($checkVersion("relationship_async_queues") < 20260713002 || $relationshipQueuesIncomplete) {
     Logger::debug("Applying relationship_async_queues 20260713002 - create relationship worker queues");
 
     $b_ok = true;
@@ -3848,12 +4180,18 @@ if ($checkVersion("relationship_async_queues") < 20260713002 || $relationshipQue
         }
 
         $queueRow = $db->fetchOne("
-            SELECT COUNT(*) AS total
-              FROM information_schema.tables
-             WHERE table_schema = 'public'
-               AND table_name IN ('relationship_eval_queue', 'relationship_init_queue')
+            SELECT
+                (SELECT COUNT(*)
+                   FROM information_schema.tables
+                  WHERE table_schema = 'public'
+                    AND table_name IN ('relationship_eval_queue', 'relationship_init_queue')) AS table_total,
+                (SELECT COUNT(*)
+                   FROM information_schema.columns
+                  WHERE table_schema = 'public'
+                    AND table_name IN ('relationship_eval_queue', 'relationship_init_queue')
+                    AND column_name IN ('retry_count', 'last_error')) AS column_total
         ");
-        if (intval($queueRow['total'] ?? 0) !== 2) {
+        if (intval($queueRow['table_total'] ?? 0) !== 2 || intval($queueRow['column_total'] ?? 0) !== 4) {
             throw new RuntimeException("Relationship queue schema verification failed");
         }
     } catch (Throwable $e) {
@@ -3884,6 +4222,42 @@ if ($checkVersion("legacy_currentmission_cleanup") < 20260713003 || $currentMiss
     if ($b_ok) {
         $updateVersion("legacy_currentmission_cleanup", 20260713003);
         Logger::info("Applied patch legacy_currentmission_cleanup 20260713003");
+    }
+}
+
+//----------------------------------------------------
+
+if ($checkVersion("general_settings") < 20260722001) {
+    Logger::debug("Applying general_settings 20260722001 - add forced location World Knowledge setting");
+
+    $b_ok = true;
+    try {
+        $settingId = 'LOCATION_WORLDKNOWLEDGE';
+        $existingRow = dialecticGetGeneralSettingRow($settingId);
+        $definition = dialecticGetSchemaDefinition($settingId);
+        $description = dialecticGetManagedGeneralSettingDescriptions()[$settingId]
+            ?? dialecticGetSchemaDescription($settingId);
+
+        if ($existingRow) {
+            $currentValue = $existingRow['value'] ?? ($definition['default'] ?? true);
+        } else {
+            $legacyValue = dialecticReadLegacyGlobalValue($settingId, '__DIALECTIC_SETTING_MISSING__');
+            $currentValue = ($legacyValue === '__DIALECTIC_SETTING_MISSING__')
+                ? ($definition['default'] ?? true)
+                : $legacyValue;
+        }
+
+        if (!dialecticSetGeneralSetting($settingId, $currentValue, $description)) {
+            throw new RuntimeException("Failed writing {$settingId}");
+        }
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error adding forced location World Knowledge setting: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("general_settings", 20260722001);
+        Logger::info("Applied patch general_settings 20260722001");
     }
 }
 
@@ -3920,6 +4294,782 @@ if ($checkVersion("general_settings_seed_repair") < 20260713004 || !$managedGene
     if ($b_ok) {
         $updateVersion("general_settings_seed_repair", 20260713004);
         Logger::info("Applied patch general_settings_seed_repair 20260713004");
+    }
+}
+
+if ($checkVersion("compact_npc_context_history_default") < 20260825001) {
+    Logger::debug("Applying compact_npc_context_history_default 20260825001 - enable compact NPC history by default");
+
+    $b_ok = true;
+    try {
+        $settingId = 'COMPACT_NPC_CONTEXT_HISTORY';
+        $description = dialecticGetManagedGeneralSettingDescriptions()[$settingId]
+            ?? dialecticGetSchemaDescription($settingId);
+        if (!dialecticSetGeneralSetting($settingId, true, $description)) {
+            throw new RuntimeException('Failed enabling compact NPC context history.');
+        }
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error enabling compact NPC context history by default: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("compact_npc_context_history_default", 20260825001);
+        Logger::info("Applied patch compact_npc_context_history_default 20260825001");
+    }
+}
+
+if ($checkVersion("tts_gender_fallback_defaults") < 20260715001) {
+    Logger::debug("Applying tts_gender_fallback_defaults 20260715001 - use Fallout adult voice defaults");
+
+    $b_ok = true;
+    try {
+        $db->execQuery("
+            UPDATE public.core_tts_connector
+               SET metadata = jsonb_set(
+                   COALESCE(metadata, '{}'::jsonb),
+                   '{fallback_male}',
+                   '\"maleadult02\"'::jsonb,
+                   true
+               )
+             WHERE lower(trim(COALESCE(metadata->>'fallback_male', ''))) IN ('', 'default_male')
+        ");
+        $db->execQuery("
+            UPDATE public.core_tts_connector
+               SET metadata = jsonb_set(
+                   COALESCE(metadata, '{}'::jsonb),
+                   '{fallback_female}',
+                   '\"femaleadult02\"'::jsonb,
+                   true
+               )
+             WHERE lower(trim(COALESCE(metadata->>'fallback_female', ''))) IN ('', 'default_female')
+        ");
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error updating TTS gender fallback defaults: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("tts_gender_fallback_defaults", 20260715001);
+        Logger::info("Applied patch tts_gender_fallback_defaults 20260715001");
+    }
+}
+
+$npcJsonObjectState = $db->fetchOne("
+    SELECT
+        (SELECT COUNT(*) FROM public.core_npc_master
+          WHERE (extended_data IS NOT NULL AND jsonb_typeof(extended_data) <> 'object')
+             OR (metadata IS NOT NULL AND jsonb_typeof(metadata) <> 'object'))
+      + (SELECT COUNT(*) FROM public.core_npc_master_history
+          WHERE (extended_data IS NOT NULL AND jsonb_typeof(extended_data) <> 'object')
+             OR (metadata IS NOT NULL AND jsonb_typeof(metadata) <> 'object')) AS invalid_rows
+");
+$npcJsonObjectsInvalid = intval($npcJsonObjectState['invalid_rows'] ?? 0) > 0;
+
+if ($checkVersion("npc_json_object_normalization") < 20260717002 || $npcJsonObjectsInvalid) {
+    Logger::debug("Applying npc_json_object_normalization 20260717002 - normalize NPC JSON object fields");
+
+    $b_ok = true;
+    try {
+        foreach (['core_npc_master', 'core_npc_master_history'] as $table) {
+            if (!$db->execQuery("
+                UPDATE public.{$table}
+                   SET extended_data = '{}'::jsonb
+                 WHERE extended_data IS NOT NULL
+                   AND jsonb_typeof(extended_data) <> 'object'
+            ")) {
+                throw new RuntimeException("Failed normalizing {$table}.extended_data");
+            }
+            if (!$db->execQuery("
+                UPDATE public.{$table}
+                   SET metadata = '{}'::jsonb
+                 WHERE metadata IS NOT NULL
+                   AND jsonb_typeof(metadata) <> 'object'
+            ")) {
+                throw new RuntimeException("Failed normalizing {$table}.metadata");
+            }
+        }
+
+        $remaining = $db->fetchOne("
+            SELECT
+                (SELECT COUNT(*) FROM public.core_npc_master
+                  WHERE (extended_data IS NOT NULL AND jsonb_typeof(extended_data) <> 'object')
+                     OR (metadata IS NOT NULL AND jsonb_typeof(metadata) <> 'object'))
+              + (SELECT COUNT(*) FROM public.core_npc_master_history
+                  WHERE (extended_data IS NOT NULL AND jsonb_typeof(extended_data) <> 'object')
+                     OR (metadata IS NOT NULL AND jsonb_typeof(metadata) <> 'object')) AS invalid_rows
+        ");
+        if (intval($remaining['invalid_rows'] ?? 0) !== 0) {
+            throw new RuntimeException('NPC JSON object verification failed');
+        }
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error normalizing NPC JSON object fields: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("npc_json_object_normalization", 20260717002);
+        Logger::info("Applied patch npc_json_object_normalization 20260717002");
+    }
+}
+
+if ($checkVersion("worldknowledge") < 20260720001) {
+    Logger::debug("Applying worldknowledge 20260720001 - support unique basic-only Fallout lore");
+
+    $b_ok = true;
+    try {
+        if (!$db->execQuery("DELETE FROM public.worldknowledge WHERE topic IS NULL OR btrim(topic) = ''")) {
+            throw new RuntimeException('Failed removing invalid world knowledge topics');
+        }
+
+        if (!$db->execQuery("
+            DELETE FROM public.worldknowledge current_row
+            USING (
+                SELECT ctid
+                FROM (
+                    SELECT
+                        ctid,
+                        row_number() OVER (
+                            PARTITION BY lower(btrim(topic))
+                            ORDER BY
+                                CASE WHEN topic_desc IS NOT NULL AND btrim(topic_desc) <> '' THEN 1 ELSE 0 END DESC,
+                                CASE WHEN topic_desc_basic IS NOT NULL AND btrim(topic_desc_basic) <> '' THEN 1 ELSE 0 END DESC,
+                                CASE WHEN knowledge_class IS NOT NULL AND btrim(knowledge_class) <> '' THEN 1 ELSE 0 END DESC,
+                                CASE WHEN knowledge_class_basic IS NOT NULL AND btrim(knowledge_class_basic) <> '' THEN 1 ELSE 0 END DESC,
+                                CASE WHEN tags IS NOT NULL AND btrim(tags) <> '' THEN 1 ELSE 0 END DESC,
+                                CASE WHEN category IS NOT NULL AND btrim(category) <> '' THEN 1 ELSE 0 END DESC,
+                                ctid
+                        ) AS row_number
+                    FROM public.worldknowledge
+                ) ranked
+                WHERE row_number > 1
+            ) duplicates
+            WHERE current_row.ctid = duplicates.ctid
+        ")) {
+            throw new RuntimeException('Failed deduplicating world knowledge topics');
+        }
+
+        if (!$db->execQuery("UPDATE public.worldknowledge SET topic = lower(btrim(topic))")) {
+            throw new RuntimeException('Failed normalizing world knowledge topic keys');
+        }
+        if (!$db->execQuery("ALTER TABLE public.worldknowledge ALTER COLUMN topic_desc DROP NOT NULL")) {
+            throw new RuntimeException('Failed making the advanced world knowledge description optional');
+        }
+        if (!$db->execQuery("CREATE UNIQUE INDEX IF NOT EXISTS worldknowledge_topic_unique_idx ON public.worldknowledge (topic)")) {
+            throw new RuntimeException('Failed creating the world knowledge topic index');
+        }
+        if (!$db->execQuery("
+            UPDATE public.worldknowledge
+               SET native_vector =
+                     setweight(to_tsvector(coalesce(topic, '')), 'A')
+                  || setweight(to_tsvector(coalesce(topic_desc, '')), 'B')
+                  || setweight(to_tsvector(coalesce(topic_desc_basic, '')), 'C')
+        ")) {
+            throw new RuntimeException('Failed rebuilding world knowledge search vectors');
+        }
+    } catch (Throwable $e) {
+        $b_ok = false;
+        Logger::error("Error upgrading world knowledge for basic Fallout lore: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("worldknowledge", 20260720001);
+        Logger::info("Applied patch worldknowledge 20260720001");
+    }
+}
+
+if ($checkVersion("fallout_worldknowledge_seed") < 20260722001) {
+    Logger::debug("Applying fallout_worldknowledge_seed 20260722001 - seed Fallout lore aliases");
+
+    $b_ok = true;
+    $transactionOpen = false;
+    $seedPath = dirname(__DIR__).DIRECTORY_SEPARATOR.'data'.DIRECTORY_SEPARATOR.'fallout_worldknowledge_basic.csv';
+    try {
+        require_once(dirname(__DIR__).DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'worldknowledge_topic.php');
+
+        if (!is_readable($seedPath)) {
+            throw new RuntimeException("World knowledge seed file is not readable: {$seedPath}");
+        }
+
+        $handle = fopen($seedPath, 'rb');
+        if ($handle === false) {
+            throw new RuntimeException("Unable to open world knowledge seed file: {$seedPath}");
+        }
+
+        try {
+            $expectedHeader = [
+                'topic',
+                'aliases',
+                'topic_desc',
+                'knowledge_class',
+                'topic_desc_basic',
+                'knowledge_class_basic',
+                'tags',
+                'category',
+            ];
+            $header = fgetcsv($handle, 0, ',', '"', '\\');
+            if ($header !== $expectedHeader) {
+                throw new RuntimeException('World knowledge seed CSV header does not match the expected contract');
+            }
+
+            if (!$db->execQuery('BEGIN')) {
+                throw new RuntimeException('Unable to begin world knowledge seed transaction');
+            }
+            $transactionOpen = true;
+            if (!$db->execQuery("
+                DELETE FROM public.worldknowledge current_row
+                USING (
+                    SELECT ctid
+                    FROM (
+                        SELECT
+                            ctid,
+                            row_number() OVER (
+                                PARTITION BY lower(btrim(split_part(topic, ',', 1)))
+                                ORDER BY
+                                    CASE WHEN topic_desc IS NOT NULL AND btrim(topic_desc) <> '' THEN 1 ELSE 0 END DESC,
+                                    CASE WHEN topic_desc_basic IS NOT NULL AND btrim(topic_desc_basic) <> '' THEN 1 ELSE 0 END DESC,
+                                    ctid
+                            ) AS row_number
+                        FROM public.worldknowledge
+                    ) ranked
+                    WHERE row_number > 1
+                ) duplicates
+                WHERE current_row.ctid = duplicates.ctid
+            ")) {
+                throw new RuntimeException('Failed deduplicating canonical world knowledge topics');
+            }
+            if (!$db->execQuery("
+                CREATE UNIQUE INDEX IF NOT EXISTS worldknowledge_canonical_topic_unique_idx
+                    ON public.worldknowledge ((lower(btrim(split_part(topic, ',', 1)))))
+            ")) {
+                throw new RuntimeException('Failed creating the canonical world knowledge topic index');
+            }
+            $seenTopics = [];
+            $seedRows = 0;
+
+            while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
+                if (count($row) !== count($expectedHeader)) {
+                    throw new RuntimeException('World knowledge seed CSV contains a malformed row');
+                }
+                $data = array_combine($expectedHeader, $row);
+                if (!is_array($data)) {
+                    throw new RuntimeException('Unable to map a world knowledge seed row');
+                }
+
+                $topicAndAliases = trim(strval($data['topic'] ?? ''));
+                if (trim(strval($data['aliases'] ?? '')) !== '') {
+                    $topicAndAliases .= ',' . trim(strval($data['aliases']));
+                }
+                $topic = dialecticWorldKnowledgeNormalizeTopicList($topicAndAliases);
+                $canonicalTopic = dialecticWorldKnowledgeCanonicalTopic($topic);
+                $basicDescription = trim(strval($data['topic_desc_basic'] ?? ''));
+                $category = strtolower(trim(strval($data['category'] ?? '')));
+                if ($canonicalTopic === '' || !preg_match('/^[a-z0-9_]+$/', $canonicalTopic)) {
+                    throw new RuntimeException("World knowledge seed contains an invalid topic key: {$topic}");
+                }
+                if (isset($seenTopics[$canonicalTopic])) {
+                    throw new RuntimeException("World knowledge seed contains a duplicate canonical topic: {$canonicalTopic}");
+                }
+                if ($basicDescription === '') {
+                    throw new RuntimeException("World knowledge seed is missing a basic description for {$topic}");
+                }
+                if (!in_array($category, ['location', 'creature', 'faction', 'person', 'event'], true)) {
+                    throw new RuntimeException("World knowledge seed contains an invalid category for {$topic}");
+                }
+                foreach (['topic_desc', 'knowledge_class', 'knowledge_class_basic', 'tags'] as $blankField) {
+                    if (trim(strval($data[$blankField] ?? '')) !== '') {
+                        throw new RuntimeException("World knowledge seed field {$blankField} must be blank for {$topic}");
+                    }
+                }
+
+                $seenTopics[$canonicalTopic] = true;
+                $seedRows++;
+                $topicSql = $db->escape($topic);
+                $descriptionSql = $db->escape($basicDescription);
+                $categorySql = $db->escape($category);
+                if (!$db->execQuery("
+                    INSERT INTO public.worldknowledge AS existing (
+                        topic,
+                        topic_desc,
+                        native_vector,
+                        knowledge_class,
+                        topic_desc_basic,
+                        knowledge_class_basic,
+                        tags,
+                        category
+                    ) VALUES (
+                        '{$topicSql}',
+                        NULL,
+                        setweight(to_tsvector('{$topicSql}'), 'A')
+                            || setweight(to_tsvector('{$descriptionSql}'), 'C'),
+                        NULL,
+                        '{$descriptionSql}',
+                        NULL,
+                        NULL,
+                        '{$categorySql}'
+                    )
+                    ON CONFLICT ((lower(btrim(split_part(topic, ',', 1))))) DO UPDATE
+                    SET topic = EXCLUDED.topic,
+                        native_vector =
+                              setweight(to_tsvector(EXCLUDED.topic), 'A')
+                           || setweight(to_tsvector(coalesce(existing.topic_desc, '')), 'B')
+                           || setweight(to_tsvector(coalesce(existing.topic_desc_basic, '')), 'C')
+                ")) {
+                    throw new RuntimeException("Failed seeding world knowledge topic {$topic}");
+                }
+            }
+
+            if ($seedRows === 0) {
+                throw new RuntimeException('World knowledge seed CSV contains no data rows');
+            }
+            if (!$db->execQuery('COMMIT')) {
+                throw new RuntimeException('Unable to commit world knowledge seed transaction');
+            }
+            $transactionOpen = false;
+        } finally {
+            fclose($handle);
+        }
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        $b_ok = false;
+        Logger::error("Error seeding basic Fallout world knowledge: " . $e->getMessage());
+    }
+
+    if ($b_ok) {
+        $updateVersion("fallout_worldknowledge_seed", 20260722001);
+        Logger::info("Applied patch fallout_worldknowledge_seed 20260722001");
+    }
+}
+
+if ($checkVersion('worldknowledge_parity') < 20260813001) {
+    Logger::debug('Applying worldknowledge_parity 20260813001 - add factory catalog metadata and structured audit');
+    $migrationOk = false;
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge parity migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '') {
+            throw new RuntimeException('World Knowledge parity schema is missing');
+        }
+        if (!$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge parity schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge parity schema');
+        }
+        $transactionOpen = false;
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge parity schema: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_parity', 20260813001);
+        Logger::info('Applied patch worldknowledge_parity 20260813001');
+    }
+}
+
+if ($checkVersion('worldknowledge_access') < 20260813001) {
+    Logger::debug('Applying worldknowledge_access 20260813001 - install tiered catalog and NPC context tags');
+    $migrationOk = false;
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge access migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '' || !$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge access schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge access schema');
+        }
+        $transactionOpen = false;
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge access migration: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_access', 20260813001);
+        Logger::info('Applied patch worldknowledge_access 20260813001');
+    }
+}
+
+if ($checkVersion('worldknowledge_canonical_tags') < 20260813003) {
+    Logger::debug('Applying worldknowledge_canonical_tags 20260813003 - canonicalize access permissions');
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge canonical tag migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '' || !$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge canonical tag schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge canonical tag schema');
+        }
+        $transactionOpen = false;
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
+        $updateVersion('worldknowledge_canonical_tags', 20260813003);
+        Logger::info('Applied patch worldknowledge_canonical_tags 20260813003');
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge canonical tags: ' . $e->getMessage());
+    }
+}
+
+if ($checkVersion('worldknowledge_oghma_parity') < 20260814001) {
+    Logger::debug('Applying worldknowledge_oghma_parity 20260814001 - install curated Oghma catalog');
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge Oghma parity migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '' || !$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge Oghma parity schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge Oghma parity schema');
+        }
+        $transactionOpen = false;
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
+        $invalidCatalogRows = $db->fetchAll(
+            "SELECT catalog.catalog_id, catalog.catalog_version"
+            . " FROM public.worldknowledge_catalogs AS catalog"
+            . " WHERE NOT catalog.is_active AND (SELECT count(*) FROM public.worldknowledge AS article"
+            . " WHERE article.source_kind='factory' AND article.catalog_id=catalog.catalog_id"
+            . " AND article.catalog_version=catalog.catalog_version) <> catalog.row_count"
+        );
+        $removedIncompleteCatalogs = 0;
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin incomplete World Knowledge catalog cleanup');
+        }
+        $transactionOpen = true;
+        foreach ((array)$invalidCatalogRows as $invalidCatalog) {
+            $catalogId = strval($invalidCatalog['catalog_id'] ?? '');
+            $catalogVersion = strval($invalidCatalog['catalog_version'] ?? '');
+            if ($catalogId === '' || $catalogVersion === '') {
+                continue;
+            }
+            if (!$db->execQuery(
+                "DELETE FROM public.worldknowledge WHERE source_kind='factory' AND catalog_id="
+                . $db->escapeLiteral($catalogId) . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion)
+            ) || !$db->execQuery(
+                'DELETE FROM public.worldknowledge_catalogs WHERE NOT is_active AND catalog_id='
+                . $db->escapeLiteral($catalogId) . ' AND catalog_version=' . $db->escapeLiteral($catalogVersion)
+            )) {
+                throw new RuntimeException("Unable to remove incomplete World Knowledge catalog {$catalogId}/{$catalogVersion}");
+            }
+            $removedIncompleteCatalogs++;
+        }
+        $updateVersion('worldknowledge_oghma_parity', 20260814001);
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit incomplete World Knowledge catalog cleanup');
+        }
+        $transactionOpen = false;
+        Logger::info("Applied patch worldknowledge_oghma_parity 20260814001; removed {$removedIncompleteCatalogs} incomplete inactive factory catalogs");
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge Oghma parity: ' . $e->getMessage());
+    }
+}
+
+if ($checkVersion('worldknowledge_herika_v1') < 20260814002) {
+    Logger::debug('Applying worldknowledge_herika_v1 20260814002 - use the finalized eight-field Herika article contract');
+    $migrationOk = false;
+    $transactionOpen = false;
+    try {
+        if (!$db->execQuery('BEGIN')) {
+            throw new RuntimeException('Unable to begin World Knowledge Herika V1 migration');
+        }
+        $transactionOpen = true;
+        $schemaSql = file_get_contents(
+            dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core'
+            . DIRECTORY_SEPARATOR . 'database_schema' . DIRECTORY_SEPARATOR . 'worldknowledge_parity_v1.sql'
+        );
+        if ($schemaSql === false || trim($schemaSql) === '' || !$db->execQuery($schemaSql)) {
+            throw new RuntimeException('Unable to apply World Knowledge Herika V1 schema');
+        }
+        if (!$db->execQuery('COMMIT')) {
+            throw new RuntimeException('Unable to commit World Knowledge Herika V1 schema');
+        }
+        $transactionOpen = false;
+
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        dialecticWorldKnowledgeInstallFactoryCatalog($db, dirname(__DIR__) . DIRECTORY_SEPARATOR);
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        if ($transactionOpen) {
+            $db->execQuery('ROLLBACK');
+        }
+        Logger::error('Error applying World Knowledge Herika V1 contract: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_herika_v1', 20260814002);
+        Logger::info('Applied patch worldknowledge_herika_v1 20260814002');
+    }
+}
+
+if ($checkVersion('worldknowledge_npc_common_cleanup') < 20260814004) {
+    Logger::debug('Applying worldknowledge_npc_common_cleanup 20260814004 - remove the legacy public marker from NPC tags');
+    $migrationOk = false;
+    try {
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        $updatedNpcTags = dialecticWorldKnowledgeInstallNpcAccessTags(
+            $db,
+            dirname(__DIR__) . DIRECTORY_SEPARATOR
+        );
+        $removedCommonTags = 0;
+        foreach (['bio_templates', 'bio_templates_custom', 'core_npc_master', 'core_npc_master_history'] as $npcTable) {
+            $result = $db->fetchOne(
+                "WITH updated AS (UPDATE public.{$npcTable} AS npc SET worldknowledge_tags=COALESCE(("
+                . "SELECT string_agg(btrim(entry.tag), ',' ORDER BY entry.ordinality)"
+                . " FROM unnest(string_to_array(coalesce(npc.worldknowledge_tags,''), ','))"
+                . " WITH ORDINALITY AS entry(tag, ordinality)"
+                . " WHERE btrim(entry.tag)<>'' AND lower(btrim(entry.tag))<>'common'"
+                . "),'') WHERE 'common'=ANY(regexp_split_to_array(lower(coalesce(npc.worldknowledge_tags,'')),"
+                . " '[,|[:space:]]+')) RETURNING 1) SELECT count(*) AS updated FROM updated"
+            );
+            if (!is_array($result) || !array_key_exists('updated', $result)) {
+                throw new RuntimeException("Unable to remove common from {$npcTable} World Knowledge tags");
+            }
+            $removedCommonTags += intval($result['updated'] ?? 0);
+        }
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        Logger::error('Error removing the legacy common marker from NPC tags: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_npc_common_cleanup', 20260814004);
+        Logger::info("Applied patch worldknowledge_npc_common_cleanup 20260814004; reprojected {$updatedNpcTags} factory rows and removed common from {$removedCommonTags} NPC tag rows");
+    }
+}
+
+if ($checkVersion('worldknowledge_npc_class_cleanup') < 20260814005) {
+    Logger::debug('Applying worldknowledge_npc_class_cleanup 20260814005 - remove persisted NPC subject classes');
+    $migrationOk = false;
+    try {
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        $updatedNpcTags = dialecticWorldKnowledgeInstallNpcAccessTags(
+            $db,
+            dirname(__DIR__) . DIRECTORY_SEPARATOR
+        );
+        $removedSubjectTags = 0;
+        foreach (['bio_templates', 'bio_templates_custom', 'core_npc_master', 'core_npc_master_history'] as $npcTable) {
+            $normalizedNpcName = "trim(both '_' from regexp_replace(lower(split_part(coalesce(npc.npc_name,''),'__',1)), '[^a-z0-9]+', '_', 'g'))";
+            $result = $db->fetchOne(
+                "WITH updated AS (UPDATE public.{$npcTable} AS npc SET worldknowledge_tags=COALESCE(("
+                . "SELECT string_agg(btrim(entry.tag), ',' ORDER BY entry.ordinality)"
+                . " FROM unnest(string_to_array(coalesce(npc.worldknowledge_tags,''), ','))"
+                . " WITH ORDINALITY AS entry(tag, ordinality)"
+                . " WHERE btrim(entry.tag)<>''"
+                . " AND lower(btrim(entry.tag))<>({$normalizedNpcName})"
+                . "),'') WHERE ({$normalizedNpcName})<>'' AND ({$normalizedNpcName})=ANY("
+                . "regexp_split_to_array(lower(coalesce(npc.worldknowledge_tags,'')), '[,|[:space:]]+'))"
+                . " RETURNING 1) SELECT count(*) AS updated FROM updated"
+            );
+            if (!is_array($result) || !array_key_exists('updated', $result)) {
+                throw new RuntimeException("Unable to remove persisted NPC subjects from {$npcTable} World Knowledge tags");
+            }
+            $removedSubjectTags += intval($result['updated'] ?? 0);
+        }
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        Logger::error('Error removing persisted NPC subject classes: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_npc_class_cleanup', 20260814005);
+        Logger::info("Applied patch worldknowledge_npc_class_cleanup 20260814005; reprojected {$updatedNpcTags} factory rows and removed subjects from {$removedSubjectTags} NPC tag rows");
+    }
+}
+
+if ($checkVersion('worldknowledge_catalog_integrity') < 20260814006) {
+    Logger::debug('Applying worldknowledge_catalog_integrity 20260814006 - restore and verify the complete active factory catalog');
+    $migrationOk = false;
+    try {
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
+        $catalogResult = dialecticWorldKnowledgeInstallFactoryCatalog(
+            $db,
+            dirname(__DIR__) . DIRECTORY_SEPARATOR
+        );
+        $migrationOk = true;
+    } catch (Throwable $e) {
+        Logger::error('Error synchronizing the complete World Knowledge catalog: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('worldknowledge_catalog_integrity', 20260814006);
+        Logger::info(
+            'Applied patch worldknowledge_catalog_integrity 20260814006; synchronized '
+            . $catalogResult['catalog_id'] . '/' . $catalogResult['catalog_version']
+            . ' with ' . $catalogResult['row_count'] . ' factory articles'
+        );
+    }
+}
+
+if ($checkVersion("latest_diary_context") < 20260727001) {
+    Logger::debug("Applying latest_diary_context 20260727001 - index latest NPC diary lookups");
+
+    $migrationOk = $db->execQuery(
+        "CREATE INDEX IF NOT EXISTS idx_diarylog_people_gamets
+         ON public.diarylog (lower(trim(people)), gamets DESC, localts DESC, rowid DESC)"
+    ) !== false;
+
+    if ($migrationOk) {
+        $updateVersion("latest_diary_context", 20260727001);
+        Logger::info("Applied patch latest_diary_context 20260727001");
+    } else {
+        Logger::error("Failed to apply patch latest_diary_context 20260727001");
+    }
+}
+
+if ($checkVersion('core_itt_connector') < 20260731001) {
+    Logger::debug('Applying core_itt_connector 20260731001 - add PipVision connector storage');
+    $migrationOk = $db->execQuery(
+        file_get_contents(__DIR__ . '/../lib/core/database_schema/core_itt_connector.sql')
+    ) !== false;
+    if ($migrationOk) {
+        $updateVersion('core_itt_connector', 20260731001);
+        Logger::info('Applied patch core_itt_connector 20260731001');
+    } else {
+        Logger::error('Failed to apply patch core_itt_connector 20260731001');
+    }
+}
+
+if ($checkVersion('visual_context') < 20260731001) {
+    Logger::debug('Applying visual_context 20260731001 - add PipVision persistence');
+    $migrationOk = $db->execQuery(
+        file_get_contents(__DIR__ . '/../lib/core/database_schema/visual_context.sql')
+    ) !== false;
+    if ($migrationOk) {
+        $updateVersion('visual_context', 20260731001);
+        Logger::info('Applied patch visual_context 20260731001');
+    } else {
+        Logger::error('Failed to apply patch visual_context 20260731001');
+    }
+}
+
+if ($checkVersion('pipvision_general_settings') < 20260731001) {
+    Logger::debug('Applying pipvision_general_settings 20260731001 - seed PipVision defaults');
+    $migrationOk = true;
+    foreach ([
+        'GLOBAL_ITT_CONNECTOR_ID',
+        'VISUAL_CONTEXT_SCENE_TTL_MINUTES',
+        'VISUAL_CONTEXT_PROMPT_MAX_CHARS',
+        'PIPVISION_IMAGE_QUALITY',
+        'PIPVISION_REQUEST_TIMEOUT_SECONDS',
+    ] as $settingId) {
+        try {
+            $existing = $db->fetchOne(
+                'SELECT id FROM public.general_settings WHERE id=' . $db->escapeLiteral($settingId) . ' LIMIT 1'
+            );
+            if ($existing) {
+                continue;
+            }
+            $definition = dialecticGetSchemaDefinition($settingId);
+            if (!dialecticSetGeneralSetting(
+                $settingId,
+                $definition['default'] ?? '',
+                dialecticGetSchemaDescription($settingId)
+            )) {
+                throw new RuntimeException("Failed writing {$settingId}");
+            }
+        } catch (Throwable $e) {
+            $migrationOk = false;
+            Logger::error('Failed seeding PipVision setting ' . $settingId . ': ' . $e->getMessage());
+            break;
+        }
+    }
+    if ($migrationOk) {
+        $updateVersion('pipvision_general_settings', 20260731001);
+        Logger::info('Applied patch pipvision_general_settings 20260731001');
+    }
+}
+
+if ($checkVersion('itt_connector_defaults') < 20260731002) {
+    Logger::debug('Applying itt_connector_defaults 20260731002 - seed CHIM-compatible ITT defaults');
+    $migrationOk = true;
+    try {
+        require_once(__DIR__ . '/../lib/core/itt_connector.class.php');
+        $ittConnector = new ITTConnector();
+        $connectors = $ittConnector->readAll();
+        $activeId = dialecticGetGeneralSettingInt('GLOBAL_ITT_CONNECTOR_ID', 0);
+        $activeRow = $activeId > 0 ? $ittConnector->getById($activeId) : null;
+
+        if (!$connectors) {
+            $activeId = $ittConnector->create([
+                'driver' => 'openrouter',
+                'label' => 'Global ITT Connector',
+                'metadata' => $ittConnector->getDefaultMetadataForDriver('openrouter'),
+                'api_badge_id' => $ittConnector->getDefaultApiBadgeIdForDriver('openrouter'),
+                'url' => $ittConnector->getDefaultUrlForDriver('openrouter'),
+            ]);
+            if ($activeId < 1) {
+                throw new RuntimeException('Failed creating the default ITT connector');
+            }
+            $activeRow = $ittConnector->getById($activeId);
+        } elseif (!$activeRow) {
+            $activeRow = $connectors[0];
+            $activeId = intval($activeRow['id'] ?? 0);
+        }
+
+        if ($activeId < 1 || !$activeRow || !dialecticSetGeneralSetting(
+            'GLOBAL_ITT_CONNECTOR_ID',
+            $activeId,
+            dialecticGetSchemaDescription('GLOBAL_ITT_CONNECTOR_ID')
+        )) {
+            throw new RuntimeException('Failed selecting the default ITT connector');
+        }
+    } catch (Throwable $e) {
+        $migrationOk = false;
+        Logger::error('Failed seeding ITT connector defaults: ' . $e->getMessage());
+    }
+
+    if ($migrationOk) {
+        $updateVersion('itt_connector_defaults', 20260731002);
+        Logger::info('Applied patch itt_connector_defaults 20260731002');
     }
 }
 

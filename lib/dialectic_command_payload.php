@@ -16,6 +16,7 @@ function dialecticCommandPayloadOrderedArgs(string $commandName, array $args = [
         'impersonateplayer' => ['speech', 'request_type'],
         'instruction' => ['character', 'instruction', 'task_id'],
         'suggestion' => ['character', 'instruction', 'task_id'],
+        'teleportactor' => ['target', 'location'],
     ];
 
     $ordered = [];
@@ -72,6 +73,10 @@ function dialecticActionPayloadOrderedArgs(string $actionName, $parameter = null
             'moveto' => ['target'],
             'openinventory' => ['target'],
             'pickupitem' => ['item', 'target', 'amount'],
+            'spawncaps' => ['target', 'amount'],
+            'spawnitem' => ['target', 'item', 'amount'],
+            'teleportactor' => ['target', 'location'],
+            'killtarget' => ['target'],
             'takecapsfromplayer' => ['target', 'amount'],
             'travelto' => ['target', 'destination', 'location'],
         ];

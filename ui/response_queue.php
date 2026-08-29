@@ -119,7 +119,7 @@ $latestLocalTs = intval($summary["latest_localts"] ?? 0);
 <head>
     <meta charset="utf-8">
     <meta http-equiv="refresh" content="5">
-    <title>Dialectic Response Queue</title>
+    <title>DIALECTIC Response Queue</title>
     <link rel="stylesheet" href="css/main.css">
     <style>
         body {
@@ -264,6 +264,7 @@ $latestLocalTs = intval($summary["latest_localts"] ?? 0);
             color: #c8c8c8;
         }
     </style>
+    <link rel="stylesheet" href="css/dialectic-theme.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'dialectic-theme.css'); ?>">
 </head>
 <body>
 <main>

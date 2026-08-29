@@ -6,6 +6,7 @@ require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . ".." .
 require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "dialectic_runtime.php");
 require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "request.php");
 require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "chat_helper_functions.php");
+require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "dialectic_tts.php");
 require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "response.php");
 
 final class PlayerTtsHelpersTest extends TestCase
@@ -13,6 +14,7 @@ final class PlayerTtsHelpersTest extends TestCase
     protected function tearDown(): void
     {
         unset($GLOBALS['DIALECTIC_JSON_RESPONSE_LINES']);
+        unset($GLOBALS['DIALECTIC_TURN_PEOPLE_SNAPSHOT']);
     }
 
     public function testExtractsTextFromJsonPayload(): void
@@ -116,6 +118,34 @@ final class PlayerTtsHelpersTest extends TestCase
         $this->assertSame('|Graussy|Doc Mitchell|Veronica|', dialecticDecodeAudienceSnapshotField($payload));
     }
 
+    public function testCloseAllowsGroupRechatWithoutNarratorInterjections(): void
+    {
+        $this->assertTrue(dialecticExecutionModeAllowsRechatEvent('CLOSE', 'rechat'));
+        $this->assertFalse(dialecticExecutionModeAllowsRechatEvent('CLOSE', 'narration'));
+        $this->assertFalse(dialecticExecutionModeAllowsRechatEvent('WHISPER', 'rechat'));
+        $this->assertFalse(dialecticExecutionModeAllowsRechatEvent('WHISPER', 'narration'));
+        $this->assertTrue(dialecticExecutionModeAllowsRechatEvent('STANDARD', 'rechat'));
+        $this->assertTrue(dialecticExecutionModeAllowsRechatEvent('STANDARD', 'narration'));
+    }
+
+    public function testCloseGroupSnapshotSurvivesIntoRechatPayload(): void
+    {
+        $people = dialecticDecodeAudienceSnapshotField(json_encode([
+            'people' => '|Doc Mitchell|Veronica|Arcade Gannon|Graussy|',
+        ]));
+        dialecticSetCurrentTurnPeopleSnapshot($people);
+        $payload = dialecticParseServerSideRechatPayload(json_encode([
+            'speaker' => 'Doc Mitchell',
+            'listener_hint' => 'Graussy',
+            'audience_snapshot' => ['people' => dialecticGetCurrentTurnPeopleSnapshot()],
+        ]));
+
+        $this->assertSame(
+            ['Doc Mitchell', 'Veronica', 'Arcade Gannon', 'Graussy'],
+            $payload['audience']
+        );
+    }
+
     public function testRechatPayloadPreservesActorFormIds(): void
     {
         $payload = dialecticParseServerSideRechatPayload(json_encode([
@@ -132,6 +162,41 @@ final class PlayerTtsHelpersTest extends TestCase
         $this->assertSame('0x0002F586', $payload['target_formid']);
     }
 
+    public function testRechatActivityBlocksFreshUnconsciousAndSleepingBystanders(): void
+    {
+        $now = (int)round(microtime(true) * 1000);
+        $unconscious = ['metadata' => json_encode([
+            'activity_status' => ['is_unconscious' => true, 'timestamp' => $now],
+        ])];
+        $sleeping = ['metadata' => json_encode([
+            'activity_status' => ['is_sleeping' => true, 'timestamp' => $now],
+        ])];
+
+        $this->assertSame(
+            'fresh activity status marks actor unconscious',
+            dialecticRechatActivityBlockReason($unconscious, true)
+        );
+        $this->assertSame(
+            'fresh activity status marks actor sleeping',
+            dialecticRechatActivityBlockReason($sleeping, false)
+        );
+        $this->assertSame('', dialecticRechatActivityBlockReason($sleeping, true));
+    }
+
+    public function testRechatActivityFailsOpenForMissingOrStaleStatus(): void
+    {
+        $stale = ['metadata' => [
+            'activity_status' => [
+                'is_unconscious' => true,
+                'timestamp' => (int)round(microtime(true) * 1000) - 60000,
+            ],
+        ]];
+
+        $this->assertSame('', dialecticRechatActivityBlockReason(null));
+        $this->assertSame('', dialecticRechatActivityBlockReason(['metadata' => []]));
+        $this->assertSame('', dialecticRechatActivityBlockReason($stale));
+    }
+
     public function testTextOnlyPlayerLineHasNoTtsCacheKey(): void
     {
         $GLOBALS['PLAYER_NAME'] = 'Graussy';
@@ -146,5 +211,39 @@ final class PlayerTtsHelpersTest extends TestCase
         $this->assertSame('__player_text_only', $line['listener']);
         $this->assertArrayNotHasKey('tts_cache_key', $line);
         $this->assertArrayNotHasKey('tts_text', $line);
+    }
+
+    public function testInworldDialecticLinesUseRevisedCacheVersion(): void
+    {
+        $oldTtsFunction = $GLOBALS['TTSFUNCTION'] ?? null;
+        $hadTtsFunction = array_key_exists('TTSFUNCTION', $GLOBALS);
+        $oldDialecticName = $GLOBALS['DIALECTIC_NAME'] ?? null;
+        $hadDialecticName = array_key_exists('DIALECTIC_NAME', $GLOBALS);
+
+        try {
+            $GLOBALS['DIALECTIC_NAME'] = 'Player';
+            $GLOBALS['TTSFUNCTION'] = 'inworld';
+
+            $affectedSeed = dialectic_tts_cache_seed(dirname(__DIR__, 2), 'Player', 'What is Dialectic anyway?');
+            $unaffectedSeed = dialectic_tts_cache_seed(dirname(__DIR__, 2), 'Player', 'What is synthesis anyway?');
+
+            $GLOBALS['TTSFUNCTION'] = 'pockettts';
+            $otherConnectorSeed = dialectic_tts_cache_seed(dirname(__DIR__, 2), 'Player', 'What is Dialectic anyway?');
+
+            $this->assertStringStartsWith("dialectic.tts.v4.inworld-dialectic-v2\n", $affectedSeed);
+            $this->assertStringStartsWith("dialectic.tts.v4\ninworld\n", $unaffectedSeed);
+            $this->assertStringStartsWith("dialectic.tts.v4\npockettts\n", $otherConnectorSeed);
+        } finally {
+            if ($hadTtsFunction) {
+                $GLOBALS['TTSFUNCTION'] = $oldTtsFunction;
+            } else {
+                unset($GLOBALS['TTSFUNCTION']);
+            }
+            if ($hadDialecticName) {
+                $GLOBALS['DIALECTIC_NAME'] = $oldDialecticName;
+            } else {
+                unset($GLOBALS['DIALECTIC_NAME']);
+            }
+        }
     }
 }

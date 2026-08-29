@@ -81,7 +81,7 @@ $imageFiles = dialecticCacheScanFiles($galleryRoot, ['jpg', 'jpeg', 'png', 'webp
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Dialectic Cache</title>
+    <title>DIALECTIC Cache</title>
     <link rel="stylesheet" href="<?php echo htmlspecialchars($webRoot, ENT_QUOTES, 'UTF-8'); ?>/ui/css/main.css">
     <style>
         body { background:#202020; color:#eef3ff; margin:0; }
@@ -109,6 +109,7 @@ $imageFiles = dialecticCacheScanFiles($galleryRoot, ['jpg', 'jpeg', 'png', 'webp
             audio { width:100%; }
         }
     </style>
+    <link rel="stylesheet" href="<?php echo htmlspecialchars($webRoot, ENT_QUOTES, 'UTF-8'); ?>/ui/css/dialectic-theme.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'dialectic-theme.css'); ?>">
 </head>
 <body>
 <main>
@@ -155,7 +156,7 @@ $imageFiles = dialecticCacheScanFiles($galleryRoot, ['jpg', 'jpeg', 'png', 'webp
         <section class="cache-panel">
             <h2>Image Cache</h2>
             <div class="cache-meta" style="padding:10px 12px;">
-                <?php echo number_format(count($imageFiles)); ?> cached gallery item(s). The gallery reads from DialecticServer/data/pictures/gallery.
+                <?php echo number_format(count($imageFiles)); ?> cached gallery item(s). The gallery reads from DIALECTIC Server data/pictures/gallery.
             </div>
             <iframe class="gallery-frame" src="<?php echo htmlspecialchars($webRoot, ENT_QUOTES, 'UTF-8'); ?>/ui/image_gallery.php?embed=1"></iframe>
         </section>

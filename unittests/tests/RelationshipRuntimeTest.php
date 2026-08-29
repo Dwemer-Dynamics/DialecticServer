@@ -10,7 +10,7 @@ final class RelationshipRuntimeTest extends TestCase
 
     protected function setUp(): void
     {
-        foreach (['RELATIONSHIP_SYSTEM_ENABLED', 'RELLLM_CONNECTOR', 'PLAYER_NAME'] as $key) {
+        foreach (['RELATIONSHIP_SYSTEM_ENABLED', 'RELLLM_CONNECTOR', 'RELATIONSHIP_UPDATE_CHANCE', 'PLAYER_NAME'] as $key) {
             $this->savedGlobals[$key] = [
                 'exists' => array_key_exists($key, $GLOBALS),
                 'value' => $GLOBALS[$key] ?? null,
@@ -49,6 +49,16 @@ final class RelationshipRuntimeTest extends TestCase
         $this->assertFalse(dialecticRelationshipUsesDedicatedConnector(0));
     }
 
+    public function testAutomaticEvaluationChanceUsesInclusiveBoundsAndSafeDefault(): void
+    {
+        $this->assertFalse(RelationshipManager::shouldRunAutomaticEvaluation(0, 1));
+        $this->assertTrue(RelationshipManager::shouldRunAutomaticEvaluation(100, 100));
+        $this->assertTrue(RelationshipManager::shouldRunAutomaticEvaluation(25, 25));
+        $this->assertFalse(RelationshipManager::shouldRunAutomaticEvaluation(25, 26));
+        $this->assertTrue(RelationshipManager::shouldRunAutomaticEvaluation('invalid', 50));
+        $this->assertFalse(RelationshipManager::shouldRunAutomaticEvaluation('invalid', 51));
+    }
+
     public function testContextIncludesPlayerAndKnownNearbyNpcOnly(): void
     {
         $GLOBALS['PLAYER_NAME'] = 'Graussy';
@@ -82,10 +92,71 @@ final class RelationshipRuntimeTest extends TestCase
         $this->assertStringNotContainsString('+60', $context);
     }
 
+    public function testPlayerNotesSurviveAliasNormalizationAndAiRebuilds(): void
+    {
+        $note = "  Private reminder\nDo not share.  ";
+        $existing = [
+            'Courier' => ['aff' => 0, 'type' => 'neutral', 'custom_info' => $note],
+            'Player' => ['aff' => 35, 'type' => 'platonic'],
+            'Boone' => ['aff' => 20, 'type' => 'professional', 'custom_info' => '0'],
+            'Cass' => ['aff' => 10, 'type' => 'platonic'],
+        ];
+        $incoming = [
+            'Player' => ['aff' => 60, 'type' => 'romantic', 'custom_info' => 'AI overwrite'],
+            'Rex' => ['aff' => 5, 'type' => 'neutral', 'custom_info' => 'AI invention'],
+        ];
+        $normalized = RelationshipManager::normalizeRelationshipMap($existing);
+        $this->assertSame(35, $normalized['Player']['aff']);
+        $this->assertSame($note, $normalized['Player']['custom_info']);
+
+        foreach ([false, true] as $replaceExisting) {
+            $merged = RelationshipManager::mergeAiRelationshipMap($existing, $incoming, $replaceExisting);
+            $this->assertSame(60, $merged['Player']['aff']);
+            $this->assertSame($note, $merged['Player']['custom_info']);
+            $this->assertSame($existing['Boone'], $merged['Boone']);
+            $this->assertArrayNotHasKey('custom_info', $merged['Rex']);
+            $this->assertSame(!$replaceExisting, isset($merged['Cass']));
+        }
+        $stale = ['Player' => ['aff' => 40, 'type' => 'platonic', 'custom_info' => 'cleared by player']];
+        $merged = RelationshipManager::mergeAiRelationshipMap(['Player' => ['aff' => 35]], $stale);
+        $this->assertArrayNotHasKey('custom_info', $merged['Player']);
+    }
+
+    public function testPrivateNotesAreExcludedFromDialogueContext(): void
+    {
+        $relationships = ['Player' => ['aff' => 60, 'type' => 'platonic', 'custom_info' => 'PRIVATE_MARKER']];
+        foreach ([false, true] as $tierOnly) {
+            $context = RelationshipManager::buildContextFromRelationships('Veronica', $relationships, [], $tierOnly);
+            $this->assertStringNotContainsString('PRIVATE_MARKER', $context);
+        }
+        $updated = RelationshipManager::applyChangeCommands($relationships, [
+            'affinity' => [['target' => 'Player', 'delta' => 3]],
+            'types' => [['target' => 'Player', 'type' => 'romantic']],
+        ]);
+        $this->assertSame(63, $updated['relationships']['Player']['aff']);
+        $this->assertSame('PRIVATE_MARKER', $updated['relationships']['Player']['custom_info']);
+    }
+
+    public function testManualRelationshipSaveCanEditAndClearPrivateNotes(): void
+    {
+        require_once dirname(__DIR__, 2).'/ext/relationship_system/npc_save_handler.php';
+        $post = [
+            'extended_data' => json_encode(['relationships' => ['Player' => ['aff' => 5, 'custom_info' => 'old']]]),
+            'relationships_locked' => '0',
+        ];
+        foreach (['new note', ''] as $note) {
+            $post['relationships_jsonb'] = json_encode(['Player' => ['aff' => 5, 'custom_info' => $note]]);
+            $this->assertTrue(dialecticMergePostedRelationshipsIntoExtendedData($post));
+            $saved = json_decode($post['extended_data'], true);
+            $this->assertSame($note, $saved['relationships']['Player']['custom_info'] ?? '');
+            $this->assertFalse($saved['relationships_locked']);
+        }
+    }
+
     public function testCommandsAreExtractedAndAppliedWithBounds(): void
     {
         $commands = RelationshipManager::extractChangeCommands(
-            'Fine. #REL:Player=+25# #TYPE:Player=Friend# #REL:Arcade=-150#'
+            'Fine. #REL:Player=+25# #TYPE:Player=Romance# #REL:Arcade=-150#'
         );
         $result = RelationshipManager::applyChangeCommands(
             ['Player' => ['aff' => 90, 'type' => 'neutral']],
@@ -94,8 +165,24 @@ final class RelationshipRuntimeTest extends TestCase
 
         $this->assertTrue($result['changed']);
         $this->assertSame(100, $result['relationships']['Player']['aff']);
-        $this->assertSame('friend', $result['relationships']['Player']['type']);
+        $this->assertSame('romantic', $result['relationships']['Player']['type']);
         $this->assertSame(-100, $result['relationships']['Arcade']['aff']);
+    }
+
+    public function testInventedTypesAreRejectedButExistingCustomTypesRemainSelectable(): void
+    {
+        $relationships = [
+            'Player' => ['aff' => 10, 'type' => 'trusted_ally'],
+        ];
+
+        $commands = RelationshipManager::extractChangeCommands(
+            '#TYPE:Player=Soulmate# #TYPE:Arcade=Trusted_Ally#',
+            $relationships
+        );
+
+        $this->assertCount(1, $commands['types']);
+        $this->assertSame('Arcade', $commands['types'][0]['target']);
+        $this->assertSame('trusted_ally', $commands['types'][0]['type']);
     }
 
     public function testCompletedStreamIsParsedOnceAfterAllLinesArrive(): void

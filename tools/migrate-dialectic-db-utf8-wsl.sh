@@ -196,20 +196,20 @@ SQL
         restore_database_writes "$database" >/dev/null 2>&1
     fi
 
-    echo "Dialectic UTF-8 migration failed. The original database was restored when possible." >&2
+    echo "DIALECTIC UTF-8 migration failed. The original database was restored when possible." >&2
     echo "The safety dump remains at: ${backup_file}" >&2
     exit "$status"
 }
 trap cleanup ERR INT TERM
 
 if ! database_exists "$database"; then
-    echo "Dialectic database '${database}' does not exist." >&2
+    echo "DIALECTIC database '${database}' does not exist." >&2
     exit 1
 fi
 
 current_encoding="$(database_encoding "$database")"
 if [[ "$current_encoding" == "UTF8" ]]; then
-    echo "Dialectic database '${database}' already uses UTF8; no migration is required."
+    echo "DIALECTIC database '${database}' already uses UTF8; no migration is required."
     migration_complete=1
     exit 0
 fi
@@ -279,7 +279,7 @@ SQL
 migration_complete=1
 trap - ERR INT TERM
 
-echo "Dialectic database migration completed successfully."
+echo "DIALECTIC database migration completed successfully."
 echo "Active database: ${database} (UTF8)"
 echo "Rollback database: ${backup_database} (${current_encoding}, connections disabled)"
 echo "Safety dump: ${backup_file}"

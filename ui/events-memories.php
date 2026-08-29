@@ -23,17 +23,15 @@ if (!file_exists($configFilepath."conf.php")) {
 // Load profiles through the centralized profile loader
 require_once(__DIR__.DIRECTORY_SEPARATOR."profile_loader.php");
 
-$TITLE = "Events & Memories";
+$TITLE = "Roleplay";
+$BODY_CLASS = 'hub-page';
 
 ob_start();
 
 include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
 ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><style>
- /* Override main container styles */
- main {
- padding-top: 80px; /* Space for navbar */
- padding-bottom: 40px; /* Reduced space for footer */
- padding-left: 10px;
+ main.events-memories-page {
+ padding: 0 12px 8px;
  }
  
  /* Override footer styles */
@@ -62,13 +60,13 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
 
  /* Tab styles */
  .tab-container {
- margin: 20px 0;
+ margin: 0 0 6px;
  }
 
  .tab-buttons {
  display: flex;
  flex-wrap: wrap;
- margin-bottom: 20px;
+ margin-bottom: 10px;
  border-bottom: 2px solid rgba(255, 182, 65, 0.2);
  gap: 5px;
  word-spacing: 5px;
@@ -111,7 +109,7 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
  .tab-content {
  display: none;
  background: linear-gradient(135deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
- padding: 20px;
+ padding: 10px 12px 12px;
  border-radius: 8px;
  border-top-left-radius: 0;
  border: 1px solid #3a3a3a;
@@ -124,8 +122,8 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
 
  /* Table Container Styles */
  .table-container {
- max-height: calc(100vh - 450px) !important;
- margin-top: 20px;
+ max-height: calc(100vh - 310px) !important;
+ margin-top: 8px;
  width: 100%;
  overflow-x: auto;
  background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
@@ -133,7 +131,35 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
  border: 1px solid #3a3a3a;
  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15),
  inset 0 1px rgba(255, 255, 255, 0.03);
- padding: 12px;
+ padding: 8px;
+ }
+
+ .event-log-intro,
+ .event-log-note {
+ padding: 9px 12px;
+ border-radius: 5px;
+ margin: 0 0 6px;
+ font-size: 0.88em;
+ line-height: 1.4;
+ }
+
+ .event-log-intro {
+ background: #2a2a2a;
+ border-left: 4px solid rgb(255, 182, 65);
+ }
+
+ .event-log-note {
+ background: #1a4d6d;
+ border-left: 4px solid #3b82f6;
+ color: #e0f2ff;
+ }
+
+ .event-log-toolbar {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 8px;
+ margin: 8px 0 6px;
  }
 
  /* Table Styles */
@@ -332,7 +358,15 @@ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
  width: 40px !important;
  padding: 8px !important;
  }
-</style><?php
+</style>
+<style>
+ .tab-content.embed-tab { padding: 0; overflow: hidden; }
+ .embed-frame { width: 100%; height: calc(100vh - 185px); min-height: 520px; border: 0; background: #202020; }
+ @media (max-height: 800px) { .embed-frame { min-height: 420px; } }
+</style>
+<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'hub-navigation.css'); ?>">
+<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/relationship_timeline.css?v=<?php echo filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'relationship_timeline.css'); ?>">
+<?php
 
 include(__DIR__.DIRECTORY_SEPARATOR."tmpl/navbar.php");
 
@@ -406,8 +440,14 @@ if (isset($_GET['clear_hidden_event_types']) && $_GET['clear_hidden_event_types'
 }
 
 $eventLogHiddenTypes = dialecticNormalizeEventLogTypeList($eventLogHiddenTypes);
-$eventLogTypeOptions = dialecticGetVisibleEventLogTypes($db, $eventLogHiddenTypes);
 $eventLogVisibleWhereClause = dialecticBuildVisibleEventLogWhereClause($db, '', $eventLogHiddenTypes);
+
+// Read-only relationship changes derived from core_npc_master_history snapshots.
+// They are virtual rows: nothing is written back into the eventlog table.
+$eventLogRelationshipRows = dialecticRelationshipTimelineIsVisible('', $eventLogHiddenTypes)
+ ? dialecticFetchRelationshipTimelineChanges($db, ['limit' => 200, 'scan_limit' => 800])
+ : [];
+$eventLogTypeOptions = dialecticGetEventLogTypeOptions($db, $eventLogHiddenTypes, count($eventLogRelationshipRows));
 
 $eventLogBaseParams = [
  'tab' => 'eventlog',
@@ -554,6 +594,10 @@ if ($activeTab === 'responselog') {
  header('Location: ' . $redirectUrl);
  exit;
 }
+$validTabs = ['eventlog', 'responselog', 'adventure', 'memory', 'diaries', 'pipvision', 'quests'];
+if (!in_array($activeTab, $validTabs, true)) {
+ $activeTab = 'eventlog';
+}
 
 // Function to determine color based on time value
 function getTimeColor($time) {
@@ -562,19 +606,22 @@ function getTimeColor($time) {
  if ($time <= 8) return "#ffa500"; // orange
  return "#ff6666"; // red
 }
-?><!-- Modal HTML --><div id="contentModal" class="modal"><div class="modal-content"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;"><h2 style="margin: 0; color: rgb(255, 182, 65); font-family: 'Gothic821', sans-serif;"> Prompt Viewer</h2><div><button id="copyPromptBtn" class="btn-base btn-primary" style="margin-right: 10px; padding: 8px 16px;"> Copy</button><span class="close">&times;</span></div></div><div id="modalText"></div></div></div><div class="container-fluid"><div class="tab-container"><div class="tab-buttons"><button class="tab-button <?php echo $activeTab === 'eventlog' ? 'active' : ''; ?>" onclick="switchTab('eventlog')">
- &#x1F4DD; Events
- </button><button class="tab-button <?php echo $activeTab === 'responselog' ? 'active' : ''; ?>" onclick="switchTab('responselog')">
- &#x1F4AC; AI Responses
- </button><button class="tab-button <?php echo $activeTab === 'memory' ? 'active' : ''; ?>" onclick="switchTab('memory')">
- &#x1F9E0; Memories
- </button><button class="tab-button <?php echo $activeTab === 'quests' ? 'active' : ''; ?>" onclick="switchTab('quests')">
- &#x1F3AF; Active Quests
- </button></div><!-- Event Log Tab --><div id="eventlog-tab" class="tab-content <?php echo $activeTab === 'eventlog' ? 'active' : ''; ?>"><?php
+?><!-- Modal HTML --><div id="contentModal" class="modal"><div class="modal-content"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;"><h2 style="margin: 0; color: rgb(255, 182, 65); font-family: 'Gothic821', sans-serif;"> Prompt Viewer</h2><div><button id="copyPromptBtn" class="btn-base btn-primary" style="margin-right: 10px; padding: 8px 16px;"> Copy</button><span class="close">&times;</span></div></div><div id="modalText"></div></div></div><main class="container-fluid events-memories-page"><div class="tab-container"><?php
+ $eventsMemoriesActiveTab = $activeTab;
+ include(__DIR__ . DIRECTORY_SEPARATOR . 'tmpl' . DIRECTORY_SEPARATOR . 'events_memories_navigation.php');
+?><!-- Event Log Tab --><div id="eventlog-tab" class="tab-content <?php echo $activeTab === 'eventlog' ? 'active' : ''; ?>"><?php
  // Add subtitle description
- echo "<div style='background: #2a2a2a; border-left: 4px solid rgb(255, 182, 65); padding: 12px 15px; border-radius: 5px; margin: 15px 0; font-size: 0.9em;'>";
+ echo "<div class='event-log-intro'>";
  echo "<span style='color: rgb(255, 182, 65); font-weight: bold;'> Events:</span> ";
  echo "<span style='color: #f8f9fa;'>Raw log of in-game events (combat, deaths, location changes, etc.) that provide context to the AI. These events are filtered and selectively added to AI prompts based on relevance.</span>";
+ echo "</div>";
+
+ // Keep context guidance directly below the description so both scan as one compact introduction.
+ echo "<div class='event-log-note'>";
+ echo " <strong>Note:</strong> Not all events will show up in AI context. Any blacklist settings will not be used for context. This is a raw log of some of the more relevant events.";
+ if (!empty($eventLogRelationshipRows)) {
+ echo " <strong>relationship</strong> rows are read-only, derived from NPC history snapshots; hover or focus one for the full before/after breakdown.";
+ }
  echo "</div>";
  
  // Show success message if events were deleted
@@ -588,7 +635,7 @@ function getTimeColor($time) {
  $eventLogUrlBuilder = function(array $overrides = []) use ($eventLogBaseParams) {
  return 'events-memories.php?' . http_build_query(array_merge($eventLogBaseParams, $overrides));
  };
- echo "<div style='display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 20px 0;'>";
+ echo "<div class='event-log-toolbar'>";
  
  echo "<button id='live-toggle-btn-eventlog' onclick=\"toggleAutoRefreshEventLog()\" class='btn-base " . ($isAutoRefresh ? "btn-secondary" : "btn-primary") . "' style='padding: 8px 12px; font-size: 0.9em;' title='Toggle live monitoring'>";
  echo $isAutoRefresh ? " Stop Live" : "Auto Refresh";
@@ -616,15 +663,16 @@ function getTimeColor($time) {
  echo "</div>";
  echo "</div>";
  
- // Add informational note about blacklist settings
- echo "<div style='background: #1a4d6d; color: #e0f2ff; padding: 12px 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #3b82f6; font-size: 0.9em;'>";
- echo " <strong>Note:</strong> Not all events will show up in AI context. Any blacklist settings will not be used for context. This is a raw log of some of the more relevant events.";
- echo "</div>";
-
  $limit = $eventLogLimit;
  $page = $eventLogPage;
  $offset = ($page - 1) * $limit;
- 
+
+ // Total/pagination still describes the physical eventlog table only.
+ $countQuery = "SELECT COUNT(*) as total FROM eventlog WHERE $eventLogVisibleWhereClause";
+ $countResult = $db->fetchAll($countQuery);
+ $totalRecords = $countResult[0]['total'];
+ $totalPages = ceil($totalRecords / $limit);
+
  $results = $db->fetchAll(
  "SELECT type, data, people, gamets, localts, ts, rowid
  FROM eventlog a
@@ -632,21 +680,47 @@ function getTimeColor($time) {
  ORDER BY " . dialecticGetEventLogUiOrderBy() . "
  LIMIT $limit OFFSET $offset"
  );
- 
+
+ // Virtual relationship rows join the page whose time window contains them, so
+ // offsets, page counts and raw event rows are all left untouched.
+ $results = dialecticMergeRelationshipTimelineRows(
+ is_array($results) ? $results : [],
+ $eventLogRelationshipRows,
+ $page <= 1,
+ $page >= max(1, (int)$totalPages)
+ );
+
  $columnHeaders = [
  'type' => 'Event',
  'data' => 'Events',
  'gamets' => '<a href="https://fallout.fandom.com/wiki/Timeline" target="_blank" style="color: yellow;">Fallout Time</a>',
  'localts' => 'Time (UTC)',
- 'ts' => 'TS',
  ];
  
  $mappedResults = array_map(function ($row) use ($columnHeaders) {
+ // Relationship rows are derived from NPC history snapshots: read-only, never deletable.
+ if (!empty($row['virtual'])) {
+ $relationshipPeople = array_merge([(string)($row['npc_name'] ?? '')], (array)($row['targets'] ?? []));
+ $relationshipPeople = array_values(array_filter(array_map('trim', $relationshipPeople), 'strlen'));
+ return [
+ '' => dialecticRelationshipTimelineReadOnlyHtml(),
+ 'Event' => '<span class="rel-timeline-type">' . htmlspecialchars((string)($row['type'] ?? '')) . '</span>',
+ 'Events' => dialecticRelationshipTimelineTooltipHtml($row, 'eventlog-rel'),
+ 'People Present' => htmlspecialchars(implode(', ', $relationshipPeople)),
+ $columnHeaders['gamets'] => htmlspecialchars((string)($row['fallout_time'] ?? '')),
+ 'Time (UTC)' => htmlspecialchars((string)($row['local_time'] ?? '')),
+ 'rowid' => '<span class="rel-timeline-virtual-id" title="Derived from NPC history, not stored in the event log">&mdash;</span>',
+ ];
+ }
+
  $mappedRow = [];
  // Add checkbox column first (PostgreSQL returns rowid in lowercase)
  $mappedRow[''] = '<input type="checkbox" class="event-checkbox" data-rowid="' . htmlspecialchars($row['rowid'] ?? '') . '" style="cursor: pointer; width: 18px; height: 18px;">';
- 
+
  foreach ($row as $key => $value) {
+ if ($key === 'data' && function_exists('dialecticRenderNarratorRoleplayText')) {
+ $value = dialecticRenderNarratorRoleplayText($value);
+ }
  if ($key === 'gamets' && !empty($value)) {
  $value = convert_gamets2fallout_long_date2($value);
  }
@@ -683,8 +757,11 @@ function getTimeColor($time) {
  }
  }
  }
+ if (function_exists('dialecticRenderNarratorRoleplayText')) {
+ $peoplePresent = dialecticRenderNarratorRoleplayText($peoplePresent);
+ }
  $mappedRow['People Present'] = htmlspecialchars($peoplePresent);
- } else if ($key === 'people') {
+ } else if ($key === 'people' || $key === 'ts') {
  // Skip rendering raw people column; we show only 'People Present'
  continue;
  } else {
@@ -701,13 +778,7 @@ function getTimeColor($time) {
  $prevPage = max(1, $page - 1);
  $nextPage = $page + 1;
  
- // Get total count for pagination
- $countQuery = "SELECT COUNT(*) as total FROM eventlog WHERE $eventLogVisibleWhereClause";
- $countResult = $db->fetchAll($countQuery);
- $totalRecords = $countResult[0]['total'];
- $totalPages = ceil($totalRecords / $limit);
- 
- echo "<div class='pagination-buttons' style='margin: 10px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;'>";
+ echo "<div class='pagination-buttons' style='margin: 6px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;'>";
  
  if ($page > 1) {
  echo "<button onclick=\"window.location.href='" . htmlspecialchars($eventLogUrlBuilder(['page' => $prevPage]), ENT_QUOTES) . "'\" class='btn-base btn-primary'>Previous</button> ";
@@ -927,12 +998,9 @@ function getTimeColor($time) {
  newRow.appendChild(td5);
  
  const td6 = document.createElement('td');
- td6.innerHTML = row['TS'] || '';
+ const rowId = row['ROWID'] || '';
+ td6.innerHTML = '<a class=\"icon-link\" href=\"#\" style=\"color: red !important;\" onclick=\"deleteRowAndRefresh(\'eventlog\', ' + JSON.stringify(rowId) + '); return false;\">' + rowId + ' <i class=\"bi-trash\" style=\"color: red !important;\"></i></a>';
  newRow.appendChild(td6);
- 
- const td7 = document.createElement('td');
- td7.textContent = row['ROWID'] || '';
- newRow.appendChild(td7);
  
  if (headerRow && headerRow.nextSibling) {
  tbody.insertBefore(newRow, headerRow.nextSibling);
@@ -1122,8 +1190,11 @@ function getTimeColor($time) {
  $scope = $scope !== '' ? $scope : 'global';
  $people = trim((string)($row['companions'] ?? ''));
  $people = $people !== '' ? $people : '-';
+ $displayPeople = function_exists('dialecticRenderNarratorRoleplayText') ? dialecticRenderNarratorRoleplayText($people) : $people;
+ $displaySummary = function_exists('dialecticRenderNarratorRoleplayText') ? dialecticRenderNarratorRoleplayText($row['summary'] ?? '') : ($row['summary'] ?? '');
+ $displayPackedMessage = function_exists('dialecticRenderNarratorRoleplayText') ? dialecticRenderNarratorRoleplayText($row['packed_message'] ?? '') : ($row['packed_message'] ?? '');
  $falloutTime = !empty($row['gamets_truncated']) ? convert_gamets2fallout_long_date2($row['gamets_truncated']) : '-';
- ?><tr><td><?php echo $rowId; ?></td><td><?php echo htmlspecialchars($scope); ?></td><td><?php echo htmlspecialchars($people); ?></td><td><?php echo htmlspecialchars($falloutTime); ?></td><td><div id="display-<?php echo $rowId; ?>"><div class="summary-section"><span class="summary-content"><?php echo nl2br(htmlspecialchars($row['summary'] ?? '')); ?></span></div><details class="memory-details"><summary>Details</summary><div class="subcategory-section"><span class="summary-label subcategory-label">Tags:</span><span class="summary-content subcategory-content"><?php echo htmlspecialchars($row['tags'] ?? ''); ?></span></div><div class="subcategory-section"><span class="summary-label subcategory-label">Embedding:</span><span class="summary-content subcategory-content"><?php echo htmlspecialchars($row['native_vec'] ?? ''); ?></span></div><div class="subcategory-section"><span class="summary-label subcategory-label">Packed Memory Content:</span><textarea readonly class="memory-content"><?php echo htmlspecialchars($row['packed_message'] ?? ''); ?></textarea></div></details><div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;"><button type="button" class="btn-base action-button edit" onclick="toggleEdit(<?php echo $rowId; ?>)">Edit</button><button type="button" class="btn-base btn-danger" onclick="deleteMemoryRow(<?php echo $rowId; ?>)">Delete</button></div></div><form id="edit-form-<?php echo $rowId; ?>" class="edit-form" method="post" action="events-memories.php?tab=memory"><input type="hidden" name="rowid" value="<?php echo $rowId; ?>"><input type="hidden" name="save_memory_edit" value="1"><label>Summary:</label><textarea name="summary" class="edit-textarea form-control"><?php echo htmlspecialchars($row['summary'] ?? ''); ?></textarea><label>Tags:</label><input type="text" name="tags" class="edit-input form-control" value="<?php echo htmlspecialchars($row['tags'] ?? ''); ?>"><label>People:</label><input type="text" name="companions" class="edit-input form-control" value="<?php echo htmlspecialchars($row['companions'] ?? ''); ?>"><div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;"><button type="submit" class="btn-base action-button add-new">Save</button><button type="button" class="btn-base btn-cancel" onclick="cancelEdit(<?php echo $rowId; ?>)">Cancel</button></div></form></td></tr><?php endforeach; ?><?php else: ?><tr><td colspan="5" style="text-align: center; color: #6c757d; padding: 20px;">No memory summaries found.</td></tr><?php endif; ?></tbody></table></div><script>
+ ?><tr><td><?php echo $rowId; ?></td><td><?php echo htmlspecialchars($scope); ?></td><td><?php echo htmlspecialchars($displayPeople); ?></td><td><?php echo htmlspecialchars($falloutTime); ?></td><td><div id="display-<?php echo $rowId; ?>"><div class="summary-section"><span class="summary-content"><?php echo nl2br(htmlspecialchars($displaySummary)); ?></span></div><details class="memory-details"><summary>Details</summary><div class="subcategory-section"><span class="summary-label subcategory-label">Tags:</span><span class="summary-content subcategory-content"><?php echo htmlspecialchars($row['tags'] ?? ''); ?></span></div><div class="subcategory-section"><span class="summary-label subcategory-label">Embedding:</span><span class="summary-content subcategory-content"><?php echo htmlspecialchars($row['native_vec'] ?? ''); ?></span></div><div class="subcategory-section"><span class="summary-label subcategory-label">Packed Memory Content:</span><textarea readonly class="memory-content"><?php echo htmlspecialchars($displayPackedMessage); ?></textarea></div></details><div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;"><button type="button" class="btn-base action-button edit" onclick="toggleEdit(<?php echo $rowId; ?>)">Edit</button><button type="button" class="btn-base btn-danger" onclick="deleteMemoryRow(<?php echo $rowId; ?>)">Delete</button></div></div><form id="edit-form-<?php echo $rowId; ?>" class="edit-form" method="post" action="events-memories.php?tab=memory"><input type="hidden" name="rowid" value="<?php echo $rowId; ?>"><input type="hidden" name="save_memory_edit" value="1"><label>Summary:</label><textarea name="summary" class="edit-textarea form-control"><?php echo htmlspecialchars($row['summary'] ?? ''); ?></textarea><label>Tags:</label><input type="text" name="tags" class="edit-input form-control" value="<?php echo htmlspecialchars($row['tags'] ?? ''); ?>"><label>People:</label><input type="text" name="companions" class="edit-input form-control" value="<?php echo htmlspecialchars($row['companions'] ?? ''); ?>"><div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;"><button type="submit" class="btn-base action-button add-new">Save</button><button type="button" class="btn-base btn-cancel" onclick="cancelEdit(<?php echo $rowId; ?>)">Cancel</button></div></form></td></tr><?php endforeach; ?><?php else: ?><tr><td colspan="5" style="text-align: center; color: #6c757d; padding: 20px;">No memory summaries found.</td></tr><?php endif; ?></tbody></table></div><script>
  function syncMemoriesConfirm() {
  if (confirm('Will use tokens from your current AI connector. This now syncs global memories and per-NPC individual memory banks for enabled NPCs. May take a few minutes to process. DO NOT REFRESH THE WEBPAGE!')) {
  window.location.href = '<?php echo $webRoot; ?>/ui/tests/vector-compact-chromadb.php';
@@ -1196,7 +1267,11 @@ function getTimeColor($time) {
  echo "<p style='text-align: center; color: #6c757d; padding: 20px;'>No active quests found. Start some quests in-game to see them here!</p>";
  echo "</div>";
  }
- ?></div></div></div><script>
+ ?></div>
+<div id="adventure-tab" class="tab-content embed-tab <?php echo $activeTab === 'adventure' ? 'active' : ''; ?>"><iframe class="embed-frame" title="Adventure Log" <?php echo $activeTab === 'adventure' ? 'src' : 'data-src'; ?>="<?php echo $webRoot; ?>/ui/adventurelog.php?embed=1"></iframe></div>
+<div id="diaries-tab" class="tab-content embed-tab <?php echo $activeTab === 'diaries' ? 'active' : ''; ?>"><iframe class="embed-frame" title="DIALECTIC Diaries" <?php echo $activeTab === 'diaries' ? 'src' : 'data-src'; ?>="<?php echo $webRoot; ?>/ui/diarylog.php?embed=1"></iframe></div>
+<div id="pipvision-tab" class="tab-content embed-tab <?php echo $activeTab === 'pipvision' ? 'active' : ''; ?>"><iframe class="embed-frame" title="PipVision Gallery" <?php echo $activeTab === 'pipvision' ? 'src' : 'data-src'; ?>="<?php echo $webRoot; ?>/ui/pipvision_gallery.php?embed=1"></iframe></div>
+</div></main><script>
 // Modal functionality
 document.addEventListener("DOMContentLoaded", function() {
  var modal = document.getElementById("contentModal");

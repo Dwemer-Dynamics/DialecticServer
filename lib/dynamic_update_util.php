@@ -202,6 +202,88 @@ function generateNearbyDiary($npcName, $gameRequest, $eventType) {
 }
 
 // Function to process AUTO_DIARY for nearby NPCs with auto_diary_enabled
+function dialecticAutoDiaryNormalizeAudienceName($rawName): string
+{
+    $name = trim((string)$rawName, " \t\n\r\0\x0B|");
+    if ($name === '' || strcasecmp($name, '<no name>') === 0) {
+        return '';
+    }
+
+    if (preg_match('/\s*\((dead|disabled|unavailable|invalid_actor|invalid_position|different_interior_cells|interior_exterior_boundary)\)\s*$/i', $name)) {
+        return '';
+    }
+
+    if (function_exists('dialecticDataStripActorStateSuffix')) {
+        $name = dialecticDataStripActorStateSuffix($name);
+    } else {
+        $name = preg_replace('/\s*\((?:busy|hostile|in combat|far away|too far away|too_far|too_quiet|closed_door|navmesh_no_path|path_unavailable|restrained|audible|checking(?: hearing|: [^)]+)?|can hear you(?:, muffled|: [^)]+)?)\)\s*$/i', '', $name);
+    }
+
+    return trim((string)$name);
+}
+
+function dialecticAutoDiaryAudienceNames(array $gameRequest): array
+{
+    $snapshot = [];
+    if (!empty($gameRequest[4])) {
+        $decoded = json_decode((string)$gameRequest[4], true);
+        if (is_array($decoded)) {
+            $snapshot = $decoded;
+        }
+    }
+
+    $rawNames = [];
+    $appendNames = static function ($value) use (&$rawNames): void {
+        if (is_string($value)) {
+            foreach (preg_split('/[|,]/', $value) ?: [] as $name) {
+                $rawNames[] = $name;
+            }
+            return;
+        }
+        if (is_array($value)) {
+            foreach ($value as $entry) {
+                if (is_array($entry)) {
+                    if (array_key_exists('eligible', $entry) && !filter_var($entry['eligible'], FILTER_VALIDATE_BOOLEAN)) {
+                        continue;
+                    }
+                    $rawNames[] = $entry['name'] ?? '';
+                } else {
+                    $rawNames[] = $entry;
+                }
+            }
+        }
+    };
+
+    $appendNames($snapshot['people'] ?? null);
+    $appendNames($snapshot['companions'] ?? null);
+    $appendNames($snapshot['actors'] ?? null);
+
+    $source = 'event_snapshot';
+    if (empty($rawNames)) {
+        $source = 'latest_nearby_actors_fallback';
+        $fallback = DataBeingsInCloseRange(true);
+        $appendNames($fallback);
+    }
+
+    $playerName = trim((string)($GLOBALS['PLAYER_NAME'] ?? ''));
+    $names = [];
+    $seen = [];
+    foreach ($rawNames as $rawName) {
+        $name = dialecticAutoDiaryNormalizeAudienceName($rawName);
+        if ($name === '' || ($playerName !== '' && strcasecmp($name, $playerName) === 0)) {
+            continue;
+        }
+        $key = strtolower($name);
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $names[] = $name;
+    }
+
+    return ['names' => $names, 'source' => $source];
+}
+
 function buildPlayerDiaryPrompt(string $playerName): string
 {
     $template = trim((string)($GLOBALS["PLAYER_DIARY_PROMPT"] ?? ''));
@@ -500,22 +582,9 @@ function processAutoDiary($gameRequest, $eventType) {
     $shouldProcessPlayerDiary = ($eventType === "goodnight" && $playerDiaryEnabled && $playerAutoDiaryEnabled)
         || ($eventType === "waitstart" && $playerDiaryEnabled && $playerAutoDiaryEnabled && $playerAutoDiaryWaitEnabled);
     
-    // Get nearby NPCs
-    $nearbyNpcsStr = DataBeingsInCloseRange();
-    Logger::info("AUTO_DIARY: DataBeingsInCloseRange returned: " . var_export($nearbyNpcsStr, true));
-    
-    $nearbyNpcs = [];
-    
-    if (!empty($nearbyNpcsStr)) {
-        Logger::debug("AUTO_DIARY: Raw nearby data: " . $nearbyNpcsStr);
-        
-        // Parse the current pipe-delimited nearby-people snapshot.
-        $nearbyNpcsStr = trim($nearbyNpcsStr, '|');
-        if (!empty($nearbyNpcsStr)) {
-            $nearbyNpcs = explode('|', $nearbyNpcsStr);
-            $nearbyNpcs = array_filter(array_map('trim', $nearbyNpcs));
-        }
-    }
+    $audience = dialecticAutoDiaryAudienceNames((array)$gameRequest);
+    $nearbyNpcs = $audience['names'];
+    Logger::info("AUTO_DIARY: Resolved " . count($nearbyNpcs) . " eligible nearby NPC name(s) from " . $audience['source']);
     
     // Add The Narrator if auto diary is enabled for narrator
     // The Narrator is always "nearby" (conceptually omnipresent)
@@ -654,11 +723,13 @@ function processAutoDiary($gameRequest, $eventType) {
         
         // Check auto_diary_enabled with proper profile inheritance
         $autoDiaryEnabled = false;
+        $profileMeta = [];
         
         // First, get the profile default from metadata
         try {
             if (!empty($currentProfileData['metadata'])) {
-                $profileMeta = json_decode($currentProfileData['metadata'], true);
+                $decodedProfileMeta = json_decode($currentProfileData['metadata'], true);
+                $profileMeta = is_array($decodedProfileMeta) ? $decodedProfileMeta : [];
                 if (is_array($profileMeta) && isset($profileMeta['AUTO_DIARY_ENABLED'])) {
                     $autoDiaryEnabled = ($profileMeta['AUTO_DIARY_ENABLED'] === '1' || 
                                         $profileMeta['AUTO_DIARY_ENABLED'] === 1 || 
@@ -692,6 +763,9 @@ function processAutoDiary($gameRequest, $eventType) {
         // Check diary cooldown for this specific NPC
         $npcNameSafe = preg_replace('/[^a-zA-Z0-9_]/', '_', $npcName);
         $cooldownKey = "DIARY_LAST_TIMESTAMP_" . $npcNameSafe;
+        $npcDiaryCooldownPeriod = array_key_exists('DIARY_COOLDOWN', $profileMeta)
+            ? max(0, intval($profileMeta['DIARY_COOLDOWN']))
+            : $diaryCooldownPeriod;
         
         $diaryRecord = $db->fetchAll("SELECT value FROM conf_opts WHERE id='" . $db->escape($cooldownKey) . "'");
         
@@ -699,8 +773,8 @@ function processAutoDiary($gameRequest, $eventType) {
             $lastTrigger = (int) $diaryRecord[0]['value'];
             $timeElapsed = time() - $lastTrigger;
 
-            if ($timeElapsed < $diaryCooldownPeriod) {
-                Logger::info("AUTO_DIARY: Skipping $npcName (cooldown active: " . ($diaryCooldownPeriod - $timeElapsed) . " seconds remaining)");
+            if ($timeElapsed < $npcDiaryCooldownPeriod) {
+                Logger::info("AUTO_DIARY: Skipping $npcName (cooldown active: " . ($npcDiaryCooldownPeriod - $timeElapsed) . " seconds remaining)");
                 continue;
             }
         }
@@ -739,22 +813,20 @@ function processAutoDiary($gameRequest, $eventType) {
                     ", shouldGenerate=" . ($shouldGenerate ? 'true' : 'false'));
 
         if ($shouldGenerate) {
-            // Update cooldown timestamp for this NPC
-            $db->upsertRowOnConflict(
-                'conf_opts',
-                array(
-                    'id' => $cooldownKey,
-                    'value' => time()
-                ),
-                "id"
-            );
-            
             // Generate diary entry for this NPC
             if (generateFollowerDiary($npcName, $gameRequest, $eventType)) {
                 $generatedCount++;
+                $db->upsertRowOnConflict(
+                    'conf_opts',
+                    array(
+                        'id' => $cooldownKey,
+                        'value' => time()
+                    ),
+                    "id"
+                );
                 Logger::info("AUTO_DIARY: Generated diary entry for $npcName");
             } else {
-                Logger::info("AUTO_DIARY: Failed to generate diary entry for $npcName");
+                Logger::warn("AUTO_DIARY: Failed to generate diary entry for $npcName; cooldown was not started");
             }
         } else {
             Logger::info("AUTO_DIARY: Skipped $npcName - AUTO_DIARY_WAIT disabled for this profile");
@@ -988,6 +1060,7 @@ function saveNarratorDynamicProfileUpdates($updatedFields) {
 // Function to generate diary entry for a specific follower
 function generateFollowerDiary($followerName, $gameRequest, $eventType) {
     global $db;
+    $promptCharacterName = $followerName;
     
     error_log("generateFollowerDiary called for $followerName");
     
@@ -1010,6 +1083,7 @@ function generateFollowerDiary($followerName, $gameRequest, $eventType) {
         
         // Load narrator character data (DIALECTIC_NAME, DIALECTIC_PERS, etc.)
         $narrator->loadCharacterIntoGlobals();
+        $promptCharacterName = $narrator->getRoleplayName();
         
         // Load the profile to get connector information
         $profile = new CoreProfile();
@@ -1068,7 +1142,15 @@ function generateFollowerDiary($followerName, $gameRequest, $eventType) {
         $diaryConnectorId = class_exists('LLMRandomizer')
             ? LLMRandomizer::getConnectorIdForField($currentProfileData, "diary_connector_id")
             : ($currentProfileData["diary_connector_id"] ?? null);
+        if (empty($diaryConnectorId)) {
+            Logger::warn("generateFollowerDiary: No diary connector configured for '$followerName'");
+            return false;
+        }
         $currentConnectorData = $connector->getById($diaryConnectorId);
+        if (empty($currentConnectorData)) {
+            Logger::warn("generateFollowerDiary: Diary connector '$diaryConnectorId' could not be loaded for '$followerName'");
+            return false;
+        }
        
         $connector->setOldGlobals($currentConnectorData);
         $profile->setOldGlobals($currentProfileData);
@@ -1087,7 +1169,11 @@ function generateFollowerDiary($followerName, $gameRequest, $eventType) {
         
     $head[] = array('role' => 'system', 'content' =>  
     strtr($GLOBALS["PROMPT_HEAD"] . "\n\n#Character details\n".$GLOBALS["DIALECTIC_PERS"] . $dynamicBiography . "\n\n#General Instructions\n". $GLOBALS["COMMAND_PROMPT"],
-        ["#PLAYER_NAME#"=>$GLOBALS["PLAYER_NAME"],"#DIALECTIC_NAME#"=>$GLOBALS["DIALECTIC_NAME"]])
+        [
+            "#PLAYER_NAME#" => $GLOBALS["PLAYER_NAME"],
+            "#DIALECTIC_NAME#" => $promptCharacterName,
+            "#NARRATOR_NAME#" => function_exists('dialecticGetNarratorRoleplayName') ? dialecticGetNarratorRoleplayName() : 'The Narrator',
+        ])
     );
         
     // Use diary-specific context history if this is a diary request and CONTEXT_HISTORY_DIARY is set
@@ -1110,6 +1196,10 @@ function generateFollowerDiary($followerName, $gameRequest, $eventType) {
         
     }
 
+    if (function_exists('dialecticRenderNarratorContextText')) {
+        $historyData = dialecticRenderNarratorContextText($historyData);
+    }
+
 
     // Build user prompt for diary generation (like regular diary)
     
@@ -1117,7 +1207,7 @@ function generateFollowerDiary($followerName, $gameRequest, $eventType) {
         $prompt[] = ["role" => "user", "content" => "Recent context: " . $historyData];
     }
 
-    $diaryPrompt=strtr($GLOBALS["DIARY_PROMPT"],['{$GLOBALS["DIALECTIC_NAME"]}'=>$followerName,'{$GLOBALS["PLAYER_NAME"]}'=>$GLOBALS["PLAYER_NAME"],"#PLAYER_NAME#"=>$GLOBALS["PLAYER_NAME"],"#DIALECTIC_NAME#"=>$GLOBALS["DIALECTIC_NAME"]]);
+    $diaryPrompt=strtr($GLOBALS["DIARY_PROMPT"],['{$GLOBALS["DIALECTIC_NAME"]}'=>$promptCharacterName,'{$GLOBALS["PLAYER_NAME"]}'=>$GLOBALS["PLAYER_NAME"],"#PLAYER_NAME#"=>$GLOBALS["PLAYER_NAME"],"#DIALECTIC_NAME#"=>$promptCharacterName,"#NARRATOR_NAME#"=>function_exists('dialecticGetNarratorRoleplayName') ? dialecticGetNarratorRoleplayName() : 'The Narrator']);
 
     $prompt[] = 
         ["role" => "user", "content" => $diaryPrompt
@@ -1126,6 +1216,9 @@ function generateFollowerDiary($followerName, $gameRequest, $eventType) {
     
 
     $contextData = array_merge($head, $prompt);
+    if (function_exists('dialecticApplyNarratorRoleplayNameToContext')) {
+        $contextData = dialecticApplyNarratorRoleplayNameToContext($contextData);
+    }
     
     // Set the request type for diary so connector knows to use diary grammar
     $originalGameRequest = isset($GLOBALS["gameRequest"]) ? $GLOBALS["gameRequest"] : null;
@@ -1266,11 +1359,14 @@ function updateDynamicProfileField($npcName, $field, $historyData) {
     }
 
     $isNarrator = ($npcName === "The Narrator");
+    $promptNpcName = $npcName;
 
     if ($isNarrator) {
         require_once(__DIR__ . "/core/narrator.class.php");
         $narrator = new Narrator();
         $npcData = $narrator->getNarratorData();
+        $GLOBALS['NARRATOR_ROLEPLAY_NAME'] = $narrator->getRoleplayName();
+        $promptNpcName = $narrator->getRoleplayName();
     } else {
         require_once(__DIR__ . "/core/npc_master.class.php");
         $npcMaster = new NpcMaster();
@@ -1320,7 +1416,10 @@ function updateDynamicProfileField($npcName, $field, $historyData) {
     }
     
     // Replace placeholders in the prompt
-    $updatePrompt = str_replace('{DIALECTIC_NAME}', $npcName, $updatePrompt);
+    $updatePrompt = strtr($updatePrompt, [
+        '{DIALECTIC_NAME}' => $promptNpcName,
+        '{NARRATOR_NAME}' => function_exists('dialecticGetNarratorRoleplayName') ? dialecticGetNarratorRoleplayName() : 'The Narrator',
+    ]);
     
     try {
         // Collect other profile fields for context (excluding the current field)
@@ -1352,7 +1451,11 @@ function updateDynamicProfileField($npcName, $field, $historyData) {
 
         foreach ($profileFields as $fieldName => $fieldLabel) {
             if (!empty(trim($npcData[$fieldName]))) {
-                $profileContext[] = "**{$fieldLabel}**: " . trim($npcData[$fieldName]);
+                $profileValue = trim($npcData[$fieldName]);
+                if ($isNarrator && function_exists('dialecticRenderNarratorRoleplayText')) {
+                    $profileValue = dialecticRenderNarratorRoleplayText($profileValue);
+                }
+                $profileContext[] = "**{$fieldLabel}**: " . $profileValue;
             }
         }
 
@@ -1360,17 +1463,20 @@ function updateDynamicProfileField($npcName, $field, $historyData) {
 
         // Build prompt for this specific field
         $head = [
-            ["role" => "system", "content" => "You are an assistant. Analyze the dialogue history and character profile to update ONLY the " . ucfirst($field) . " for the character named '$npcName'. Focus mostly on information about $npcName and mostly ignore details about other characters mentioned in the dialogue."]
+            ["role" => "system", "content" => "You are an assistant. Analyze the dialogue history and character profile to update ONLY the " . ucfirst($field) . " for the character named '$promptNpcName'. Focus mostly on information about $promptNpcName and mostly ignore details about other characters mentioned in the dialogue."]
         ];
 
         $GLOBALS["DIALECTIC_NAME"] = $npcName; //note none of these prompts will contain #DIALECTIC_NAME, as the dialogue flow doesnt do this replacement (which may be a bug)
         $prompt = [
             ["role" => "user", "content" => "* Dialogue history:\n" . $historyData . ReplacePlayerNamePlaceholder($profileContextString)],
-            ["role" => "user", "content" => "Character name: " . $npcName . "\nCurrent " . ucfirst($field) . ":\n" . ReplacePlayerNamePlaceholder($currentValue)],
+            ["role" => "user", "content" => "Character name: " . $promptNpcName . "\nCurrent " . ucfirst($field) . ":\n" . ReplacePlayerNamePlaceholder($isNarrator && function_exists('dialecticRenderNarratorRoleplayText') ? dialecticRenderNarratorRoleplayText($currentValue) : $currentValue)],
             ["role" => "user", "content" => ReplacePlayerNamePlaceholder($updatePrompt)]
         ];
         
         $contextData = array_merge($head, $prompt);
+        if (function_exists('dialecticApplyNarratorRoleplayNameToContext')) {
+            $contextData = dialecticApplyNarratorRoleplayNameToContext($contextData);
+        }
         
         $connector=new LLMConnector();
         $currentConnectorData = $connector->getById($GLOBALS["CORE_CONNECTOR_PROFILES"]);
@@ -1444,94 +1550,110 @@ function saveDynamicProfileUpdates($npcName, $updatedFields, $db, $updateTimeSta
     }
 }
 
-function triggerImmediateProfileProcessing() {
+function queueDynamicProfileBatch(array $npcNames, array $gameRequest): string {
     global $db;
-    
-    // Ensure required dependencies are loaded
-    if (!function_exists('DataSpeechJournal') || !function_exists('buildDynamicProfileDisplay')) {
-        require_once(__DIR__ . "/../lib/data_functions.php");
+
+    $npcNames = array_values(array_unique(array_filter(
+        array_map(static fn($name) => trim((string)$name), $npcNames),
+        static fn($name) => $name !== ''
+    )));
+    if (empty($npcNames)) {
+        throw new InvalidArgumentException('Cannot queue an empty dynamic profile batch');
     }
-    
-    // Check if there are any queue entries to process
-    $queueResults = $db->fetchAll("SELECT id, value FROM conf_opts WHERE id LIKE 'dynamic_profiles_queue_%' ORDER BY id LIMIT 5");
-    
-    if (empty($queueResults)) {
-        Logger::debug("triggerImmediateProfileProcessing: No queue entries found");
-        return;
+
+    $queueData = [
+        'timestamp' => time(),
+        'npcs' => $npcNames,
+        'gameRequest' => $gameRequest,
+    ];
+    $encoded = json_encode($queueData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    $queueId = 'dynamic_profiles_queue_' . time() . '_' . uniqid();
+
+    if ($db->upsertRowOnConflict('conf_opts', [
+        'id' => $queueId,
+        'value' => $encoded,
+    ], 'id') === false) {
+        throw new RuntimeException('Could not persist the dynamic profile batch');
     }
-    
-    Logger::info("triggerImmediateProfileProcessing: Processing " . count($queueResults) . " queue entries immediately");
-    
-    // Check if already processing (lock exists)
-    $lockId = 'dynamic_profiles_lock';
-    $lockResult = $db->fetchAll("SELECT value FROM conf_opts WHERE id = '$lockId'");
-    
-    if (!empty($lockResult)) {
-        $lockTime = intval($lockResult[0]['value']);
-        // If lock is recent (less than 30 seconds), skip immediate processing
-        if (time() - $lockTime < 30) {
-            Logger::debug("triggerImmediateProfileProcessing: Processing already in progress, skipping");
-            return;
-        } else {
-            // Remove stale lock
-            $db->delete("conf_opts", "id = '$lockId'");
-        }
+
+    return $queueId;
+}
+
+function dialecticPostgresBoolean($value): bool {
+    return $value === true || $value === 1 || $value === '1' || $value === 't' || $value === 'true';
+}
+
+function triggerImmediateProfileProcessing(?callable $profileProcessor = null): array {
+    global $db;
+
+    $result = [
+        'locked' => false,
+        'jobs' => 0,
+        'npcs' => 0,
+        'updated' => 0,
+    ];
+
+    $lockRows = $db->fetchAll("SELECT pg_try_advisory_lock(hashtext('dialectic_dynamic_profile_worker')) AS acquired");
+    if (empty($lockRows) || !dialecticPostgresBoolean($lockRows[0]['acquired'] ?? false)) {
+        Logger::debug("triggerImmediateProfileProcessing: Another worker owns the queue lock");
+        return $result;
     }
-    
-    // Create processing lock
-    $db->upsertRowOnConflict('conf_opts', array('id' => $lockId, 'value' => time()), 'id');
-    
+
+    $result['locked'] = true;
+    $profileProcessor = $profileProcessor ?? 'processSingleDynamicProfile';
+
     try {
-        $processedJobs = 0;
-        $totalNPCs = 0;
-        
+        $queueResults = $db->fetchAll("SELECT id, value FROM conf_opts WHERE id LIKE 'dynamic_profiles_queue_%' ORDER BY id LIMIT 5");
+        if (empty($queueResults)) {
+            Logger::debug("triggerImmediateProfileProcessing: No queue entries found");
+            return $result;
+        }
+
+        Logger::info("triggerImmediateProfileProcessing: Processing " . count($queueResults) . " queue entries");
+
         foreach ($queueResults as $queueRow) {
             $queueId = $queueRow['id'];
             $queueJson = $queueRow['value'];
-            
-            // Delete this queue entry immediately
-            $db->delete("conf_opts", "id = '" . $db->escape($queueId) . "'");
-            
+
             $queueData = json_decode($queueJson, true);
             if (!$queueData || !isset($queueData['npcs']) || !isset($queueData['gameRequest'])) {
                 Logger::error("triggerImmediateProfileProcessing: Invalid queue data for $queueId");
+                $db->delete("conf_opts", "id = '" . $db->escape($queueId) . "'");
                 continue;
             }
 
-            $npcs = $queueData['npcs'];
+            $npcs = is_array($queueData['npcs']) ? $queueData['npcs'] : [];
             $gameRequest = $queueData['gameRequest'];
-            
             Logger::info("triggerImmediateProfileProcessing: Processing " . count($npcs) . " NPCs");
 
             $successCount = 0;
             foreach ($npcs as $npcName) {
                 try {
-                    if (processSingleDynamicProfile($npcName, $gameRequest)) {
+                    if ($profileProcessor($npcName, $gameRequest)) {
                         $successCount++;
                         Logger::debug("triggerImmediateProfileProcessing: Updated profile for $npcName");
                     }
-                } catch (Exception $e) {
+                } catch (Throwable $e) {
                     Logger::error("triggerImmediateProfileProcessing: Error processing $npcName: " . $e->getMessage());
                 }
             }
 
+            // Keep a job durable until every queued NPC has been attempted.
+            $db->delete("conf_opts", "id = '" . $db->escape($queueId) . "'");
             Logger::info("triggerImmediateProfileProcessing: Completed job - updated $successCount of " . count($npcs) . " profiles");
-            $processedJobs++;
-            $totalNPCs += count($npcs);
+            $result['jobs']++;
+            $result['npcs'] += count($npcs);
+            $result['updated'] += $successCount;
         }
 
-        if ($processedJobs > 0) {
-            Logger::info("triggerImmediateProfileProcessing: Total processed: $processedJobs jobs, $totalNPCs NPCs");
-        }
-
-    } catch (Exception $e) {
+        Logger::info("triggerImmediateProfileProcessing: Total processed: {$result['jobs']} jobs, {$result['npcs']} NPCs");
+    } catch (Throwable $e) {
         Logger::error("triggerImmediateProfileProcessing: Fatal error: " . $e->getMessage());
     } finally {
-        // Always remove lock
-        $db->delete("conf_opts", "id = '$lockId'");
+        $db->fetchAll("SELECT pg_advisory_unlock(hashtext('dialectic_dynamic_profile_worker')) AS released");
     }
 
-
+    return $result;
 }
 ?>
 

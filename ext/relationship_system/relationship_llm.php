@@ -249,6 +249,9 @@ class RelationshipLLM {
         if ($extended === null) {
             return ['ok' => false, 'error' => 'Corrupted extended_data - refusing to overwrite'];
         }
+        if (!empty($extended['relationships_locked'])) {
+            return ['ok' => true, 'skipped' => true, 'reason' => 'Relationships are manually locked'];
+        }
         if (!empty($extended['relationships']) && !$forceReanalyze) {
             return ['ok' => true, 'skipped' => true, 'reason' => 'Already has relationships'];
         }
@@ -420,17 +423,18 @@ PROMPT;
             return null;
         }
 
-        // Validate and normalize
+        // Initial analysis may select built-in relationship types only.
         $relationships = [];
-        $validTypes = ['romantic', 'platonic', 'familial', 'professional', 'rival', 'enemy', 'neutral'];
 
         foreach ($parsed['relationships'] as $target => $data) {
             $aff = isset($data['aff']) ? intval($data['aff']) : 0;
-            $type = isset($data['type']) ? strtolower($data['type']) : 'neutral';
+            $rawType = isset($data['type']) ? (string)$data['type'] : 'neutral';
+            $type = RelationshipManager::canonicalizeRelationshipType($rawType);
             $note = isset($data['note']) ? trim($data['note']) : '';
 
             $aff = max(-100, min(100, $aff));
-            if (!in_array($type, $validTypes) && !preg_match('/^[a-z]+$/', $type)) {
+            if ($type === null) {
+                Logger::info("[REL-LLM] REJECTED invented initial relationship type '{$rawType}' for {$target}; using neutral");
                 $type = 'neutral';
             }
 
@@ -475,8 +479,17 @@ PROMPT;
                 $this->releaseNpcLock($npcId);
                 return false;
             }
+            if (!empty($extended['relationships_locked'])) {
+                Logger::info("[REL-LLM] SKIP saveRelationships for {$npc['npc_name']} - manually locked");
+                $this->releaseNpcLock($npcId);
+                return false;
+            }
 
-            $extended['relationships'] = $relationships;
+            $extended['relationships'] = RelationshipManager::mergeAiRelationshipMap(
+                $extended['relationships'] ?? [],
+                $relationships,
+                true
+            );
             $extended['relationships_analyzed'] = date('Y-m-d H:i:s');
             $extended['relationships_model'] = $this->modelName;
 
@@ -484,6 +497,9 @@ PROMPT;
                 'id' => $npcId,
                 'extended_data' => json_encode($extended, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
             ]);
+            if ($result) {
+                dialecticRelationshipTimelineStamp($npcId, 'relationship_analysis');
+            }
 
             $this->releaseNpcLock($npcId);
             return $result;
@@ -639,7 +655,12 @@ PROMPT;
                     $this->releaseNpcLock($npcId);
                     return ['ok' => false, 'error' => 'Corrupted extended_data during save'];
                 }
-                $myRels = $extended['relationships'] ?? [];
+                if (!empty($extended['relationships_locked'])) {
+                    Logger::info("[REL-LLM] SKIP inferTransitive for {$npc['npc_name']} - manually locked");
+                    $this->releaseNpcLock($npcId);
+                    return ['ok' => true, 'skipped' => true, 'reason' => 'Relationships are manually locked'];
+                }
+                $myRels = RelationshipManager::normalizeRelationshipMap($extended['relationships'] ?? []);
 
                 // Merge with existing (don't overwrite explicit relationships)
                 foreach ($inferred as $target => $data) {
@@ -651,10 +672,13 @@ PROMPT;
                 $extended['relationships'] = $myRels;
                 $extended['relationships_inferred'] = date('Y-m-d H:i:s');
 
-                $npcMaster->updateByArray([
+                $saved = $npcMaster->updateByArray([
                     'id' => $npcId,
                     'extended_data' => json_encode($extended, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
                 ]);
+                if ($saved) {
+                    dialecticRelationshipTimelineStamp($npcId, 'relationship_inference');
+                }
 
                 $this->releaseNpcLock($npcId);
                 Logger::info("[REL-LLM] Inferred " . count($inferred) . " relationships for " . $npc['npc_name']);
@@ -705,6 +729,9 @@ PROMPT;
         $extended = $this->safeJsonDecode($npc['extended_data'] ?? null, "evaluateContext:{$npcName}");
         if ($extended === null) {
             return ['ok' => false, 'error' => 'Corrupted extended_data'];
+        }
+        if (!empty($extended['relationships_locked'])) {
+            return ['ok' => true, 'skipped' => true, 'reason' => 'Relationships are manually locked'];
         }
         $currentRels = $extended['relationships'] ?? [];
 
@@ -1129,7 +1156,9 @@ REASON FORMAT - Keep it SHORT (under 15 words):
 ? NOT: Long clinical explanations
 
 TYPE CHANGES (rare - only for defining moments):
-- Only change type for: romance confession, betrayal, violence, marriage, family reveal
+- Add "type" only when this exchange visibly changed the relationship's nature.
+- "type" must be exactly one of: romantic, platonic, familial, professional, rival, enemy, crush, ex, betrayed.
+- Never invent labels: use "romantic", not "romance"; "betrayed", not "betrayal"; "enemy", not "enemies".
 - Most interactions just adjust affinity, not type
 
 OUTPUT (JSON only):
@@ -1197,9 +1226,18 @@ PROMPT;
             'nightingale', 'the nightingale'
         ];
 
+        $allowedCustomTypes = RelationshipManager::getCustomRelationshipTypes($currentRels);
+
         foreach ($changes as $target => $change) {
             $delta = intval($change['delta'] ?? 0);
-            $newType = $change['type'] ?? null;
+            $rawType = $change['type'] ?? null;
+            $newType = $rawType === null
+                ? null
+                : RelationshipManager::canonicalizeRelationshipType($rawType, $allowedCustomTypes);
+            if ($rawType !== null && $newType === null) {
+                $loggedType = is_scalar($rawType) ? (string)$rawType : gettype($rawType);
+                Logger::info("[REL-LLM] REJECTED invented type '{$loggedType}' for {$npc['npc_name']} -> {$target}: affinity delta still applies");
+            }
             $reason = $change['reason'] ?? '';
 
             if ($delta === 0 && $newType === null) continue;
@@ -1330,12 +1368,17 @@ PROMPT;
                     $this->releaseNpcLock($npcId);
                     return []; // Return empty - changes not saved
                 }
+                if (!empty($extended['relationships_locked'])) {
+                    Logger::info("[REL-LLM] SKIP applyChanges for {$npc['npc_name']} - manually locked");
+                    $this->releaseNpcLock($npcId);
+                    return [];
+                }
 
                 // Merge our changes with latest state
-                $existingRels = $extended['relationships'] ?? [];
-                foreach ($currentRels as $target => $data) {
-                    $existingRels[$target] = $data;
-                }
+                $existingRels = RelationshipManager::mergeAiRelationshipMap(
+                    $extended['relationships'] ?? [],
+                    $currentRels
+                );
 
                 $extended['relationships'] = $existingRels;
                 $extended['relationships_last_eval'] = date('Y-m-d H:i:s');
@@ -1346,9 +1389,12 @@ PROMPT;
                     'id' => $npcId,
                     'extended_data' => $jsonData
                 ]);
+                if ($result) {
+                    dialecticRelationshipTimelineStamp($npcId, 'relationship_evaluation');
+                }
 
                 $this->releaseNpcLock($npcId);
-                Logger::debug("[REL-LLM] Database update for NPC {$npcId}: " . ($result ? "SUCCESS" : "FAILED") . " - relationships: " . json_encode($existingRels));
+                Logger::debug("[REL-LLM] Database update for NPC {$npcId}: " . ($result ? "SUCCESS" : "FAILED") . " - relationships: " . count($existingRels));
             } catch (Exception $e) {
                 $this->releaseNpcLock($npcId);
                 throw $e;

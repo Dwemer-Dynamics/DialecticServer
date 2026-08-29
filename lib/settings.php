@@ -146,6 +146,9 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'INVENTORY_ITEMS_DESCRIPTIONS_ONLY',
             'HIDE_AMBIENT_COMBAT',
             'PROMPT_TIMESTAMP',
+            'COMPACT_NPC_CONTEXT_HISTORY',
+            'SHORT_TERM_MEMORY_IN_COMPACT_CHAT',
+            'PROMPT_HEAD_MARKDOWN_ENABLED',
             'PROMPT_CONTEXT_OPTIONS',
             'RECHAT_MODE',
             'ENFORCE_STRICT_RECHAT_RESPONSE',
@@ -158,9 +161,23 @@ if (!function_exists('dialecticGetManagedGeneralSettingIds')) {
             'RELLLM_CONNECTOR',
             'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM',
             'RELATIONSHIP_SYSTEM_ENABLED',
+            'NEVER_CLEAR_RELATIONSHIP_DATA',
             'SCENE_CLASSIFIER_ENABLED',
             'POWER_AWARENESS_ENABLED',
             'WORLDKNOWLEDGE_CUSTOM',
+            'WORLDKNOWLEDGE_INFINIUM',
+            'WORLDKNOWLEDGE_AMOUNT',
+            'WORLDKNOWLEDGE_RESULT_LIMIT',
+            'LOCATION_WORLDKNOWLEDGE',
+            'RACE_WORLDKNOWLEDGE',
+            'FACTION_WORLDKNOWLEDGE',
+            'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK',
+            'WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS',
+            'GLOBAL_ITT_CONNECTOR_ID',
+            'VISUAL_CONTEXT_SCENE_TTL_MINUTES',
+            'VISUAL_CONTEXT_PROMPT_MAX_CHARS',
+            'PIPVISION_IMAGE_QUALITY',
+            'PIPVISION_REQUEST_TIMEOUT_SECONDS',
         ];
     }
 }
@@ -199,6 +216,7 @@ if (!function_exists('dialecticGetManagedGeneralSettingDescriptions')) {
         $descriptions['FEATURES@MEMORY_EMBEDDING@AUTO_CREATE_SUMMARYS'] = 'Controls whether automatic memory summaries are created by the memory embedding system.';
         $descriptions['PROMPT_CONTEXT_OPTIONS'] = 'Controls which XML-like prompt context sections are included in the final system prompt sent to the LLM. Managed from Global Settings.';
         $descriptions['GLOBAL_STT_CONNECTOR_ID'] = 'Active global STT connector. Only one STT connector is used globally for player speech-to-text.';
+        $descriptions['GLOBAL_ITT_CONNECTOR_ID'] = 'Active global PipVision connector. Only one image-to-text connector is used for visual captures.';
 
         return $descriptions;
     }
@@ -221,7 +239,15 @@ if (!function_exists('dialecticPrettySettingLabel')) {
             'SCENE_CLASSIFIER_ENABLED' => 'Scene Classifier',
             'CORE_CONNECTOR_PROFILES' => 'Dynamic Profile',
             'CORE_CONNECTOR_DIRECTOR' => 'Director Mode',
-            'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 'Custom WorldKnowledge LLM',
+            'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 'World Knowledge Fallback Connector',
+            'WORLDKNOWLEDGE_INFINIUM' => 'World Knowledge Enabled',
+            'WORLDKNOWLEDGE_AMOUNT' => 'World Knowledge Amount',
+            'WORLDKNOWLEDGE_RESULT_LIMIT' => 'World Knowledge Result Limit',
+            'LOCATION_WORLDKNOWLEDGE' => 'Force Location World Knowledge',
+            'RACE_WORLDKNOWLEDGE' => 'Force Race / Species World Knowledge',
+            'FACTION_WORLDKNOWLEDGE' => 'Force Faction World Knowledge',
+            'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK' => 'Explicit Request Fallback',
+            'WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS' => 'Fallback Timeout (ms)',
             'RELLLM_CONNECTOR' => 'Relationship Management',
             'EMOTEMOODS' => 'Emote Moods',
             'RECHAT_H' => 'Rechat Rounds',
@@ -232,6 +258,11 @@ if (!function_exists('dialecticPrettySettingLabel')) {
             'SHORTER_NEARBY_ITEM_LIST' => 'Shorter Nearby Item List',
             'CLEAN_CONTEXT_FOCUS_CHAT_HISTORY' => 'Focus Chat Context',
             'GLOBAL_STT_CONNECTOR_ID' => 'Speech To Text Connector',
+            'GLOBAL_ITT_CONNECTOR_ID' => 'PipVision Connector',
+            'VISUAL_CONTEXT_SCENE_TTL_MINUTES' => 'PipVision Scene Lifetime',
+            'VISUAL_CONTEXT_PROMPT_MAX_CHARS' => 'PipVision Prompt Limit',
+            'PIPVISION_IMAGE_QUALITY' => 'PipVision Image Quality',
+            'PIPVISION_REQUEST_TIMEOUT_SECONDS' => 'PipVision Request Timeout',
         ];
         if (isset($customLabels[$flatName])) {
             return $customLabels[$flatName];
@@ -249,6 +280,18 @@ if (!function_exists('dialecticPrettySettingLabel')) {
 if (!function_exists('dialecticGetOverrideableGeneralSettingCategory')) {
     function dialecticGetOverrideableGeneralSettingCategory(string $flatId): string
     {
+        if (
+            strpos($flatId, 'PIPVISION_') === 0
+            || strpos($flatId, 'VISUAL_CONTEXT_') === 0
+            || $flatId === 'GLOBAL_ITT_CONNECTOR_ID'
+        ) {
+            return 'PipVision';
+        }
+
+        if (in_array($flatId, ['WORLDKNOWLEDGE_INFINIUM', 'WORLDKNOWLEDGE_AMOUNT', 'WORLDKNOWLEDGE_RESULT_LIMIT', 'LOCATION_WORLDKNOWLEDGE', 'RACE_WORLDKNOWLEDGE', 'FACTION_WORLDKNOWLEDGE', 'WORLDKNOWLEDGE_EXTRACTOR_FALLBACK', 'WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS', 'WORLDKNOWLEDGE_CUSTOM', 'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM'], true)) {
+            return 'World Knowledge';
+        }
+
         if (
             strpos($flatId, 'PROMPT_') === 0
             || in_array($flatId, ['EMOTEMOODS', 'LOCATION_BLACKLIST', 'ITEM_BLACKLIST', 'EVENT_TYPE_FILTER'], true)
@@ -279,7 +322,6 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingCategory')) {
                 'POWER_AWARENESS_ENABLED',
                 'SCENE_CLASSIFIER_ENABLED',
                 'RELATIONSHIP_SYSTEM_ENABLED',
-                'WORLDKNOWLEDGE_CUSTOM',
             ], true)
         ) {
             return 'Context';
@@ -300,6 +342,9 @@ if (!function_exists('dialecticGetSelectOptionsForOverrideSetting')) {
         $definitions = [
             'GLOBAL_STT_CONNECTOR_ID' => [
                 'query' => "SELECT id, COALESCE(NULLIF(label, ''), NULLIF(driver, ''), CAST(id AS text)) AS option_label FROM public.core_stt_connector ORDER BY id ASC",
+            ],
+            'GLOBAL_ITT_CONNECTOR_ID' => [
+                'query' => "SELECT id, COALESCE(NULLIF(label, ''), NULLIF(driver, ''), CAST(id AS text)) AS option_label FROM public.core_itt_connector ORDER BY id ASC",
             ],
         ];
 
@@ -352,7 +397,7 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingsCatalog')) {
 
         $candidateIds = array_values(array_unique(array_merge(
             dialecticGetManagedGeneralSettingIds(),
-            ['GLOBAL_STT_CONNECTOR_ID'],
+            ['GLOBAL_STT_CONNECTOR_ID', 'GLOBAL_ITT_CONNECTOR_ID'],
             array_keys($rowMap)
         )));
 
@@ -361,12 +406,16 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingsCatalog')) {
             'RECHAT_P',
             'RECHAT_ALLOW_ACTIONS',
         ];
+        // Global-only settings that must never gain a per-profile override.
+        $globalOnlyIds = [
+            'NEVER_CLEAR_RELATIONSHIP_DATA',
+        ];
         $managedIds = array_flip(dialecticGetManagedGeneralSettingIds());
-        $explicitOverrideIds = ['GLOBAL_STT_CONNECTOR_ID' => true];
+        $explicitOverrideIds = ['GLOBAL_STT_CONNECTOR_ID' => true, 'GLOBAL_ITT_CONNECTOR_ID' => true];
 
         $catalog = [];
         foreach ($candidateIds as $id) {
-            if (in_array($id, $profileNativeIds, true)) {
+            if (in_array($id, $profileNativeIds, true) || in_array($id, $globalOnlyIds, true)) {
                 continue;
             }
 
@@ -421,6 +470,19 @@ if (!function_exists('dialecticGetOverrideableGeneralSettingsCatalog')) {
             $catalog[$id] = $entry;
         }
 
+        // Profile-only values remain available as explicit NPC overrides, not global defaults.
+        $catalog['SHORT_TERM_MEMORY_ENABLED'] = [
+            'type' => 'boolean',
+            'description' => 'Include earlier scene summaries beyond recent dialogue.',
+            'category' => 'Memory',
+            'ui_label' => 'Short Term Memory',
+        ];
+        $catalog['SHORT_TERM_MEMORY_MAX'] = [
+            'type' => 'integer',
+            'description' => 'Maximum earlier scene summaries per response (1-50; default 10).',
+            'category' => 'Memory',
+            'ui_label' => 'Short Term Memory Max Summaries',
+        ];
         ksort($catalog);
         return $catalog;
     }
@@ -557,7 +619,7 @@ if (!function_exists('dialecticGetPromptContextOptionCatalog')) {
                 ],
                 'current_condition' => [
                     'label' => '<condition>',
-                    'description' => 'Health, action points, karma, and visible condition state.',
+                    'description' => 'Health, action points, karma, visible condition, and player survival needs.',
                 ],
             ],
             'enabled_general_subsections' => [
@@ -1000,6 +1062,29 @@ if (!function_exists('dialecticLoadActiveSttConnectorIntoGlobals')) {
     }
 }
 
+if (!function_exists('dialecticLoadActiveIttConnectorIntoGlobals')) {
+    function dialecticLoadActiveIttConnectorIntoGlobals(): void
+    {
+        $connectorId = dialecticGetGeneralSettingInt('GLOBAL_ITT_CONNECTOR_ID', 0);
+        if ($connectorId <= 0) {
+            return;
+        }
+
+        if (!class_exists('ITTConnector')) {
+            require_once(__DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'itt_connector.class.php');
+        }
+
+        try {
+            $row = (new ITTConnector())->getById($connectorId);
+        } catch (Throwable $e) {
+            $row = null;
+        }
+        if ($row) {
+            (new ITTConnector())->setOldGlobals($row);
+        }
+    }
+}
+
 if (!function_exists('dialecticResolvePreferredTtsConnectorRow')) {
     function dialecticResolvePreferredTtsConnectorRow(string $driver = ''): ?array
     {
@@ -1213,7 +1298,7 @@ if (!function_exists('dialecticSeedMissingManagedGeneralSettings')) {
         $missingValue = new \stdClass();
         $fallbacks = [
             'CORE_CONNECTOR_WORLDKNOWLEDGE_CUSTOM' => 0,
-            'RELATIONSHIP_SYSTEM_ENABLED' => false,
+            'RELATIONSHIP_SYSTEM_ENABLED' => true,
             'PROMPT_CONTEXT_OPTIONS' => dialecticGetDefaultPromptContextOptions(),
         ];
 

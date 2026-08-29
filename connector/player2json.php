@@ -234,6 +234,9 @@ class player2json
         }
         $this->_is_streaming = false; 
 
+        require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "player2_health.php");
+        dialecticPlayer2HealthMarkUsed($this->_url);
+
     }
     
     public function open($contextData, $customParms)
@@ -320,7 +323,7 @@ class player2json
                 
             } else {
 
-                if ($lastrole=="assistant" && $lastrole!=$element["role"] && $element["role"]!="tool" ) {
+                if ($lastrole=="assistant" && $lastrole!=$element["role"] && $element["role"]!="tool" && !empty($assistantRoleBuffer)) {
                     $contextDataCopy[]=[
                         "role"=>"assistant",
                         "content"=>"{\"character\": \"{$GLOBALS["DIALECTIC_NAME"]}\", \"listener\": \"$lastTargetBuffer\", \"mood\": \"\", \"action\": \"Talk\",\"target\": \"\", \"message\":\"".trim($assistantRoleBuffer)."\"}"
@@ -411,7 +414,7 @@ class player2json
                                 $GLOBALS["PATCH_STORE_FUNC_RES"]="{$GLOBALS["DIALECTIC_NAME"]} issued ACTION, but {$element["content"]}";
                                 $contextDataCopy[]=[
                                     "role"=>"user",
-                                    "content"=>"The Narrator: ({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]}"
+                                    "content"=>dialecticBuildNarratorContextLine("({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]}")
                                     
                                 ];
                             } else {
@@ -419,7 +422,7 @@ class player2json
                                 $GLOBALS["PATCH_STORE_FUNC_RES"]=strtr($lastAction,["#RESULT#"=>$element["content"]]);
                                 $contextDataCopy[]=[
                                     "role"=>"user",
-                                    "content"=>"The Narrator: ({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]} ",
+                                    "content"=>dialecticBuildNarratorContextLine("({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]}"),
                                     
                                 ];
                             }
@@ -567,6 +570,7 @@ class player2json
                 if (strlen($msg) > 0) {
                     $buffer .= $msg;
                     $this->_buffer .= $msg;
+                    $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_buffer;
                     $this->_numOutputTokens += 1;
                 }
                 $totalBuffer .= $msg;
@@ -582,6 +586,7 @@ class player2json
                     if (strlen($clean_content) > 0) {
                         $buffer .= $clean_content;
                         $this->_buffer .= $clean_content;
+                        $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_buffer;
                         $this->_numOutputTokens += 1;
                     }
                 }
@@ -596,6 +601,7 @@ class player2json
                 if (!empty($clean_remain)) {
                     $buffer .= $clean_remain;
                     $this->_buffer .= $clean_remain;
+                    $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_buffer;
                 }
                 $this->_output_buffer = ""; // clear the buffer
             }

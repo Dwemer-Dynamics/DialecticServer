@@ -119,13 +119,24 @@ if ($STTFUNCTION=="azure") {
     $text= stt($finalName);
 } 
 
+$text = trim((string)$text);
+if ($text === '') {
+    Logger::phaseEnd("stt", [
+        "status" => "empty_transcript",
+        "connector" => $GLOBALS["STTFUNCTION"] ?? "",
+        "text_length" => 0,
+    ], "warn");
+    dialecticSttRespond(422, false, '', 'empty_transcript');
+    exit;
+}
+
 Logger::phaseEnd("stt", [
     "status" => "ok",
     "connector" => $GLOBALS["STTFUNCTION"] ?? "",
-    "text_length" => strlen((string)$text),
-    "preview" => Logger::summarizePayload((string)$text, 120),
+    "text_length" => strlen($text),
+    "preview" => Logger::summarizePayload($text, 120),
 ]);
-dialecticSttRespond(200, true, (string)$text);
+dialecticSttRespond(200, true, $text);
 
 ?>
 

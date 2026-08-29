@@ -319,6 +319,7 @@ class koboldcppjson
  
         if (isset($data["token"])) {
             $this->_jsonBuffer.=$data["token"];
+            $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_jsonBuffer;
             unset($GLOBALS["_JSON_BUFFER"]);
             $partialResult=__jpd_decode_lazy($this->_jsonBuffer);
             

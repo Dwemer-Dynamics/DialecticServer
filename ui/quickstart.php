@@ -773,6 +773,8 @@ echo '<section class="qs-section">
         </div>
       </section>';
 
+include(__DIR__ . DIRECTORY_SEPARATOR . "local_llm_quickstart.php");
+
 echo '<section class="qs-section">
                 <h2 class="qs-section-title">LLM Connectors Note</h2>
                 <p class="form-text" id="qs_llm_connectors_note_default"' . $llmNoteDefaultStyle . '>Quickstart gives you four hot-swappable LLMs for in-game use.</p>
@@ -780,8 +782,8 @@ echo '<section class="qs-section">
                 <div id="qs_llm_connectors_cards_default" style="' . $llmCardsDefaultStyle . '">
                     <div style="background:#1f1f1f; border:1px solid #3b3b3b; border-radius:8px; padding:12px;">
                         <div style="font-size:14px; color:#cfd9ea;">&#x1F579;&#xFE0F; <b>Standard</b></div>
-                        <div style="margin-top:6px; color:#9fb1c9;">OpenRouter: GLM 4.7 (z-ai/glm-4.7)</div>
-                        <div style="margin-top:4px; color:#bbb; font-size:12px;">$0.38/M input | $1.74/M output</div>
+                        <div style="margin-top:6px; color:#9fb1c9;">OpenRouter: DeepSeek V4 Flash (deepseek/deepseek-v4-flash)</div>
+                        <div style="margin-top:4px; color:#bbb; font-size:12px;">$0.14/M input | $0.28/M output</div>
                     </div>
                     <div style="background:#1f1f1f; border:1px solid #3b3b3b; border-radius:8px; padding:12px;">
                         <div style="font-size:14px; color:#cfd9ea;">&#x1F3C3;&#x200D;&#x2642;&#xFE0F; <b>Fast</b></div>
@@ -826,7 +828,7 @@ echo '<section class="qs-section">
                     ' . ($generalLlmConnectorListHtml !== '' ? $generalLlmConnectorListHtml : '<div class="qs-general-connector-empty">No additional general-settings connectors are configured.</div>') . '
                 </div>
                 <p class="qs-note warning-text3">
-                    Once done click Save and start Fallout with the Dialectic mod installed. Please read the <a href="https://dwemerdynamics.com/dialectic/index.html" target="_blank" style="color: #ffcc00; text-decoration: underline;">DIALECTIC Wiki</a> to learn more about how DIALECTIC works.
+                    Once done click Save and start Fallout with the DIALECTIC mod installed. Please read the <a href="https://dwemerdynamics.com/dialectic/index.html" target="_blank" style="color: #ffcc00; text-decoration: underline;">DIALECTIC Wiki</a> to learn more about how DIALECTIC works.
                 </p>
                 <div class="qs-actions">
                     <button

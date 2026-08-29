@@ -35,17 +35,19 @@ $DYNAMIC_PROFILE=false; //Dynamic profile updates using a timer system.
 // NOTE: AUTO_DIARY and AUTO_DIARY_WAIT have been moved to profile-level settings. Configure them in your profile settings UI instead of here.
 $POWER_AWARENESS_ENABLED=false; //Enable Power Awareness system. NPCs will be aware of relative power levels and react appropriately to threats.
 $MINIME_T5=false; //Assists smaller weight LLMs with action and memory functions.
-$WORLDKNOWLEDGE="knowall"; //Assists smaller weight LLMs with action and memory functions.
+$WORLDKNOWLEDGE=""; //Active NPC or narrator profile knowledge tags are applied per request.
 $WORLDKNOWLEDGE_AMOUNT=1; //Number of WorldKnowledge keywords to extract from each response. More keyword extraction will mean longer response times.
+$WORLDKNOWLEDGE_RESULT_LIMIT=3; //Maximum World Knowledge articles included in one prompt after conversational and forced selection.
 $PLAYER_RESPEECH=true; //Use default diary connector AI to rewrite player speech. Currently only triggers when starting speech with **.
 $PLAYER_SPEECH_STYLE=""; //Instructions for how the player character speaks and communicates. Used as context when rewriting player dialogue.
 $PROMPT_TIMESTAMP=false; //Add rough timestamp subdividers to event context (e.g., 'Moments Ago', 'A while ago') to help the LLM understand temporal relationships.
+$COMPACT_NPC_CONTEXT_HISTORY=true; //Use compact text instead of separate messages for conversation history. Does not affect the Narrator.
+$PROMPT_HEAD_MARKDOWN_ENABLED=true; //Use Markdown headings instead of XML tags for all prompt sections.
 $use_emotions_expression = false; //Add emotions support. Changes the affect context/json object offered to LLM must be false by default.
 
 //[Advanced Configuration]
 $RECHAT_H=2; //Rechat Rounds. Higher values will increase the amount of rounds NPC's will talk amongst themselves.
 $RECHAT_P=50; //Rechat Probability.
-$BORED_EVENT=30; //Bored Event Probability. Chance of an NPC starting a random conversation after a set period of time.
 $CONTEXT_HISTORY="50"; //Amount of context history (dialogue and events) that will be sent to LLM.
 $CONTEXT_HISTORY_DIARY="100"; //Amount of context history specifically for diary entries. Set to 0 to use regular CONTEXT_HISTORY value.
 $CONTEXT_HISTORY_DYNAMIC_PROFILE="50"; //Amount of context history specifically for dynamic profile updates. Set to 0 to use regular CONTEXT_HISTORY value.
@@ -121,10 +123,10 @@ $DYNAMIC_PROMPT_GOALS = "Based on story developments and achievements, update th
     . "aspiration format. Do not include any introductory text, meta-commentary, or phrases like 'Here are the updated goals' "
     . "or 'The character's goals are'. Start directly with the first bullet point (maintain a maximum of 20 goals with "
     . "reduction priority when required: 1- compress related goals, 2-eliminate 'study' related goals, 3- eliminate older goals).";
-$DIARY_PROMPT = "Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#s last dialogues and events written above into #DIALECTIC_NAME#s diary . WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.";
+$DIARY_PROMPT = "Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#'s recent dialogues and events into #DIALECTIC_NAME#'s diary. WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.";
 
-$RPG_COMMENTS=["levelup","combat_end","lockpick","sleep","keepmechecked"]; //AI Service(s).
-$RPG_COMMENTS_CHANCE=50; //Chance (0-100) for enabled RPG comments to trigger.
+$RPG_COMMENTS=["levelup","combat_end","lockpick","sleep","location_changed","quest_updated","keepmechecked"]; //AI Service(s).
+$RPG_COMMENTS_CHANCE=20; //Chance (0-100) for enabled RPG comments to trigger.
 $LOCATION_BLACKLIST="The Strip, Lucky 38"; //Comma-separated list of location names to exclude from Points of Interest context.
 $ITEM_BLACKLIST=""; //Comma-separated list of item/armor names to exclude from dynamic context.
 $SHORTER_NEARBY_ITEM_LIST=false; //Group duplicate nearby ground items into one counted entry and show a single representative RefID in item descriptions.
@@ -146,12 +148,14 @@ $CORE_CONNECTOR_SCENECLASSIFIER=7; // Gemma 3N E4B
 $SCENE_CLASSIFIER_ENABLED=true; // Enable post-request scene tone/genre classification.
 $CORE_CONNECTOR_PROFILES=1;
 $RELLLM_CONNECTOR=5; // Relationship Management default (Mistral Small 3.2 24B)
+$RELATIONSHIP_UPDATE_CHANCE=50; // Percent chance (0-100) an eligible completed NPC response queues a Relationship Management evaluation. 0 disables automatic evaluations.
+$NEVER_CLEAR_RELATIONSHIP_DATA=false; //Keep current NPC relationships when loading older saves. NPCs may remember later events. Off by default.
 
 ;
 //[AI/LLM Connectors]
 //OpenRouter JSON
 $CONNECTOR["openrouterjson"]["url"]="https://openrouter.ai/api/v1/chat/completions"; //API endpoint.
-$CONNECTOR["openrouterjson"]["model"]="z-ai/glm-4.7"; //LLM model.
+$CONNECTOR["openrouterjson"]["model"]="deepseek/deepseek-v4-flash"; //LLM model.
 $CONNECTOR["openrouterjson"]["reasoning_model"]=true; //This is a reasoning model, could output CoT.
 $CONNECTOR["openrouterjson"]["fallback_models"]=""; //comma separated models.
 $CONNECTOR["openrouterjson"]["PROVIDER"]=""; //use only this list of providers from OpenRouter
@@ -231,7 +235,7 @@ $TTS["XTTSFASTAPI"]["PARALINGUISTIC_TAGS_ENABLED"]=false; //Enable paralinguisti
 $TTS["XTTSFASTAPI"]["PARALINGUISTIC_TAGS_PROMPT"]=''; //Prompt snippet for instructing LLM to use paralinguistic tags.
 $TTS["XTTSFASTAPI"]["PARALINGUISTIC_TAGS_LIST"]='[clear throat],[sigh],[shush],[cough],[groan],[sniff],[gasp],[chuckle],[laugh]'; //Comma-separated list of supported tags.
 //Chatterbox
-$TTS["CHATTERBOX"]["endpoint"]='http://127.0.0.1:8020'; //API endpoint.
+$TTS["CHATTERBOX"]["endpoint"]='http://127.0.0.1:8023'; //API endpoint.
 $TTS["CHATTERBOX"]["language"]='en'; //Language.
 $TTS["CHATTERBOX"]["voiceid"]='TheNarrator'; //Generated voice file name.
 $TTS["CHATTERBOX"]["voicelogic"]='voicetype';
@@ -244,7 +248,7 @@ $TTS["OMNIVOICE"]["language"]='en'; //Active OmniVoice language profile.
 $TTS["OMNIVOICE"]["voiceid"]='TheNarrator'; //Generated voice file name.
 $TTS["OMNIVOICE"]["voicelogic"]='voicetype';
 //PocketTTS
-$TTS["POCKETTTS"]["endpoint"]='http://127.0.0.1:8020'; //API endpoint.
+$TTS["POCKETTTS"]["endpoint"]='http://127.0.0.1:8024'; //API endpoint.
 $TTS["POCKETTTS"]["language"]='en'; //Language.
 $TTS["POCKETTTS"]["voiceid"]='TheNarrator'; //Generated voice file name.
 $TTS["POCKETTTS"]["model"]='pocket-tts'; //audio.cpp model id.
@@ -287,6 +291,7 @@ $TTS["CARTESIA"]["speed"]='normal'; //Speed (slowest, slow, normal, fast, fastes
 //Inworld TTS
 $TTS["INWORLD"]["workspace"]=''; //Workspace ID (required for voice cloning). Format: workspaces/{workspace} or just the workspace ID.
 $TTS["INWORLD"]["voiceid"]=''; //Voice file name. Works like XTTS voiceid. Voice will be automatically cloned to Inworld when first used.
+$TTS["INWORLD"]["fallback_voice_id"]=''; //Optional existing Inworld voice ID used when an NPC sample cannot be cloned.
 $TTS["INWORLD"]["language"]='en-US'; //Language code (en-US, zh-CN, ko-KR, ja-JP, ru-RU, it-IT, es-ES, pt-BR, de-DE, fr-FR, ar-SA, pl-PL, nl-NL, hi-IN, he-IL).
 $TTS["INWORLD"]["model_id"]='inworld-tts-1'; //Model (inworld-tts-1, inworld-tts-1-max).
 $TTS["INWORLD"]["temperature"]=1.1; //Sampling temperature (0-2). Higher values make output more random. Default: 1.1.
@@ -309,6 +314,7 @@ $STT["WHISPER"]["API_KEY"]=""; //API Key.
 $STT["AZURE"]["LANG"]="en-US"; //Language.
 $STT["AZURE"]["profanity"]="masked"; //Profanity handling filter.
 $STT["AZURE"]["API_KEY"]=""; //API key.
+$STT["AZURE"]["region"]="eastus"; //Azure Speech resource region.
 //Local Whisper STT
 $STT["LOCALWHISPER"]["URL"]="http://127.0.0.1:9876/api/v0/transcribe"; //API endpoint.
 $STT["LOCALWHISPER"]["FORMFIELD"]="audio_file"; //(audio_file,file) Form field name.
@@ -345,6 +351,11 @@ $FEATURES["MISC"]["WORLDKNOWLEDGE_INFINIUM"]=true;	//Fallout context information
 $FEATURES["MISC"]["JSON_DIALOGUE_FORMAT_REORDER"]=false; //Reorders properties in the offered JSON schema.
 
 $WORLDKNOWLEDGE_INFINIUM=true;
+$LOCATION_WORLDKNOWLEDGE=true; // Force matching current location and worldspace lore into prompts.
+$RACE_WORLDKNOWLEDGE=true; // Force matching NPC race or species lore into prompts.
+$FACTION_WORLDKNOWLEDGE=true; // Force matching active NPC faction lore into prompts.
+$WORLDKNOWLEDGE_EXTRACTOR_FALLBACK=false; // Optionally allow one connector fallback for explicit unmatched lore requests when custom extraction is enabled.
+$WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS=1500; //Bound the optional extractor fallback between 250 and 3000 milliseconds.
 
 $FEATURES["MISC"]["LIFE_LINK_PLUGIN"]=false; // WIP. Use life link plugin for dynamic profiles
 

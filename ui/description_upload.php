@@ -298,10 +298,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
  
  /* Override main container styles */
  main {
- padding-top: 20px;
- padding-bottom: 40px;
- padding-left: 10%;
- padding-right: 10%;
+ /* Compact responsive gutter instead of a fixed 10% on every viewport. */
+ padding: 10px clamp(10px, 2.5vw, 34px) 24px;
  width: 100%;
  margin: 0;
  }
@@ -324,35 +322,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
  font-style: normal;
  }
 
- /* Header Styling */
- .page-header {
- text-align: center;
- margin-bottom: 30px;
- padding: 20px;
- background: linear-gradient(180deg, rgba(42, 42, 42, 0.95), rgba(34, 34, 34, 0.98));
- border-radius: 10px;
- border: 1px solid #3a3a3a;
- box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 1px rgba(255, 255, 255, 0.03);
- }
-
- .page-header h1 {
- margin-bottom: 8px;
- font-family: 'Gothic821', serif;
- word-spacing: 8px;
- font-size: 2.2em;
- color: rgb(255, 182, 65);
- text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
- }
-
+ /* Header Styling - compact inline row, see .dialectic-page-head in dialectic-theme.css */
  #title-text {
  font-family: 'Gothic821', serif;
- }
-
- .page-subtitle {
- margin: 0;
- color: #bbb;
- font-size: 1.1em;
- line-height: 1.6;
  }
 
  /* Content Layout Improvements */
@@ -676,11 +648,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
  /* Responsive Design */
  @media (max-width: 768px) {
- main {
- padding-left: 5%;
- padding-right: 5%;
- }
- 
  .content-grid {
  grid-template-columns: 1fr;
  }
@@ -694,33 +661,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
  align-items: stretch;
  }
  
- .page-header {
- padding: 15px;
- }
- 
- .page-header h1 {
- font-size: 1.5em;
- }
- 
  .content-section {
  padding: 15px;
  }
  }
-
- @media (max-width: 480px) {
- main {
- padding-left: 2%;
- padding-right: 2%;
- }
- 
- .page-header h1 {
- font-size: 1.3em;
- }
- }
 </style><?php if ($isEmbed): ?><style>
  /* Embedded in hub: remove extra top padding since navbar is hidden */
- main { padding-top: 20px; }
-</style><?php endif; ?><main><div id="toast" class="toast-notification"><span class="message"></span></div><div class="page-header"><h1 id="page-title"><span id="title-text">Description Manager</span></h1><p class="page-subtitle">Create custom descriptions for items and equipment that enhance NPC context</p></div><div class="content-grid"><div class="content-section"><h2>Batch Upload</h2><form action="" method="post" enctype="multipart/form-data"><div><label for="csv_file">Select .csv file to upload:</label><input type="file" name="csv_file" id="csv_file" accept=".csv" required style="margin-top: 10px;"></div><div class="button-group"><input type="submit" name="submit_csv" value="Upload CSV" class="action-button upload-csv"><a href="?action=download_example" class="action-button download-csv">Download Example CSV</a><a href="?action=export_custom_items" class="action-button export-csv">Export Custom Descriptions</a></div><p style="margin-top: 15px;">CSV format: plugin, baseid, name, description</p><p style="margin-top: 10px; color: #bbb;">
+ main { padding-top: 10px; }
+</style><?php endif; ?><main><div id="toast" class="toast-notification"><span class="message"></span></div><div class="page-header dialectic-page-head"><h1 id="page-title" class="dialectic-page-head-title"><span id="title-text">Description Manager</span></h1><p class="page-subtitle dialectic-page-head-note">Create custom descriptions for items and equipment that enhance NPC context</p></div><div class="content-grid"><div class="content-section"><h2>Batch Upload</h2><form action="" method="post" enctype="multipart/form-data"><div><label for="csv_file">Select .csv file to upload:</label><input type="file" name="csv_file" id="csv_file" accept=".csv" required style="margin-top: 10px;"></div><div class="button-group"><input type="submit" name="submit_csv" value="Upload CSV" class="action-button upload-csv"><a href="?action=download_example" class="action-button download-csv">Download Example CSV</a><a href="?action=export_custom_items" class="action-button export-csv">Export Custom Descriptions</a></div><p style="margin-top: 15px;">CSV format: plugin, baseid, name, description</p><p style="margin-top: 10px; color: #bbb;">
  Use the plugin filename in the first column, such as <code>Fallout.esm</code>, and the local FormID in the baseid column, such as <code>000098A0</code>.
  Leave plugin blank only for wildcard keys like <code>XX0098A0</code> or <code>FEXXX822</code>.
  </p></form></div><div class="content-section"><h2>Database Management</h2><p>Verify uploads: <br><b>Server Actions Database Manager <?php echo htmlspecialchars($dbname, ENT_QUOTES, 'UTF-8'); ?> public descriptions_custom</b></p><p>View merged data: <br><b>Server Actions Database Manager <?php echo htmlspecialchars($dbname, ENT_QUOTES, 'UTF-8'); ?> public Views combined_descriptions</b></p><div class="button-group" style="margin-top: 20px;"><form action="" method="post" style="display: inline;"><input

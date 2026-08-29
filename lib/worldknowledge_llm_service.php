@@ -153,12 +153,12 @@ function callLLMFast($contextData, $customParms = []) {
     // Build the request
     $url = $connectorData["url"];
     $model = $connectorData["model"];
-    $apiKeyId = $connectorData["api_badge_id"];
+    $apiKeyId = intval($connectorData["api_badge_id"] ?? 0);
     
     // Get API key
     $apiBadge = new ApiBadge();
-    $apiKeyData = $apiBadge->getById($apiKeyId);
-    $apiKey = $apiKeyData["api_key"];
+    $apiKeyData = $apiKeyId > 0 ? $apiBadge->getById($apiKeyId) : null;
+    $apiKey = strval($apiKeyData["api_key"] ?? '');
     
     // Prepare request data
     $data = [
@@ -172,10 +172,12 @@ function callLLMFast($contextData, $customParms = []) {
     // Prepare headers
     $headers = [
         'Content-Type: application/json',
-        'Authorization: Bearer ' . $apiKey,
         'HTTP-Referer: https://dwemerdynamics.com/',
         'X-Title: Dwemer Dynamics - WorldKnowledge Topic Extraction'
     ];
+    if ($apiKey !== '') {
+        $headers[] = 'Authorization: Bearer ' . $apiKey;
+    }
     
     // Add provider-specific headers if needed
     if (isset($connectorData["provider"]) && !empty($connectorData["provider"])) {
@@ -188,7 +190,9 @@ function callLLMFast($contextData, $customParms = []) {
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10); // Short timeout for fast extraction
+    $timeoutMs = max(250, min(3000, intval($GLOBALS['WORLDKNOWLEDGE_EXTRACTOR_TIMEOUT_MS'] ?? 1500)));
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, $timeoutMs);
+    curl_setopt($ch, CURLOPT_TIMEOUT_MS, $timeoutMs);
     
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);

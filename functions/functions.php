@@ -19,19 +19,24 @@ function dialecticCanonicalActionCodes()
         'CheckInventory',
         'ComeCloser',
         'Consume',
+        'EquipItem',
         'IncreaseWalkSpeed',
         'DecreaseWalkSpeed',
         'EndConversation',
         'Follow',
-        'FollowPlayer',
         'GiveItemTo',
         'GiveCapsTo',
         'Inspect',
         'InspectSurroundings',
-        'MakeFollower',
         'MoveTo',
         'PickupItem',
         'ReadQuests',
+        'Relax',
+        'DirectorCommand',
+        'SpawnCaps',
+        'SpawnItem',
+        'TeleportActor',
+        'KillTarget',
         'SheatheWeapon',
         'StopFollowing',
         'StopWalk',
@@ -40,6 +45,7 @@ function dialecticCanonicalActionCodes()
         'Barter',
         'OpenInventory',
         'TravelTo',
+        'UnequipItem',
         'WaitHere',
     ];
 }
@@ -61,6 +67,8 @@ function dialecticNormalizeActionCodeName($codeName)
         'TradeItems' => 'OpenInventory',
         'ExchangeItems' => 'OpenInventory',
         'AcceptGift' => 'OpenInventory',
+        'FollowPlayer' => 'Follow',
+        'MakeFollower' => 'Follow',
         'StopFollow' => 'StopFollowing',
         'DismissFollower' => 'StopFollowing',
         'LeaveParty' => 'StopFollowing',
@@ -413,7 +421,7 @@ $F_DESCRIPTIONS_LOCAL["MoveTo"] = "Move to a visible nearby actor or NPC. Use Tr
 $F_DESCRIPTIONS_LOCAL["Barter"] = "Open a vendor-style barter menu with #DIALECTIC_NAME#.";
 $F_DESCRIPTIONS_LOCAL["OpenInventory"] = "Open #DIALECTIC_NAME#'s inventory for free item exchange with #PLAYER_NAME#.";
 $F_DESCRIPTIONS_LOCAL["Attack"] = "Attack with intention to kill a target actor or entity.";
-$F_DESCRIPTIONS_LOCAL["Follow"] = "Move to and follow the specified target actor";
+$F_DESCRIPTIONS_LOCAL["Follow"] = "#DIALECTIC_NAME# joins #PLAYER_NAME#'s party and follows #PLAYER_NAME# permanently.";
 $F_DESCRIPTIONS_LOCAL["Inspect"] = "Inspect a nearby actor or being to get a closer read on their visible equipment, condition, and state.";
 $F_DESCRIPTIONS_LOCAL["InspectSurroundings"] = "Look around and assess who or what is nearby, including people, creatures, and possible threats.";
 $F_DESCRIPTIONS_LOCAL["CheckInventory"] = "Search in #DIALECTIC_NAME#'s inventory, backpack, or pocket. List their inventory contents.";
@@ -421,20 +429,28 @@ $F_DESCRIPTIONS_LOCAL["SheatheWeapon"] = "Sheathes/put away current weapon";
 $F_DESCRIPTIONS_LOCAL["TravelTo"] = "Travel long distance to a building, city, door or other location. Also known as lead the way.";
 $F_DESCRIPTIONS_LOCAL["TakeASeat"] = "#DIALECTIC_NAME# takes a seat at a nearby seating location.";
 $F_DESCRIPTIONS_LOCAL["ReadQuests"] = "Only use if #PLAYER_NAME# explicitly asks about a quest. Read the quest log and get information about current quests.";
+$F_DESCRIPTIONS_LOCAL["Relax"] = "#DIALECTIC_NAME# relaxes at the current location without being dismissed. JIP CCC companions use their native relaxation state.";
+$F_DESCRIPTIONS_LOCAL["DirectorCommand"] = "Send a short freeform instruction to the game director so it can stage a scene or event.";
+$F_DESCRIPTIONS_LOCAL["SpawnCaps"] = "Create caps and give them to #PLAYER_NAME# or another nearby actor.";
+$F_DESCRIPTIONS_LOCAL["SpawnItem"] = "Create a named item from the descriptions database and give it to #PLAYER_NAME# or another nearby actor.";
+$F_DESCRIPTIONS_LOCAL["TeleportActor"] = "Teleport #PLAYER_NAME# or another nearby actor to a named synchronized location.";
+$F_DESCRIPTIONS_LOCAL["KillTarget"] = "Kill a chosen nearby actor immediately.";
 $F_DESCRIPTIONS_LOCAL["IncreaseWalkSpeed"] = "Increase #DIALECTIC_NAME#'s speed when moving or travelling.";
 $F_DESCRIPTIONS_LOCAL["DecreaseWalkSpeed"] = "Decrease #DIALECTIC_NAME#'s speed when moving or travelling.";
 $F_DESCRIPTIONS_LOCAL["StopWalk"] = "Stop all of #DIALECTIC_NAME#'s actions immediately.";
 $F_DESCRIPTIONS_LOCAL["WaitHere"] = "#DIALECTIC_NAME# waits and loiters at the current location.";
 $F_DESCRIPTIONS_LOCAL["TakeCapsFromPlayer"] = "#DIALECTIC_NAME# takes the specified amount of caps from #PLAYER_NAME# once #PLAYER_NAME# agrees. Infer the amount from context.";
-$F_DESCRIPTIONS_LOCAL["FollowPlayer"] = "#DIALECTIC_NAME# follows #PLAYER_NAME#.";
-$F_DESCRIPTIONS_LOCAL["StopFollowing"] = "#DIALECTIC_NAME# stops following #PLAYER_NAME# and leaves the current follower role.";
+$F_DESCRIPTIONS_LOCAL["FollowPlayer"] = "#DIALECTIC_NAME# temporarily follows #PLAYER_NAME# without joining the party or follower roster. Do not use for requests to join the party or become a companion; use Join_#PLAYER_NAME#_Party.";
+$F_DESCRIPTIONS_LOCAL["StopFollowing"] = "#DIALECTIC_NAME# leaves #PLAYER_NAME#'s party and stops following #PLAYER_NAME#.";
 $F_DESCRIPTIONS_LOCAL["ComeCloser"] = "#DIALECTIC_NAME# approaches #PLAYER_NAME#.";
 $F_DESCRIPTIONS_LOCAL["GiveCapsTo"] = "#DIALECTIC_NAME# gives caps to another actor or #PLAYER_NAME#. REQUIRED: include the recipient in 'target' and the caps amount in 'amount' or 'item'.";
 $F_DESCRIPTIONS_LOCAL["GiveItemTo"] = "#DIALECTIC_NAME# gives a specific item from inventory to another actor or #PLAYER_NAME#. REQUIRED: Must include 'item' field with exact item name from <inventory> tag, and 'target' field with recipient name.";
 $F_DESCRIPTIONS_LOCAL["PickupItem"] = "#DIALECTIC_NAME# picks up a specific item from the ground. Use the exact RefID:ItemName format from nearby_items or from the representative RefID shown in ITEM DESCRIPTIONS when the nearby item list is grouped (e.g. 0x12345:9mm Pistol).";
-$F_DESCRIPTIONS_LOCAL["MakeFollower"] = "#DIALECTIC_NAME# joins #PLAYER_NAME#, forming a squad or adventuring party.";
+$F_DESCRIPTIONS_LOCAL["MakeFollower"] = "#DIALECTIC_NAME# joins #PLAYER_NAME# as a recruited follower and party member, and begins following. Use for requests to join the party, become a follower or companion, join the squad, or travel as an ally.";
 
 $F_DESCRIPTIONS_LOCAL["Consume"] = "#DIALECTIC_NAME# consumes food, drink, chems, or another aid item from inventory. Use the exact inventory item name in the target field.";
+$F_DESCRIPTIONS_LOCAL["EquipItem"] = "#DIALECTIC_NAME# equips a weapon or wearable item already present in their inventory. Use the exact item name from <inventory>.";
+$F_DESCRIPTIONS_LOCAL["UnequipItem"] = "#DIALECTIC_NAME# removes a currently equipped weapon or wearable item. Use the exact equipped item name from <inventory>.";
     
 $F_DESCRIPTIONS_LOCAL["EndConversation"] = "#DIALECTIC_NAME# ends the conversation and becomes unavailable to talk for a short time.";
 
@@ -442,13 +458,19 @@ $F_RETURNMESSAGES_LOCAL["MoveTo"] = "#DIALECTIC_NAME# moves to #TARGET#.";
 $F_RETURNMESSAGES_LOCAL["Barter"] = "Opens barter menu with #DIALECTIC_NAME#.";
 $F_RETURNMESSAGES_LOCAL["OpenInventory"] = "Opens #DIALECTIC_NAME#'s inventory for item exchange with #PLAYER_NAME#.";
 $F_RETURNMESSAGES_LOCAL["Attack"] = "#DIALECTIC_NAME# attacks #TARGET#.";
-$F_RETURNMESSAGES_LOCAL["Follow"] = "#DIALECTIC_NAME# follows #TARGET#.";
+$F_RETURNMESSAGES_LOCAL["Follow"] = "#DIALECTIC_NAME# joins #PLAYER_NAME#'s party and follows #PLAYER_NAME#.";
 $F_RETURNMESSAGES_LOCAL["Inspect"] = "#DIALECTIC_NAME# inspects #TARGET# and see this: #RESULT#";
 $F_RETURNMESSAGES_LOCAL["InspectSurroundings"] = "#DIALECTIC_NAME# takes a look around and see this: #RESULT#";
 $F_RETURNMESSAGES_LOCAL["CheckInventory"] = "#DIALECTIC_NAME#'s INVENTORY:#RESULT#";
 $F_RETURNMESSAGES_LOCAL["SheatheWeapon"] = "Sheathes/put away current weapon";
 $F_RETURNMESSAGES_LOCAL["TakeASeat"] = "#DIALECTIC_NAME# sits in a nearby chair or piece of furniture.";
 $F_RETURNMESSAGES_LOCAL["ReadQuests"] = "";
+$F_RETURNMESSAGES_LOCAL["Relax"] = "#DIALECTIC_NAME# relaxes at the current location.";
+$F_RETURNMESSAGES_LOCAL["DirectorCommand"] = "The director is preparing a scene instruction.";
+$F_RETURNMESSAGES_LOCAL["SpawnCaps"] = "#TARGET# receives #AMOUNT# caps.";
+$F_RETURNMESSAGES_LOCAL["SpawnItem"] = "#TARGET# receives #ITEM#.";
+$F_RETURNMESSAGES_LOCAL["TeleportActor"] = "#TARGET# teleports to #LOCATION#.";
+$F_RETURNMESSAGES_LOCAL["KillTarget"] = "#TARGET# is killed.";
 $F_RETURNMESSAGES_LOCAL["IncreaseWalkSpeed"] = "Increases #DIALECTIC_NAME#'s speed or pace when moving or travelling.";
 $F_RETURNMESSAGES_LOCAL["DecreaseWalkSpeed"] = "Decreases #DIALECTIC_NAME#'s speed or pace when moving or travelling.";
 $F_RETURNMESSAGES_LOCAL["StopWalk"] = "Stop all of #DIALECTIC_NAME#'s actions immediately.";
@@ -456,13 +478,15 @@ $F_RETURNMESSAGES_LOCAL["TravelTo"] = "#DIALECTIC_NAME# begins travelling to #TA
 $F_RETURNMESSAGES_LOCAL["WaitHere"] = "#DIALECTIC_NAME# waits and stands at the place.";
 $F_RETURNMESSAGES_LOCAL["TakeCapsFromPlayer"] = "#PLAYER_NAME# gave #TARGET# caps to #DIALECTIC_NAME#. If this is a transaction, maybe GiveItemTo is needed.";
 $F_RETURNMESSAGES_LOCAL["FollowPlayer"] = "#DIALECTIC_NAME# follows #PLAYER_NAME#.";
-$F_RETURNMESSAGES_LOCAL["StopFollowing"] = "#DIALECTIC_NAME# stops following #PLAYER_NAME#.";
+$F_RETURNMESSAGES_LOCAL["StopFollowing"] = "#DIALECTIC_NAME# leaves #PLAYER_NAME#'s party and stops following #PLAYER_NAME#.";
 $F_RETURNMESSAGES_LOCAL["GiveCapsTo"] = "#DIALECTIC_NAME# gives #AMOUNT# caps to #TARGET#.";
 $F_RETURNMESSAGES_LOCAL["GiveItemTo"] = "#DIALECTIC_NAME# gives #ITEM# to #TARGET#.";
 $F_RETURNMESSAGES_LOCAL["PickupItem"] = "#DIALECTIC_NAME# picks up #ITEM#.";
 $F_RETURNMESSAGES_LOCAL["MakeFollower"] = "#DIALECTIC_NAME# is now part of the adventuring party.";
 
 $F_RETURNMESSAGES_LOCAL["Consume"] = "#DIALECTIC_NAME# consumes an item from inventory.";
+$F_RETURNMESSAGES_LOCAL["EquipItem"] = "#DIALECTIC_NAME# equips #ITEM#.";
+$F_RETURNMESSAGES_LOCAL["UnequipItem"] = "#DIALECTIC_NAME# removes #ITEM#.";
 
 // Action display names. Plugin commands must always resolve back to canonical code names.
 
@@ -477,6 +501,12 @@ $F_NAMES_LOCAL["CheckInventory"] = "CheckInventory";
 $F_NAMES_LOCAL["SheatheWeapon"] = "SheatheWeapon";
 $F_NAMES_LOCAL["TakeASeat"] = "TakeASeat";
 $F_NAMES_LOCAL["ReadQuests"] = "ReadQuests";
+$F_NAMES_LOCAL["Relax"] = "Relax";
+$F_NAMES_LOCAL["DirectorCommand"] = "DirectorCommand";
+$F_NAMES_LOCAL["SpawnCaps"] = "SpawnCaps";
+$F_NAMES_LOCAL["SpawnItem"] = "SpawnItem";
+$F_NAMES_LOCAL["TeleportActor"] = "TeleportActor";
+$F_NAMES_LOCAL["KillTarget"] = "KillTarget";
 $F_NAMES_LOCAL["IncreaseWalkSpeed"] = "IncreaseWalkSpeed";
 $F_NAMES_LOCAL["DecreaseWalkSpeed"] = "DecreaseWalkSpeed";
 $F_NAMES_LOCAL["StopWalk"] = "StopWalk";
@@ -484,7 +514,7 @@ $F_NAMES_LOCAL["TravelTo"] = "TravelTo";
 $F_NAMES_LOCAL["WaitHere"] = "WaitHere";
 $F_NAMES_LOCAL["TakeCapsFromPlayer"] = "TakeCapsFromPlayer";
 $F_NAMES_LOCAL["FollowPlayer"] = "Follow_#PLAYER_NAME#";
-$F_NAMES_LOCAL["StopFollowing"] = "Stop_Following_#PLAYER_NAME#";
+$F_NAMES_LOCAL["StopFollowing"] = "Stop_Following";
 $F_NAMES_LOCAL["ComeCloser"] = "ComeCloser";
 $F_NAMES_LOCAL["GiveCapsTo"] = "GiveCapsTo";
 $F_NAMES_LOCAL["GiveItemTo"] = "GiveItemTo";
@@ -492,6 +522,8 @@ $F_NAMES_LOCAL["PickupItem"] = "PickupItem";
 $F_NAMES_LOCAL["MakeFollower"] = "Join_#PLAYER_NAME#_Party";
 
 $F_NAMES_LOCAL["Consume"] = "Consume";
+$F_NAMES_LOCAL["EquipItem"] = "EquipItem";
+$F_NAMES_LOCAL["UnequipItem"] = "UnequipItem";
 
 $F_NAMES_LOCAL["EndConversation"] = "EndConversation";
 
@@ -573,13 +605,8 @@ $GLOBALS["FUNCTIONS"] = [
         "description" => $F_DESCRIPTIONS_LOCAL["Follow"],
         "parameters" => [
             "type" => "object",
-            "properties" => [
-                "target" => [
-                    "type" => "string",
-                    "description" => "Target NPC, Actor, or being",
-                ],
-            ],
-            "required" => ["target"],
+            "properties" => [],
+            "required" => [],
         ],
     ],
     [
@@ -757,31 +784,12 @@ $GLOBALS["FUNCTIONS"] = [
         ],
     ],
     [
-        "name" => $F_NAMES_LOCAL["FollowPlayer"],
-        "description" => $F_DESCRIPTIONS_LOCAL["FollowPlayer"],
-        "parameters" => [
-            "type" => "object",
-            "properties" => [
-                "target" => [
-                    "type" => "string",
-                    "description" => "",
-                ],
-            ],
-            "required" => [""],
-        ],
-    ],
-    [
         "name" => $F_NAMES_LOCAL["StopFollowing"],
         "description" => $F_DESCRIPTIONS_LOCAL["StopFollowing"],
         "parameters" => [
             "type" => "object",
-            "properties" => [
-                "target" => [
-                    "type" => "string",
-                    "description" => "Keep it blank",
-                ],
-            ],
-            "required" => [""],
+            "properties" => [],
+            "required" => [],
         ],
     ],
     [
@@ -862,20 +870,6 @@ $GLOBALS["FUNCTIONS"] = [
         ],
     ],
     [
-        "name" => $F_NAMES_LOCAL["MakeFollower"],
-        "description" => $F_DESCRIPTIONS_LOCAL["MakeFollower"],
-        "parameters" => [
-            "type" => "object",
-            "properties" => [
-                "target" => [
-                    "type" => "string",
-                    "description" => "Keep it blank",
-                ],
-            ],
-            "required" => [""],
-        ],
-    ],
-    [
         "name" => $F_NAMES_LOCAL["Consume"],
         "description" => $F_DESCRIPTIONS_LOCAL["Consume"],
         "parameters" => [
@@ -891,6 +885,44 @@ $GLOBALS["FUNCTIONS"] = [
                 ],
             ],
             "required" => ["target"],
+        ],
+    ],
+    [
+        "name" => $F_NAMES_LOCAL["Relax"],
+        "description" => $F_DESCRIPTIONS_LOCAL["Relax"],
+        "parameters" => [
+            "type" => "object",
+            "properties" => new stdClass(),
+            "required" => [],
+            "additionalProperties" => false,
+        ],
+    ],
+    [
+        "name" => $F_NAMES_LOCAL["EquipItem"],
+        "description" => $F_DESCRIPTIONS_LOCAL["EquipItem"],
+        "parameters" => [
+            "type" => "object",
+            "properties" => [
+                "item" => [
+                    "type" => "string",
+                    "description" => "Exact weapon or wearable item name from <inventory> to equip.",
+                ],
+            ],
+            "required" => ["item"],
+        ],
+    ],
+    [
+        "name" => $F_NAMES_LOCAL["UnequipItem"],
+        "description" => $F_DESCRIPTIONS_LOCAL["UnequipItem"],
+        "parameters" => [
+            "type" => "object",
+            "properties" => [
+                "item" => [
+                    "type" => "string",
+                    "description" => "Exact currently equipped weapon or wearable item name from <inventory> to remove.",
+                ],
+            ],
+            "required" => ["item"],
         ],
     ],
 
@@ -946,7 +978,11 @@ function getFunctionNameAliases()
         'AcceptGift' => 'OpenInventory',
         "TakeMoneyFrom{$playerName}" => 'TakeCapsFromPlayer',
         'ReadQuestJournal' => 'ReadQuests',
-        "JoinTo{$playerName}Squad" => 'MakeFollower',
+        'FollowPlayer' => 'Follow',
+        'MakeFollower' => 'Follow',
+        "Follow{$playerName}" => 'Follow',
+        "Join{$playerName}Party" => 'Follow',
+        "JoinTo{$playerName}Squad" => 'Follow',
         "StopFollowing{$playerName}" => 'StopFollowing',
         "Stop_Following_{$playerName}" => 'StopFollowing',
         "StopFollow{$playerName}" => 'StopFollowing',
@@ -1514,7 +1550,7 @@ function queueFunctionExecutionCommand(&$commandBuffer, &$alreadySent, $executio
 
     dialecticEnrichTravelToExecutionContext($executionContext);
 
-    $actorName = ($actorName !== null && trim(strval($actorName)) !== "") ? strval($actorName) : strval($GLOBALS["DIALECTIC_NAME"] ?? "Dialectic");
+    $actorName = ($actorName !== null && trim(strval($actorName)) !== "") ? strval($actorName) : strval($GLOBALS["DIALECTIC_NAME"] ?? "DIALECTIC");
     $commandStr = dialecticEncodeActionLine(
         $actorName,
         strval($executionContext["function_code_name"] ?? ""),
@@ -1755,9 +1791,10 @@ foreach ($GLOBALS["FUNCTIONS"] as $n => $v) {
 dialecticTraceFunctionsIncludePhase(__LINE__, 'enabled_function_filter_done', $startTime);
 
 dialecticTraceFunctionsIncludePhase(__LINE__, 'bug_func_write_start', $startTime);
-file_put_contents(__DIR__ . "/../log/bug_func.txt", print_r($GLOBALS["FUNCTIONS"], true));
-file_put_contents(__DIR__ . "/../log/bug_func.txt", print_r($GLOBALS["ENABLED_FUNCTIONS"], true), FILE_APPEND);
-file_put_contents(__DIR__ . "/../log/bug_func.txt", print_r($GLOBALS["ENABLED_FUNCTIONS"], true), FILE_APPEND);
+Logger::debug(json_encode([
+    "function_count" => count($GLOBALS["FUNCTIONS"]),
+    "enabled_functions" => array_values($GLOBALS["ENABLED_FUNCTIONS"]),
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), __DIR__ . "/../log/bug_func.txt");
 dialecticTraceFunctionsIncludePhase(__LINE__, 'bug_func_write_done', $startTime);
 
 $GLOBALS["FUNCTIONS"] = array_values($GLOBALS["FUNCTIONS"]); //Get rid of array keys
@@ -1771,6 +1808,7 @@ dialecticTraceFunctionsIncludePhase(__LINE__, 'functions_reindexed', $startTime)
 
 require_once __DIR__ . "/../lib/scriptproxy_fallout.php";
 require_once __DIR__ . "/../lib/core/activity_status.php";
+require_once __DIR__ . "/../lib/narrator_actions.php";
 
 dialecticTraceFunctionsIncludePhase(__LINE__, 'post_filter_dependencies_loaded', $startTime);
 
@@ -1800,6 +1838,10 @@ $GLOBALS["action_post_process_fnct_ex"][]=function($actions) {
     }
 
     return $actionsCopy;
+};
+
+$GLOBALS["action_post_process_fnct_ex"][]=function($actions) {
+    return dialecticPostProcessNarratorActions(is_array($actions) ? $actions : []);
 };
 
 error_log("TRACE:\t".__LINE__. "\t".__FILE__.":\t".(microtime(true) - $startTime));

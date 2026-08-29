@@ -34,7 +34,7 @@ if ($minimeEnabled) {
 // POST MEMORY
 if ($minimeEnabled) {
     if (in_array($gameRequest[0], ["inputtext", "inputtext_s"])) {
-        if (sizeof($memoryInjectionCtx) == 0) {
+        if (sizeof($memoryInjectionCtx) == 0 && empty($GLOBALS['MEMORY_STRICT_FALLBACK_ATTEMPTED'])) {
             // In case main memory search didnt return resutls because minime activated and user is nt directly asking a question
             error_log("[POST MEMORY SEARCH]");
             $GLOBALS["PATCH_BYPASS_MINIME_EXTRACT"] = true;

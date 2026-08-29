@@ -11,6 +11,12 @@
 $maxWordsLimit = intval($GLOBALS["MAX_WORDS_LIMIT"] ?? 0);
 $MAXIMUM_WORDS=($maxWordsLimit>0)?"(Maximum {$maxWordsLimit} words)":"";
 $GLOBALS["MAXIMUM_WORDS"] = $MAXIMUM_WORDS;
+$promptCharacterName = function_exists('dialecticGetPromptCharacterName')
+    ? dialecticGetPromptCharacterName()
+    : ($GLOBALS["DIALECTIC_NAME"] ?? 'The Narrator');
+$narratorRoleplayName = function_exists('dialecticGetNarratorRoleplayName')
+    ? dialecticGetNarratorRoleplayName()
+    : 'The Narrator';
 
 $directNarratorDialogue = false;
 if (isset($GLOBALS["DIRECT_NARRATOR_DIALOGUE"])) {
@@ -67,7 +73,7 @@ if (!function_exists('dialecticExtractDirectedListenerNamesFromText')) {
             return [];
         }
 
-        if (!preg_match('/\((talking|whispering|shouting)\s+to\s+([^)]+)\)/i', $text, $matches)) {
+        if (!preg_match('/\((talking|whispering|shouting|speaking privately)\s+to\s+([^)]+)\)/i', $text, $matches)) {
             return [];
         }
 
@@ -170,7 +176,8 @@ if (!function_exists('dialecticLoadManagedRechatCuePrompts')) {
     {
         $previousSpeaker = dialecticGetRechatPreviousSpeakerName();
         $replacements = [
-            "{DIALECTIC_NAME}" => $GLOBALS["DIALECTIC_NAME"],
+            "{DIALECTIC_NAME}" => dialecticGetPromptCharacterName(),
+            "{NARRATOR_NAME}" => dialecticGetNarratorRoleplayName(),
             "{TEMPLATE_DIALOG}" => $GLOBALS["TEMPLATE_DIALOG"],
             "{PREVIOUS_SPEAKER}" => $previousSpeaker,
         ];
@@ -213,7 +220,8 @@ if (!function_exists('dialecticLoadManagedRechatListenerPrompt')) {
     function dialecticLoadManagedRechatListenerPrompt(): string
     {
         $replacements = [
-            "{DIALECTIC_NAME}" => $GLOBALS["DIALECTIC_NAME"],
+            "{DIALECTIC_NAME}" => dialecticGetPromptCharacterName(),
+            "{NARRATOR_NAME}" => dialecticGetNarratorRoleplayName(),
             "{PREVIOUS_SPEAKER}" => dialecticGetRechatPreviousSpeakerName(),
         ];
 
@@ -246,7 +254,8 @@ if (!function_exists('dialecticLoadManagedContinueCuePrompts')) {
 
         return [
             strtr($fallback, [
-                "{DIALECTIC_NAME}" => $GLOBALS["DIALECTIC_NAME"],
+                "{DIALECTIC_NAME}" => dialecticGetPromptCharacterName(),
+                "{NARRATOR_NAME}" => dialecticGetNarratorRoleplayName(),
                 "{TEMPLATE_DIALOG}" => $GLOBALS["TEMPLATE_DIALOG"],
             ]),
         ];
@@ -284,7 +293,8 @@ if ($inlineNarrationEnabled) {
         $inlineDialoguePromptKey,
         $inlineDialogueFallback,
         [
-            "{DIALECTIC_NAME}" => $GLOBALS["DIALECTIC_NAME"],
+            "{DIALECTIC_NAME}" => $promptCharacterName,
+            "{NARRATOR_NAME}" => $narratorRoleplayName,
             "{MAXIMUM_WORDS}" => $MAXIMUM_WORDS,
         ],
         "DIALOGUE_LINE_INLINE_RESPONSE"
@@ -304,7 +314,8 @@ if ($inlineNarrationEnabled) {
         " Be original, creative, knowledgeable, use your own thoughts. " .
         " Review context history to focus on conversation topic and to avoid repeating sentences and phraseology from previous lines.{MAXIMUM_WORDS}",
         [
-            "{DIALECTIC_NAME}" => $GLOBALS["DIALECTIC_NAME"],
+            "{DIALECTIC_NAME}" => $promptCharacterName,
+            "{NARRATOR_NAME}" => $narratorRoleplayName,
             "{MAXIMUM_WORDS}" => $MAXIMUM_WORDS,
         ],
         "DIALOGUE_LINE_RESPONSE"
@@ -317,10 +328,6 @@ if ($directNarratorDialogue) {
         " Do not include third-person narration, scene description, stage directions, or text in asterisks.";
 }
 
-if (@is_array($GLOBALS["TTS"]["AZURE"]["validMoods"]) &&  sizeof($GLOBALS["TTS"]["AZURE"]["validMoods"])>0) 
-    if ($GLOBALS["TTSFUNCTION"]=="azure")
-        $TEMPLATE_DIALOG.="(optional way of speaking from this list [" . implode(",", $GLOBALS["TTS"]["AZURE"]["validMoods"]) . "])";
-
 //$TEMPLATE_DIALOG.=" \"";
 
 
@@ -332,7 +339,7 @@ if (isset($GLOBALS["FEATURES"]["MEMORY_EMBEDDING"]["ENABLED"]) && $GLOBALS["FEAT
 
 
 if ($GLOBALS["FUNCTIONS_ARE_ENABLED"]) {
-    $TEMPLATE_ACTION="call a function to control {$GLOBALS["DIALECTIC_NAME"]} or";
+    $TEMPLATE_ACTION="call a function to control {$promptCharacterName} or";
     $TEMPLATE_ACTION="(Check #ACTIONS section. If {$GLOBALS["PLAYER_NAME"]}'s input asks, orders, permits, or clearly implies a concrete in-game action, choose the matching action instead of Talk. Use Talk only when no listed action fits.)";
 } else {
     $TEMPLATE_ACTION="";

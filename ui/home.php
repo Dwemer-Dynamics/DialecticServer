@@ -13,6 +13,9 @@ $enginePath = dirname(__DIR__) . DIRECTORY_SEPARATOR;
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "runtime_bootstrap.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "logger.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "background_processor.php");
+require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "fallout_stats.php");
+require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "eventlog_helper.php");
+require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "utils_game_timestamp.php");
 
 dialecticRuntimeBootstrap($enginePath, [
     'load_general_settings' => true,
@@ -261,8 +264,24 @@ $worldRows = $hasEventlog ? dialectic_home_rows($db, "SELECT data, location, par
 $worldContext = isset($worldRows[0]) ? dialectic_home_json_object($worldRows[0]['party'] ?? '') : [];
 $worldGameTime = dialectic_home_json_object($worldContext['game_time'] ?? []);
 $activeQuests = $hasQuests ? dialectic_home_rows($db, "SELECT name, id_quest, briefing, briefing2, status FROM quests ORDER BY CASE WHEN status='selected' THEN 0 ELSE 1 END, gamets DESC LIMIT 6") : [];
-$latestDiaryRows = $hasDiary ? dialectic_home_rows($db, "SELECT topic, content, people, location, localts, gamets FROM diarylog ORDER BY gamets DESC, rowid DESC LIMIT 1") : [];
+$latestDiaryRows = $hasDiary ? dialectic_home_rows($db, "SELECT rowid, topic, content, people, location, localts, gamets FROM diarylog ORDER BY gamets DESC, rowid DESC LIMIT 1") : [];
 $latestDiary = $latestDiaryRows[0] ?? [];
+
+// Read-only relationship activity derived from core_npc_master_history snapshots.
+$hasNpcHistory = dialectic_home_table_exists($db, 'core_npc_master_history');
+$relationshipActivity = [];
+if ($hasNpcHistory) {
+    try {
+        $relationshipActivity = dialecticFetchRelationshipTimelineChanges($db, [
+            'limit' => 5,
+            'scan_limit' => 400,
+            'visible_limit' => 2,
+        ]);
+    } catch (Throwable $e) {
+        Logger::warn("Home dashboard relationship activity failed: " . $e->getMessage());
+        $relationshipActivity = [];
+    }
+}
 $llmStats = [
     '24h' => ['success' => 0, 'total' => 0],
     '72h' => ['success' => 0, 'total' => 0],
@@ -340,11 +359,27 @@ $worldState = empty($worldContext) ? 'Not reported' : (!empty($worldContext['is_
 $worldDate = dialectic_home_game_date($worldGameTime);
 $worldTime = dialectic_home_game_time($worldGameTime);
 $latestLocalTimestamp = $latestEvent['localts'] ?? ($latestEvent['ts'] ?? null);
+$falloutStatCategories = dialecticFalloutStatCategories();
+$falloutStats = [];
+if ($hasConfOpts) {
+    $statIds = array_map(static function (string $statName) use ($db): string {
+        return "'" . $db->escape($statName) . "'";
+    }, dialecticFalloutStatNames());
+    if ($statIds !== []) {
+        foreach (dialectic_home_rows($db, "SELECT id, value FROM conf_opts WHERE id IN (" . implode(',', $statIds) . ")") as $statRow) {
+            $statName = (string)($statRow['id'] ?? '');
+            if ($statName !== '' && is_numeric($statRow['value'] ?? null)) {
+                $falloutStats[$statName] = max(0, (int)$statRow['value']);
+            }
+        }
+    }
+}
 
 ob_start();
 include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.html");
 ?>
 <link rel="stylesheet" href="<?php echo dialectic_home_h($webRoot); ?>/ui/css/main.css">
+<link rel="stylesheet" href="<?php echo dialectic_home_h($webRoot); ?>/ui/css/relationship_timeline.css">
 <style>
     :root {
         --dialectic-accent: rgb(255, 182, 65);
@@ -365,6 +400,15 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
         padding: 18px 10px 52px;
     }
 
+    .home-version-info {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 18px;
+        margin: 0 0 6px;
+        color: var(--dialectic-muted);
+        font-size: 0.9rem;
+    }
+
     .home-heading {
         display: flex;
         justify-content: space-between;
@@ -379,12 +423,6 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
         font-size: 2rem;
         font-weight: 400;
         line-height: 1.1;
-    }
-
-    .home-subtitle {
-        margin: 0;
-        color: var(--dialectic-muted);
-        font-size: 0.95rem;
     }
 
     .player-pill {
@@ -488,6 +526,47 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
         font-size: 0.86rem;
         color: var(--dialectic-muted);
         margin-top: 6px;
+    }
+
+    .fallout-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .fallout-stats-category {
+        background: var(--dialectic-surface-dark);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        padding: 13px;
+    }
+
+    .fallout-stats-category h4 {
+        color: var(--dialectic-accent);
+        font-size: 0.94rem;
+        font-weight: 400;
+        margin: 0 0 9px;
+    }
+
+    .fallout-stat-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: baseline;
+        gap: 12px;
+        padding: 5px 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.045);
+        color: #d4d4d4;
+        font-size: 0.84rem;
+    }
+
+    .fallout-stat-row:first-of-type {
+        border-top: 0;
+    }
+
+    .fallout-stat-row strong {
+        color: #f7f7f7;
+        font-weight: 400;
+        font-variant-numeric: tabular-nums;
     }
 
     .widget-table {
@@ -597,6 +676,34 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
         line-height: 1.55;
         margin: 0;
         white-space: pre-wrap;
+    }
+
+    .latest-diary-audio-controls {
+        align-items: center;
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        padding-top: 14px;
+    }
+
+    body .latest-diary-audio-button {
+        background: var(--dialectic-accent) !important;
+        border-color: rgb(218, 145, 28) !important;
+        color: #111 !important;
+    }
+
+    body .latest-diary-audio-button:hover:not(:disabled) {
+        background: rgb(218, 145, 28) !important;
+    }
+
+    body .latest-diary-audio-button:disabled {
+        cursor: wait;
+        opacity: 0.7;
+    }
+
+    .latest-diary-audio-status {
+        color: var(--dialectic-muted);
+        font-size: 0.9rem;
     }
 
     .stat-card.stat-period {
@@ -740,6 +847,10 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
             gap: 10px;
         }
 
+        .fallout-stats-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
         .stat-card {
             padding: 12px 8px;
         }
@@ -759,18 +870,19 @@ $debugPaneLink = false;
 include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.php");
 ?>
 <main class="container dashboard-shell">
+    <div class="home-version-info" aria-label="DIALECTIC versions">
+        <span>Server: <?php echo dialectic_home_h($serverVersionDisplay ?? 'N/A'); ?></span>
+        <span>Plugin: <?php echo dialectic_home_h($pluginVersionDisplay ?? 'N/A'); ?></span>
+    </div>
     <div class="home-heading">
-        <div>
-            <h1>Dialectic Dashboard</h1>
-            <p class="home-subtitle">Fallout New Vegas AI runtime, profiles, voice, memory, and recent game events.</p>
-        </div>
+        <h1>DIALECTIC Dashboard</h1>
         <div class="player-pill">
             <i class="bi bi-person-circle"></i>
             <span><?php echo dialectic_home_h($playerName); ?></span>
         </div>
     </div>
 
-    <section class="dashboard-container" aria-label="Dialectic dashboard">
+    <section class="dashboard-container" aria-label="DIALECTIC dashboard">
         <article class="widget">
             <div class="widget-header">
                 <h3><i class="bi bi-info-circle"></i> Current Playthrough</h3>
@@ -792,7 +904,7 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
                         <?php if ($worldWeather !== ''): ?>
                             <tr><td>Weather</td><td><?php echo dialectic_home_h($worldWeather); ?></td></tr>
                         <?php endif; ?>
-                        <tr><td>Dialectic Mode</td><td><?php echo dialectic_home_h($currentModeLabel); ?></td></tr>
+                        <tr><td>DIALECTIC Mode</td><td><?php echo dialectic_home_h($currentModeLabel); ?></td></tr>
                         <tr><td>Active Model</td><td><?php echo dialectic_home_h($currentModel); ?></td></tr>
                     </table>
                 </div>
@@ -854,9 +966,36 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
             </div>
         </article>
 
+        <article class="widget">
+            <div class="widget-header">
+                <h3><i class="bi bi-people"></i> Relationship Activity</h3>
+            </div>
+            <div class="widget-content">
+                <?php if (empty($relationshipActivity)): ?>
+                    <p class="empty-state">No relationship changes have been recorded yet.</p>
+                <?php else: ?>
+                    <ul class="rel-timeline-feed" aria-label="Recent NPC relationship changes">
+                        <?php foreach ($relationshipActivity as $relationshipRow): ?>
+                            <?php
+                            $relationshipWhen = trim((string)($relationshipRow['fallout_time'] ?? ''));
+                            if ($relationshipWhen === '') {
+                                $relationshipWhen = trim((string)($relationshipRow['local_time'] ?? ''));
+                            }
+                            ?>
+                            <li>
+                                <span class="rel-timeline-feed-when"><?php echo dialectic_home_h($relationshipWhen !== '' ? $relationshipWhen : 'Unknown time'); ?></span>
+                                <span class="rel-timeline-feed-change"><?php echo dialecticRelationshipTimelineTooltipHtml($relationshipRow, 'home-rel'); ?></span>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <p class="rel-timeline-note">Read-only, derived from NPC history. Hover or focus an entry for the full before/after detail.</p>
+                <?php endif; ?>
+            </div>
+        </article>
+
         <article class="widget widget-wide">
             <div class="widget-header">
-                <h3><i class="bi bi-bar-chart"></i> Dialectic Stats</h3>
+                <h3><i class="bi bi-bar-chart"></i> DIALECTIC Stats</h3>
             </div>
             <div class="widget-content">
                 <div class="widget-stats">
@@ -879,10 +1018,6 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
                     <div class="stat-card">
                         <div class="stat-value"><?php echo dialectic_home_number($diaryCount); ?></div>
                         <div class="stat-label">Diary Entries</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value"><?php echo dialectic_home_number(((int)$ttsConnectorCount + (int)$llmConnectorCount)); ?></div>
-                        <div class="stat-label"><?php echo dialectic_home_number($llmConnectorCount); ?> LLM / <?php echo dialectic_home_number($ttsConnectorCount); ?> TTS</div>
                     </div>
                     <div class="stat-card action-card" role="button" tabindex="0" data-dashboard-modal-target="locationsModal">
                         <div class="stat-value"><?php echo dialectic_home_number($locationCount); ?></div>
@@ -922,6 +1057,10 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
                         </div>
                         <h4><?php echo dialectic_home_h($latestDiary['topic'] ?? 'Untitled Entry'); ?></h4>
                         <p><?php echo dialectic_home_h($latestDiary['content'] ?? ''); ?></p>
+                    </div>
+                    <div class="latest-diary-audio-controls">
+                        <button type="button" id="latestDiaryAudioButton" class="latest-diary-audio-button" onclick="toggleLatestDiaryAudio(this, <?php echo (int)($latestDiary['rowid'] ?? 0); ?>)">&#9654; Play Audio</button>
+                        <span id="latestDiaryAudioStatus" class="latest-diary-audio-status" aria-live="polite"></span>
                     </div>
                 <?php endif; ?>
             </div>
@@ -995,6 +1134,31 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
                             });
                         })();
                     </script>
+                <?php endif; ?>
+            </div>
+        </article>
+
+        <article class="widget widget-wide">
+            <div class="widget-header">
+                <h3><i class="bi bi-person-vcard"></i> Fallout Stats</h3>
+            </div>
+            <div class="widget-content">
+                <?php if ($falloutStats === []): ?>
+                    <p class="empty-state">Load a Fallout save to import player statistics.</p>
+                <?php else: ?>
+                    <div class="fallout-stats-grid">
+                        <?php foreach ($falloutStatCategories as $categoryName => $categoryStats): ?>
+                            <section class="fallout-stats-category">
+                                <h4><?php echo dialectic_home_h($categoryName); ?></h4>
+                                <?php foreach ($categoryStats as $statName): ?>
+                                    <div class="fallout-stat-row">
+                                        <span><?php echo dialectic_home_h($statName); ?></span>
+                                        <strong><?php echo dialectic_home_h(number_format((int)($falloutStats[$statName] ?? 0))); ?></strong>
+                                    </div>
+                                <?php endforeach; ?>
+                            </section>
+                        <?php endforeach; ?>
+                    </div>
                 <?php endif; ?>
             </div>
         </article>
@@ -1099,6 +1263,71 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
     </div>
 
     <script>
+        const latestDiaryAudioEndpoint = <?php echo json_encode($webRoot . '/ui/api/dialectic_diary_audio.php'); ?>;
+        const latestDiaryAudio = new Audio();
+        let latestDiaryAudioEntryId = null;
+        let latestDiaryAudioRequest = null;
+
+        async function toggleLatestDiaryAudio(button, entryId) {
+            if (!entryId) return;
+            const status = document.getElementById('latestDiaryAudioStatus');
+            if (latestDiaryAudioEntryId === entryId && latestDiaryAudio.src) {
+                if (latestDiaryAudio.paused) {
+                    await latestDiaryAudio.play();
+                    button.innerHTML = '&#10074;&#10074; Pause';
+                    if (status) status.textContent = 'Playing';
+                } else {
+                    latestDiaryAudio.pause();
+                    button.innerHTML = '&#9654; Play Audio';
+                    if (status) status.textContent = 'Paused';
+                }
+                return;
+            }
+
+            if (latestDiaryAudioRequest) latestDiaryAudioRequest.abort();
+            latestDiaryAudio.pause();
+            latestDiaryAudio.removeAttribute('src');
+            latestDiaryAudio.load();
+            latestDiaryAudioEntryId = entryId;
+            latestDiaryAudioRequest = new AbortController();
+            button.disabled = true;
+            button.textContent = 'Generating...';
+            if (status) status.textContent = 'Generating audio with the NPC voice...';
+
+            try {
+                const response = await fetch(`${latestDiaryAudioEndpoint}?entry=${encodeURIComponent(entryId)}`, {
+                    cache: 'no-store',
+                    signal: latestDiaryAudioRequest.signal
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success || !result.audio_url) {
+                    throw new Error(result.error || 'Diary audio could not be generated.');
+                }
+                latestDiaryAudioRequest = null;
+                latestDiaryAudio.src = result.audio_url;
+                await latestDiaryAudio.play();
+                button.disabled = false;
+                button.innerHTML = '&#10074;&#10074; Pause';
+                if (status) status.textContent = `Playing ${result.author || 'NPC'} with ${result.connector || 'configured TTS'}`;
+            } catch (error) {
+                latestDiaryAudioRequest = null;
+                if (error.name === 'AbortError') return;
+                console.error('Latest diary audio failed:', error);
+                button.disabled = false;
+                button.innerHTML = '&#9654; Play Audio';
+                if (status) status.textContent = error.message || 'Diary audio failed.';
+                latestDiaryAudioEntryId = null;
+            }
+        }
+
+        latestDiaryAudio.addEventListener('ended', () => {
+            const button = document.getElementById('latestDiaryAudioButton');
+            const status = document.getElementById('latestDiaryAudioStatus');
+            if (button) button.innerHTML = '&#9654; Play Audio';
+            if (status) status.textContent = '';
+            latestDiaryAudioEntryId = null;
+        });
+
         function dialecticOpenDashboardModal(id) {
             const modal = document.getElementById(id);
             if (!modal) return;

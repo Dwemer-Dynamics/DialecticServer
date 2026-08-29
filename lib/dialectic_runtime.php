@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'game_plugins.php';
+
 function dialectic_seed_prompt_manager_defaults(object $db): void
 {
     if (!method_exists($db, 'execQuery')) {
@@ -9,7 +11,7 @@ function dialectic_seed_prompt_manager_defaults(object $db): void
     $seedPrompts = [
         'dialectic_system_prompt' => [
             'default_prompt' => "You are {DIALECTIC_NAME}, a person living in the Fallout wasteland. Treat Fallout: New Vegas as your real world, not as a game. Stay psychologically consistent, use your profile and memories, and react to {PLAYER_NAME} from your own motives, relationships, fears, needs, and current situation.",
-            'description' => 'Primary Dialectic NPC system identity prompt. Supports {DIALECTIC_NAME}, {PLAYER_NAME}, and {WORLD_NAME}. Used by lib/dialectic_prompt_manager.php.',
+            'description' => 'Primary DIALECTIC NPC system identity prompt. Supports {DIALECTIC_NAME}, {PLAYER_NAME}, and {WORLD_NAME}. Used by lib/dialectic_prompt_manager.php.',
         ],
         'dialectic_response_rules' => [
             'default_prompt' => "Reply as in-game dialogue for {DIALECTIC_NAME}. Do not mention AI, servers, prompts, mods, databases, or language models. Do not output JSON. Do not include a speaker label. Keep the response concise enough for an in-game subtitle unless the situation clearly needs more.",
@@ -376,7 +378,39 @@ function dialectic_normalize_formid(string $formid): string
     return is_string($formid) ? $formid : '';
 }
 
-function dialectic_fetch_bio_template(object $db, string $npcName, string $refid = ''): ?array
+function dialectic_resolve_actor_form_identity(object $db, string $formid): ?array
+{
+    $stable = dialecticParseStableFormReference($formid);
+    if (is_array($stable)) {
+        return [
+            'plugin' => $stable['plugin_name'],
+            'local_formid' => $stable['local_formid'],
+        ];
+    }
+
+    $runtimeFormid = dialecticNormalizeRuntimeFormId($formid);
+    if ($runtimeFormid === '' || !method_exists($db, 'fetchOne')) {
+        return null;
+    }
+    $prefix = str_starts_with($runtimeFormid, 'FE') ? substr($runtimeFormid, 0, 5) : substr($runtimeFormid, 0, 2);
+    $escapedPrefix = dialectic_db_escape($db, $prefix);
+    $plugin = $db->fetchOne("
+        SELECT plugin_name
+        FROM public.game_plugins
+        WHERE upper(formid_prefix) = upper('{$escapedPrefix}')
+        LIMIT 1
+    ");
+    if (!is_array($plugin) || empty($plugin['plugin_name'])) {
+        return null;
+    }
+
+    return [
+        'plugin' => strval($plugin['plugin_name']),
+        'local_formid' => dialecticExtractLocalFormIdFromRuntimeFormId($runtimeFormid),
+    ];
+}
+
+function dialectic_fetch_bio_template(object $db, string $npcName, string $refid = '', string $baseid = ''): ?array
 {
     if (!method_exists($db, 'fetchOne')) {
         return null;
@@ -400,11 +434,47 @@ function dialectic_fetch_bio_template(object $db, string $npcName, string $refid
         refid
     ";
 
+    $fetchMappedTemplate = static function (array $identity, bool $reference) use ($db): ?array {
+        $plugin = dialectic_db_escape($db, strval($identity['plugin'] ?? ''));
+        $localFormid = dialectic_db_escape($db, strtoupper(strval($identity['local_formid'] ?? '')));
+        if ($plugin === '' || $localFormid === '') {
+            return null;
+        }
+        $pluginColumn = $reference ? 'reference_plugin' : 'base_plugin';
+        $formidColumn = $reference ? 'reference_local_formid' : 'base_local_formid';
+        $row = $db->fetchOne("
+            SELECT t.*, TRUE AS is_nonverbal_creature
+            FROM public.bio_template_actor_map m
+            JOIN public.combined_bio_templates t ON lower(t.npc_name) = lower(m.template_name)
+            WHERE lower(m.{$pluginColumn}) = lower('{$plugin}')
+              AND upper(m.{$formidColumn}) = upper('{$localFormid}')
+            ORDER BY m.id ASC
+            LIMIT 1
+        ");
+        return (is_array($row) && !empty($row['npc_name'])) ? $row : null;
+    };
+
+    $referenceIdentity = dialectic_resolve_actor_form_identity($db, $refid);
+    if (is_array($referenceIdentity)) {
+        $row = $fetchMappedTemplate($referenceIdentity, true);
+        if (is_array($row)) {
+            return $row;
+        }
+    }
+
+    $baseIdentity = dialectic_resolve_actor_form_identity($db, $baseid);
+    if (is_array($baseIdentity)) {
+        $row = $fetchMappedTemplate($baseIdentity, false);
+        if (is_array($row)) {
+            return $row;
+        }
+    }
+
     $normalizedRefid = dialectic_normalize_formid($refid);
     if ($normalizedRefid !== '') {
         $escapedRefid = dialectic_db_escape($db, $normalizedRefid);
         $row = $db->fetchOne("
-            SELECT {$fields}
+            SELECT {$fields}, FALSE AS is_nonverbal_creature
             FROM public.combined_bio_templates
             WHERE regexp_replace(lower(COALESCE(refid, '')), '[^0-9a-fx]+', '', 'g') = '{$escapedRefid}'
             LIMIT 1
@@ -421,8 +491,24 @@ function dialectic_fetch_bio_template(object $db, string $npcName, string $refid
 
     $escapedCodename = dialectic_db_escape($db, $codename);
     $escapedName = dialectic_db_escape($db, $npcName);
+
     $row = $db->fetchOne("
-        SELECT {$fields}
+        SELECT t.*, TRUE AS is_nonverbal_creature
+        FROM public.combined_bio_templates t
+        JOIN (
+            SELECT min(template_name) AS template_name
+            FROM public.bio_template_actor_map
+            WHERE lower(COALESCE(exact_name, '')) = lower('{$escapedName}')
+            HAVING count(DISTINCT lower(template_name)) = 1
+        ) m ON lower(m.template_name) = lower(t.npc_name)
+        LIMIT 1
+    ");
+    if (is_array($row) && !empty($row['npc_name'])) {
+        return $row;
+    }
+
+    $row = $db->fetchOne("
+        SELECT {$fields}, FALSE AS is_nonverbal_creature
         FROM public.combined_bio_templates
         WHERE lower(npc_name) = lower('{$escapedCodename}')
            OR lower(npc_name) = lower('{$escapedName}')
@@ -434,10 +520,13 @@ function dialectic_fetch_bio_template(object $db, string $npcName, string $refid
     }
 
     $row = $db->fetchOne("
-        SELECT {$fields}
-        FROM public.combined_bio_templates
-        WHERE lower(npc_name) LIKE lower('{$escapedCodename}') || '\\_%'
-        ORDER BY length(npc_name) ASC, npc_name ASC
+        SELECT t.*, FALSE AS is_nonverbal_creature
+        FROM public.combined_bio_templates t
+        WHERE lower(t.npc_name) LIKE lower('{$escapedCodename}') || '\\_%'
+          AND NOT EXISTS (
+              SELECT 1 FROM public.bio_template_actor_map m WHERE lower(m.template_name) = lower(t.npc_name)
+          )
+        ORDER BY length(t.npc_name) ASC, t.npc_name ASC
         LIMIT 1
     ");
 
@@ -484,13 +573,15 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
     $voice = trim(strval($profileFields['voice'] ?? ''));
     $voiceFormId = trim(strval($profileFields['voice_formid'] ?? ''));
     $voiceName = trim(strval($profileFields['voice_name'] ?? ''));
+    $actorProfileVoice = $voice;
     if (dialectic_is_temporary_silent_voice($voice, $voiceName)) {
         $voice = '';
         $voiceFormId = '';
         $voiceName = '';
     }
     $profileId = dialectic_default_npc_profile_id($db);
-    $bioTemplate = dialectic_fetch_bio_template($db, $npcName, $refid);
+    $baseid = trim(strval($profileFields['baseid'] ?? ''));
+    $bioTemplate = dialectic_fetch_bio_template($db, $npcName, $refid, $baseid);
 
     $templateValue = static function (string $key) use ($bioTemplate): string {
         return is_array($bioTemplate) ? trim(strval($bioTemplate[$key] ?? '')) : '';
@@ -508,7 +599,7 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
     $goals = $templateValue('goals');
 
     if ($personality === '') {
-        $personality = 'A Fallout: New Vegas wasteland resident. Replace this generated Dialectic seed profile with richer character data when available.';
+        $personality = 'A Fallout: New Vegas wasteland resident. Replace this generated DIALECTIC seed profile with richer character data when available.';
     }
     if ($speechstyle === '') {
         $speechstyle = 'Speaks plainly and reacts to the Courier and the current situation.';
@@ -520,7 +611,13 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
     if ($race === '') {
         $race = $templateValue('race');
     }
-    if ($voice === '') {
+    $isMappedCreature = is_array($bioTemplate)
+        && in_array($bioTemplate['is_nonverbal_creature'] ?? false, [true, 1, '1', 't', 'true'], true);
+    if ($isMappedCreature) {
+        $voice = $templateValue('voiceid');
+        $voiceFormId = '';
+        $voiceName = '';
+    } elseif ($voice === '') {
         $voice = $templateValue('voiceid');
     }
 
@@ -542,7 +639,7 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
             'voiceid' => $voice,
             'voice_formid' => $voiceFormId,
             'voice_name' => $voiceName,
-            'source' => 'actor_profile',
+            'source' => $isMappedCreature ? 'creature_bio_template' : 'actor_profile',
             'updated_at' => time(),
         ];
     }
@@ -578,6 +675,7 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
             race,
             voiceid,
             refid,
+            base,
             profile_id,
             metadata,
             extended_data,
@@ -601,6 +699,7 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
             " . dialectic_sql_nullable_string($db, $race) . ",
             " . dialectic_sql_nullable_string($db, $voice) . ",
             " . ($refid !== '' ? "'{$escapedRefid}'" : "NULL") . ",
+            " . dialectic_sql_nullable_string($db, $baseid) . ",
             " . ($profileId !== null ? intval($profileId) : "NULL") . ",
             '{$metadata}'::jsonb,
             '{$extendedJson}'::jsonb,
@@ -612,7 +711,10 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
             npc_static_bio = COALESCE(NULLIF(public.core_npc_master.npc_static_bio, ''), EXCLUDED.npc_static_bio),
             worldknowledge_tags = COALESCE(NULLIF(public.core_npc_master.worldknowledge_tags, ''), EXCLUDED.worldknowledge_tags),
             personality = CASE
-                WHEN public.core_npc_master.personality = 'A Fallout: New Vegas wasteland resident. Replace this generated Dialectic seed profile with richer character data when available.'
+                WHEN public.core_npc_master.personality IN (
+                    'A Fallout: New Vegas wasteland resident. Replace this generated Dialectic seed profile with richer character data when available.',
+                    'A Fallout: New Vegas wasteland resident. Replace this generated DIALECTIC seed profile with richer character data when available.'
+                )
                     THEN EXCLUDED.personality
                 ELSE COALESCE(NULLIF(public.core_npc_master.personality, ''), EXCLUDED.personality)
             END,
@@ -628,8 +730,17 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
             goals = COALESCE(NULLIF(public.core_npc_master.goals, ''), EXCLUDED.goals),
             gender = COALESCE(NULLIF(EXCLUDED.gender, ''), public.core_npc_master.gender),
             race = COALESCE(NULLIF(EXCLUDED.race, ''), public.core_npc_master.race),
-            voiceid = COALESCE(NULLIF(EXCLUDED.voiceid, ''), public.core_npc_master.voiceid),
+            voiceid = CASE
+                WHEN public.core_npc_master.lock_profile = 1 THEN public.core_npc_master.voiceid
+                WHEN " . ($isMappedCreature ? "TRUE" : "FALSE") . "
+                 AND (
+                    NULLIF(public.core_npc_master.voiceid, '') IS NULL
+                    OR lower(public.core_npc_master.voiceid) = lower(" . dialectic_sql_nullable_string($db, $actorProfileVoice) . ")
+                 ) THEN EXCLUDED.voiceid
+                ELSE COALESCE(NULLIF(public.core_npc_master.voiceid, ''), NULLIF(EXCLUDED.voiceid, ''))
+            END,
             refid = COALESCE(NULLIF(EXCLUDED.refid, ''), public.core_npc_master.refid),
+            base = COALESCE(NULLIF(EXCLUDED.base, ''), public.core_npc_master.base),
             profile_id = COALESCE(public.core_npc_master.profile_id, EXCLUDED.profile_id),
             metadata = COALESCE(public.core_npc_master.metadata, '{}'::jsonb) || EXCLUDED.metadata,
             extended_data = COALESCE(public.core_npc_master.extended_data, '{}'::jsonb) || EXCLUDED.extended_data,

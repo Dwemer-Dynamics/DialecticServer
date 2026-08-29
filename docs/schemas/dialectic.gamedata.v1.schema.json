@@ -8,6 +8,7 @@
     "schema": {
       "enum": [
         "dialectic.actor_profile.v1",
+        "dialectic.inventory.v1",
         "dialectic.nearby_actors.v1",
         "dialectic.nearby_items.v1",
         "dialectic.points_of_interest.v1",
@@ -37,6 +38,40 @@
     "speaker_formid": { "type": "string" },
     "text": { "type": "string" },
     "people": { "type": "string" },
+    "eligible_actors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "refid"],
+        "properties": {
+          "name": { "type": "string" },
+          "refid": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "baseid", "count"],
+        "properties": {
+          "name": { "type": "string" },
+          "baseid": { "type": "string" },
+          "count": { "type": "integer" },
+          "value": { "type": "integer", "minimum": 0 },
+          "equipped": { "type": "boolean" },
+          "condition": { "type": ["number", "null"] },
+          "type": { "type": ["integer", "number", "string"] },
+          "ammo": { "type": ["string", "null"] },
+          "mods": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
     "quests": {
       "type": "array",
       "items": {

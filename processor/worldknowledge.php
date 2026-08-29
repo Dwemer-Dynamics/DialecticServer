@@ -1,394 +1,261 @@
 <?php
 
-$GLOBALS["WORLDKNOWLEDGE_HINT"] = "";
+declare(strict_types=1);
 
-// Helper function to properly check boolean values (handles string "false" from form submissions)
-// Guard against redeclaration when worldknowledge.php is included multiple times (e.g., during rechat)
+require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_runtime.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_forced_context.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'eventlog_helper.php';
+
+$GLOBALS['WORLDKNOWLEDGE_HINT'] = '';
+$GLOBALS['WORLDKNOWLEDGE_INJECTED_TOPICS'] = [];
+$GLOBALS['WORLDKNOWLEDGE_FORCED_SIGNALS'] = [];
+$worldKnowledgeStarted = hrtime(true);
+
 if (!function_exists('isWorldKnowledgeEnabled')) {
-    function isWorldKnowledgeEnabled($value) {
-        if ($value === null) return false;
-        if ($value === false || $value === 'false' || $value === '0' || $value === 0) return false;
-        if ($value === true || $value === 'true' || $value === '1' || $value === 1) return true;
-        return (bool)$value;
+    function isWorldKnowledgeEnabled(mixed $value): bool
+    {
+        return !in_array($value, [null, false, 0, '0', 'false', 'off', 'no'], true);
     }
 }
 
-$minimeEnabled = isMinimeT5Enabled();
-$worldknowledgeCustomEnabled = isWorldKnowledgeEnabled($GLOBALS["WORLDKNOWLEDGE_CUSTOM"] ?? false);
-$worldknowledgeInfiniumEnabled = isWorldKnowledgeEnabled($GLOBALS["WORLDKNOWLEDGE_INFINIUM"] ?? false);
+if (!function_exists('dialecticWorldKnowledgeSanitizeInputText')) {
+    /** Remove transport-only labels while preserving bounded dialogue text. */
+    function dialecticWorldKnowledgeSanitizeInputText(string $input): string
+    {
+        $input = preg_replace('/\([^)]*Context location[^)]*\)/iu', ' ', $input) ?? $input;
+        $input = preg_replace('/\((?:(?:talking|whispering|shouting)|speaking privately)\s+to\s+[^()]+\)/iu', ' ', $input) ?? $input;
+        return trim(mb_strcut(preg_replace('/\s+/u', ' ', $input) ?? $input, 0, 16384, 'UTF-8'));
+    }
 
-$worldknowledgeRows = 0;
-try {
-    $worldknowledgeCountRow = $GLOBALS["db"]->fetchOne("
-        SELECT CASE
-            WHEN to_regclass('public.worldknowledge') IS NULL THEN 0
-            ELSE (SELECT COUNT(*) FROM public.worldknowledge)
-        END AS row_count
-    ");
-    $worldknowledgeRows = intval($worldknowledgeCountRow["row_count"] ?? 0);
-} catch (Throwable $e) {
-    Logger::warn("[WORLDKNOWLEDGE] Could not inspect worldknowledge table: " . $e->getMessage());
-    $worldknowledgeRows = 0;
+    /** Return at most the immediately preceding two distinct dialogue lines. */
+    function dialecticWorldKnowledgePreviousExchangeText($db, string $currentInput): string
+    {
+        $npcName = trim(strval($GLOBALS['DIALECTIC_NAME'] ?? ''));
+        if (!$db || $npcName === '' || !method_exists($db, 'fetchAll') || !method_exists($db, 'escape')
+            || !function_exists('dialecticBuildNpcEventLogPeopleWhereClause')) return '';
+        try {
+            $peopleWhere = dialecticBuildNpcEventLogPeopleWhereClause($db, $npcName);
+            $rows = $db->fetchAll(
+                "SELECT type, data FROM eventlog WHERE type IN ('inputtext','chat','rechat')"
+                . " AND {$peopleWhere} ORDER BY rowid DESC LIMIT 6"
+            );
+        } catch (Throwable) {
+            return '';
+        }
+        $currentKey = DialecticWorldKnowledgeRetriever::normalize($currentInput);
+        $seen = [];
+        $parts = [];
+        foreach ($rows as $row) {
+            $text = dialecticWorldKnowledgeSanitizeInputText(strval($row['data'] ?? ''));
+            $key = DialecticWorldKnowledgeRetriever::normalize($text);
+            if ($key === '' || $key === $currentKey || isset($seen[$key])) continue;
+            $seen[$key] = true;
+            $parts[] = $text;
+            if (count($parts) >= 2) break;
+        }
+        return mb_strcut(implode("\n", array_reverse($parts)), 0, 4096, 'UTF-8');
+    }
 }
 
-if ($worldknowledgeRows <= 0) {
-    Logger::info("[WORLDKNOWLEDGE] worldknowledge table is empty; skipping lore injection");
+$db = $GLOBALS['db'] ?? null;
+$requestType = strval($gameRequest[0] ?? '');
+$effectiveSettings = dialecticWorldKnowledgeEffectiveSettings();
+$settings = $effectiveSettings['values'];
+$enabled = boolval($settings['enabled']);
+$eligible = DialecticWorldKnowledgeRetriever::isEligibleRequest($requestType);
+$inputText = '';
+
+if ($requestType === 'rechat' && $db && method_exists($db, 'fetchOne')) {
+    $lastChat = $db->fetchOne("SELECT data FROM eventlog WHERE type='chat' ORDER BY gamets DESC LIMIT 1");
+    $inputText = trim(strval($lastChat['data'] ?? ''));
+} else {
+    $inputText = trim(strval($gameRequest[3] ?? ''));
+}
+$inputText = dialecticWorldKnowledgeSanitizeInputText($inputText);
+
+$trace = [
+    'algorithm_version' => DialecticWorldKnowledgeRetriever::VERSION,
+    'status' => !$enabled ? 'disabled' : (!$eligible ? 'ineligible' : 'no_match'),
+    'request_type' => $requestType,
+    'npc_name' => strval($GLOBALS['DIALECTIC_NAME'] ?? ''),
+    'input_text' => $inputText,
+    'normalized_input' => DialecticWorldKnowledgeRetriever::normalize($inputText),
+    'catalog_id' => '',
+    'catalog_version' => '',
+    'catalog_checksum' => '',
+    'grounded_matches' => [],
+    'rejected_candidates' => [],
+    'tag_decisions' => [],
+    'context_tags' => [],
+    'fallback' => ['eligible' => false, 'attempted' => false, 'suggestions' => [], 'resolved_topics' => []],
+    'context_fallback' => ['eligible' => false, 'attempted' => false, 'used' => false],
+    'forced_signals' => [],
+    'access_decisions' => [],
+    'selected_articles' => [],
+    'settings' => $effectiveSettings,
+    'prompt_hash' => '',
+    'retrieval_elapsed_ms' => 0.0,
+    'elapsed_ms' => 0.0,
+];
+
+if (!$db || !$enabled || !$eligible) {
+    if ($db) {
+        $trace['elapsed_ms'] = round((hrtime(true) - $worldKnowledgeStarted) / 1_000_000, 3);
+        dialecticWorldKnowledgeRecordAudit($db, $trace);
+    }
     return;
 }
 
-// Debug: Log the actual values being checked
-error_log("[WORLDKNOWLEDGE DEBUG] MINIME_T5(auto)=" . ($minimeEnabled ? 'Y' : 'N')
-    . " | WORLDKNOWLEDGE_CUSTOM=" . var_export($GLOBALS["WORLDKNOWLEDGE_CUSTOM"] ?? 'NOT SET', true)
-    . " (enabled=" . ($worldknowledgeCustomEnabled ? 'Y' : 'N') . ")"
-    . " | WORLDKNOWLEDGE_INFINIUM=" . var_export($GLOBALS["WORLDKNOWLEDGE_INFINIUM"] ?? 'NOT SET', true)
-    . " (enabled=" . ($worldknowledgeInfiniumEnabled ? 'Y' : 'N') . ")");
-
-if ($minimeEnabled || $worldknowledgeCustomEnabled) {
-    if ($worldknowledgeInfiniumEnabled) {
-        if (in_array($gameRequest[0], ["inputtext","inputtext_s","rechat", "continue", "instruction", "suggestion"])) {
-            
-            if ($gameRequest[0] === "rechat") {
-                $pattern = "/\([^)]*Context location[^)]*\)/"; // Remove (Context location..)
-                $replacement = "";
-                // Get last chat event for rechat context
-                $lastChat = $db->fetchOne("SELECT data FROM eventlog WHERE type IN ('chat') ORDER BY gamets DESC LIMIT 1");
-                $INPUT_TEXT = $lastChat ? preg_replace($pattern, $replacement, $lastChat["data"]) : "";
-                // Remove NPC name prefix pattern (e.g., "Irileth: ")
-                $INPUT_TEXT = preg_replace('/^[^:]+:\s*/', '', $INPUT_TEXT);
-                // Remove talking to pattern
-                $pattern = '/\(talking to [^()]+\)/i';
-                $INPUT_TEXT = preg_replace($pattern, '', $INPUT_TEXT);
-                
-            } else {
-                $pattern = "/\([^)]*Context location[^)]*\)/"; // Remove (Context location..)
-                $replacement = "";
-                $INPUT_TEXT = preg_replace($pattern, $replacement, $gameRequest[3]);
-                $pattern = '/\(talking to [^()]+\)/i';
-                $INPUT_TEXT = preg_replace($pattern, '', $INPUT_TEXT);
-                $INPUT_TEXT = strtr($INPUT_TEXT, ["."=>" ", "{$GLOBALS["PLAYER_NAME"]}:"=>""]);
-            }
-
-
-            $currentWorldKnowledgeTopic_req = $db->fetchOne("SELECT value FROM conf_opts WHERE id='current_worldknowledge_topic'");
-            $currentWorldKnowledgeTopic     = getArrayKey($currentWorldKnowledgeTopic_req, "value");
-
-            // Get location and context keywords
-            $locationCtx      = DataLastKnownLocationHuman(false);
-            $contextKeywords  = implode(" ", lastKeyWordsContext(5, $GLOBALS["DIALECTIC_NAME"]));
-
-            // Build the user's knowledge array
-            $worldknowledgeString = isset($GLOBALS["WORLDKNOWLEDGE"])
-                ? $GLOBALS["WORLDKNOWLEDGE"]
-                : '';
-
-            $worldknowledgeArray = array_map('trim', explode(',', $worldknowledgeString));
-            $worldknowledgeArray = array_filter($worldknowledgeArray);
-            $worldknowledgeArray[] = $GLOBALS["DIALECTIC_NAME"];
-
-            // Helper function to convert a string to tsquery format
-            $prepareTsQuery = function ($string, $operator = '|') {
-                // 1) Convert underscores to spaces and remove apostrophes
-                $string = str_replace('_', ' ', $string);
-                $string = preg_replace('/[\'\']/u', '', $string);
-            
-                // 2) Remove all other non-alphanumeric or space characters
-                $cleanedString = preg_replace('/[^a-zA-Z0-9\s]/', '', $string);
-                $cleanedString = strtolower($cleanedString);
-            
-                // 3) Split into tokens
-                $words = preg_split('/\s+/', $cleanedString);
-                $words = array_filter($words); // remove empty
-            
-                // 4) Append :* for prefix-based partial matches
-                $words = array_map(fn($w) => $w . ':*', $words);
-            
-                // 5) Join with | (OR) or & (AND) as needed
-                return implode(" $operator ", $words);
-            };
-
-            // Helper function to normalize text for comparison
-            $normalizeText = function ($text) {
-                // Convert to lowercase
-                $text = strtolower($text);
-                // Replace underscores with spaces
-                $text = str_replace('_', ' ', $text);
-                // Remove all non-alphanumeric characters
-                $text = preg_replace('/[^a-z0-9\s]/', '', $text);
-                // Remove extra spaces
-                $text = preg_replace('/\s+/', ' ', $text);
-                return trim($text);
-            };
-
-            // Store all found topics
-            $foundTopics = [];
-            $remainingText = $INPUT_TEXT;
-            $worldknowledgeAmount = isset($GLOBALS["WORLDKNOWLEDGE_AMOUNT"]) ? intval($GLOBALS["WORLDKNOWLEDGE_AMOUNT"]) : 1;
-            $firstTopic = null; // Track the first topic we find
-            $processedTopics = []; // Track normalized topics we've already processed
-
-            // Extract topics up to WORLDKNOWLEDGE_AMOUNT times
-            for ($i = 0; $i < $worldknowledgeAmount; $i++) {
-                if ($GLOBALS["WORLDKNOWLEDGE_CUSTOM"] && $GLOBALS["WORLDKNOWLEDGE_CUSTOM"]!=="false") {
-                    require_once(__DIR__."/../lib/worldknowledge_llm_service.php");
-                    $topic_req = LLMTopic($remainingText, 'en');
-                } else {
-                    $topic_req = minimeTopic($remainingText);
-                }
-                
-                if ($topic_req) {
-                    $topic_res = json_decode($topic_req, true);
-                    $currentInputTopic = getArrayKey($topic_res, "generated_tags");
-                    
-                    if (!empty($currentInputTopic)) {
-                        // Normalize the current topic for comparison
-                        $normalizedCurrentTopic = $normalizeText($currentInputTopic);
-                        
-                        // Check if we've already processed this topic
-                        if (in_array($normalizedCurrentTopic, $processedTopics)) {
-                            Logger::info("[WORLDKNOWLEDGE] Skipping duplicate topic: $currentInputTopic");
-                            break;
-                        }
-                        
-                        // Add to processed topics
-                        $processedTopics[] = $normalizedCurrentTopic;
-                        
-                        $foundTopics[] = $currentInputTopic;
-                        
-                        // Store the first topic we find
-                        if ($firstTopic === null) {
-                            $firstTopic = $currentInputTopic;
-                        }
-                        
-                        // Process this topic immediately
-                        $currentInputTopicQuery = $prepareTsQuery($currentInputTopic);
-                        $currentWorldKnowledgeTopicQuery = $prepareTsQuery($currentWorldKnowledgeTopic);
-                        $locationCtxQuery       = $prepareTsQuery($locationCtx);
-                        $contextKeywordsQuery   = $prepareTsQuery($contextKeywords);
-
-                        // Query to find the top matching WorldKnowledge entry for this topic
-                        $query = "
-                            SELECT 
-                                topic_desc,
-                                topic,
-                                knowledge_class,
-                                knowledge_class_basic,
-                                topic_desc_basic,
-                                ts_rank(native_vector, to_tsquery('$currentInputTopicQuery')) *
-                                    CASE WHEN native_vector @@ to_tsquery('$currentInputTopicQuery') THEN 10.0 ELSE 1.0 END +
-                                ts_rank(native_vector, to_tsquery('$currentWorldKnowledgeTopicQuery')) *
-                                    CASE WHEN native_vector @@ to_tsquery('$currentWorldKnowledgeTopicQuery') THEN 5.0 ELSE 1.0 END +
-                                ts_rank(native_vector, to_tsquery('$locationCtxQuery')) *
-                                    CASE WHEN native_vector @@ to_tsquery('$locationCtxQuery') THEN 2.0 ELSE 1.0 END +
-                                ts_rank(native_vector, to_tsquery('$contextKeywordsQuery')) *
-                                    CASE WHEN native_vector @@ to_tsquery('$contextKeywordsQuery') THEN 1.0 ELSE 0.0 END +
-                                -- Strong boost for alias match in the topic column (commas/underscores normalized)
-                                ts_rank(
-                                    to_tsvector('simple',
-                                        regexp_replace(
-                                            replace(lower(topic), '_',' '),
-                                            ',', ' ', 'g'
-                                        )
-                                    ),
-                                    to_tsquery('$currentInputTopicQuery')
-                                ) *
-                                CASE WHEN
-                                    to_tsvector('simple',
-                                        regexp_replace(
-                                            replace(lower(topic), '_',' '),
-                                            ',', ' ', 'g'
-                                        )
-                                    ) @@ to_tsquery('$currentInputTopicQuery')
-                                THEN 20.0 ELSE 0.0 END 
-                                AS combined_rank
-                            FROM worldknowledge
-                            WHERE
-                                native_vector @@ to_tsquery('$currentInputTopicQuery') OR
-                                native_vector @@ to_tsquery('$currentWorldKnowledgeTopicQuery') OR
-                                native_vector @@ to_tsquery('$locationCtxQuery') OR
-                                native_vector @@ to_tsquery('$contextKeywordsQuery') OR
-                                to_tsvector('simple',
-                                    regexp_replace(
-                                        replace(lower(topic), '_',' '),
-                                        ',', ' ', 'g'
-                                    )
-                                ) @@ to_tsquery('$currentInputTopicQuery')
-                            ORDER BY combined_rank DESC
-                            LIMIT 1;
-                        ";
-
-                        //error_log(print_r($query,true));
-                        if (false && $GLOBALS["FEATURES"]["MEMORY_EMBEDDING"]["USE_TEXT2VEC"]) 
-                            $worldknowledgeTopics=DataSearchWorldKnowledgeByVector($currentInputTopic,$currentWorldKnowledgeTopic,$locationCtx,$contextKeywords);
-                        else
-                            $worldknowledgeTopics = $GLOBALS["db"]->fetchAll($query);
-
-                        if (!empty($worldknowledgeTopics)) {
-                            $topTopic = $worldknowledgeTopics[0];
-                            $msg = 'worldknowledge keyword offered';
-
-                            // If rank is good enough, we try to see if user can access advanced or basic lore
-                            if ($topTopic["combined_rank"] > 3.3) {
-                                // -----------------------------
-                                // 1) Check advanced article
-                                // -----------------------------
-                                $advancedAllowed = false;
-                                $advClassesStr   = trim($topTopic["knowledge_class"] ?? '');
-                                if ($advClassesStr === '') {
-                                    // Empty => no restriction
-                                    $advancedAllowed = true;
-                                } else {
-                                    // Convert advanced classes to array and separate anti-categories
-                                    $advClassesArr   = array_map('trim', explode(',', $advClassesStr));
-                                    $advClassesArr   = array_filter($advClassesArr);
-
-                                    // Separate positive and negative (anti) categories
-                                    $positiveClasses = array_filter($advClassesArr, fn($c) => !str_starts_with($c, '!'));
-                                    $antiClasses = array_map(fn($c) => substr($c, 1), array_filter($advClassesArr, fn($c) => str_starts_with($c, '!')));
-
-                                    // First check if any anti-categories match (these deny access)
-                                    $hasAntiMatch = !empty(array_intersect($antiClasses, $worldknowledgeArray));
-                                    
-                                    if ($hasAntiMatch) {
-                                        // Anti-category matched, deny access
-                                        $advancedAllowed = false;
-                                    } else {
-                                        // No anti-match, check positive categories
-                                        $hasAdvancedKnowledge = array_intersect($positiveClasses, $worldknowledgeArray);
-                                        if (!empty($hasAdvancedKnowledge)) {
-                                            $advancedAllowed = true;
-                                        }
-                                    }
-                                }
-
-                                // -----------------------------------------------
-                                // ADD knowall OVERRIDE HERE
-                                // -----------------------------------------------
-                                // If 'knowall' is in the user's knowledge array, 
-                                // automatically allow advanced article.
-                                if (in_array('knowall', array_map('strtolower', $worldknowledgeArray))) {
-                                    $advancedAllowed = true;
-                                }
-
-                                if ($advancedAllowed) {
-                                    // The user can access advanced world knowledge
-                                    $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge (You have advanced knowledge on this subject, you can use it in your dialogue): {$topTopic["topic"]}\n\"".trim($topTopic["topic_desc"])."\"";
-                                } else {
-                                    // -----------------------------
-                                    // 2) Check basic article
-                                    // -----------------------------
-                                    $basicAllowed = false;
-                                    $basicClassesStr = trim($topTopic["knowledge_class_basic"] ?? '');
-                                    if ($basicClassesStr === '') {
-                                        // Empty => no restriction
-                                        $basicAllowed = true;
-                                    } else {
-                                        // Convert basic classes to array and separate anti-categories
-                                        $basicClassesArr = array_map('trim', explode(',', $basicClassesStr));
-                                        $basicClassesArr = array_filter($basicClassesArr);
-
-                                        // Separate positive and negative (anti) categories
-                                        $positiveClasses = array_filter($basicClassesArr, fn($c) => !str_starts_with($c, '!'));
-                                        $antiClasses = array_map(fn($c) => substr($c, 1), array_filter($basicClassesArr, fn($c) => str_starts_with($c, '!')));
-
-                                        // First check if any anti-categories match (these deny access)
-                                        $hasAntiMatch = !empty(array_intersect($antiClasses, $worldknowledgeArray));
-                                        
-                                        if ($hasAntiMatch) {
-                                            // Anti-category matched, deny access
-                                            $basicAllowed = false;
-                                        } else {
-                                            // No anti-match, check positive categories
-                                            $hasBasicKnowledge = array_intersect($positiveClasses, $worldknowledgeArray);
-                                            if (!empty($hasBasicKnowledge)) {
-                                                $basicAllowed = true;
-                                            }
-                                        }
-                                    }
-
-                                    if ($basicAllowed) {
-                                        $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge (You only have basic knowledge on this subject, you can use it in your dialogue): {$topTopic["topic"]}\n\"".trim($topTopic["topic_desc_basic"])."\"";
-                                    } else {
-                                        $GLOBALS["WORLDKNOWLEDGE_HINT"] .= " \n#World Knowledge\nYou do not know ANYTHING about {$topTopic["topic"]}";
-                                    }
-                                }
-                            } else {
-                                $msg = "worldknowledge keyword NOT offered (no good results in search)";
-                            }
-
-                            // Log to audit_memory immediately after processing this topic
-                            $GLOBALS["db"]->insert(
-                                'audit_memory',
-                                array(
-                                    'input'    => $remainingText,
-                                    'keywords' => $msg,
-                                    'rank_any' => $topTopic["combined_rank"],
-                                    'rank_all' => $topTopic["combined_rank"],
-                                    'memory'   => "$currentInputTopic / $currentWorldKnowledgeTopic / $locationCtxQuery / $contextKeywordsQuery => {$topTopic["topic"]}",
-                                    'time'     => $topic_res["elapsed_time"]
-                                )
-                            );
-                        }
-
-                        // Remove the found topic from remaining text using normalized comparison
-                        $normalizedTopic = $normalizeText($currentInputTopic);
-                        $normalizedRemaining = $normalizeText($remainingText);
-                        
-                        // Try to find the topic in the remaining text using fuzzy matching
-                        $pattern = '/\b' . preg_quote($normalizedTopic, '/') . '\b/i';
-                        if (preg_match($pattern, $normalizedRemaining, $matches)) {
-                            // Get the actual matched text from the original remaining text
-                            $startPos = stripos($remainingText, $matches[0]);
-                            $endPos = $startPos + strlen($matches[0]);
-                            
-                            // Remove the matched text and any surrounding "and"
-                            $beforeMatch = substr($remainingText, 0, $startPos);
-                            $afterMatch = substr($remainingText, $endPos);
-                            
-                            // Clean up any "and" before or after the match
-                            $beforeMatch = preg_replace('/\s+and\s*$/', '', $beforeMatch);
-                            $afterMatch = preg_replace('/^\s*and\s+/', '', $afterMatch);
-                            
-                            $remainingText = $beforeMatch . $afterMatch;
-                            
-                            // Additional cleanup to remove any remaining references to the topic
-                            $remainingText = preg_replace('/\b' . preg_quote($currentInputTopic, '/') . '\b/i', '', $remainingText);
-                        }
-                        
-                        // Clean up any remaining artifacts
-                        $remainingText = preg_replace('/\s+/', ' ', $remainingText);
-                        $remainingText = preg_replace('/^\s*and\s+/', '', $remainingText);
-                        $remainingText = preg_replace('/\s+and\s*$/', '', $remainingText);
-                        $remainingText = preg_replace('/,\s*,/', ',', $remainingText); // Remove double commas
-                        $remainingText = preg_replace('/^\s*,\s*/', '', $remainingText); // Remove leading comma
-                        $remainingText = preg_replace('/\s*,\s*$/', '', $remainingText); // Remove trailing comma
-                        $remainingText = trim($remainingText);
-                        
-                        Logger::info("[WORLDKNOWLEDGE] Remaining text after extraction $i: '$remainingText'");
-                    } else {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
-
-            // After the loop, update current WorldKnowledge topic in database with the first topic we found
-            if ($firstTopic !== null) {
-                Logger::info("[WORLDKNOWLEDGE] Setting first topic as current: $firstTopic");
-                $GLOBALS["db"]->upsertRowOnConflict(
-                    'conf_opts',
-                    array(
-                        'id' => 'current_worldknowledge_topic',
-                        'value' => $firstTopic
-                    ),
-                    'id'
-                );
-            }
-        }
-    } else {
-        error_log("[WORLDKNOWLEDGE] WORLDKNOWLEDGE_INFINIUM disabled: {$GLOBALS["WORLDKNOWLEDGE_INFINIUM"]}");
-    }
-}  else {
-        error_log("[WORLDKNOWLEDGE] MiniMe service unavailable and WORLDKNOWLEDGE_CUSTOM is disabled");
+$catalog = dialecticWorldKnowledgeFetchEffectiveCatalog($db);
+if ($catalog === []) {
+    $trace['status'] = 'unavailable';
+    $trace['elapsed_ms'] = round((hrtime(true) - $worldKnowledgeStarted) / 1_000_000, 3);
+    dialecticWorldKnowledgeRecordAudit($db, $trace);
+    return;
 }
-?>
+
+foreach ($catalog as $row) {
+    if (strval($row['source_kind'] ?? '') === 'factory' && strval($row['catalog_version'] ?? '') !== '') {
+        $trace['catalog_id'] = strval($row['catalog_id'] ?? '');
+        $trace['catalog_version'] = strval($row['catalog_version']);
+        if (method_exists($db, 'fetchOne') && method_exists($db, 'escapeLiteral')) {
+            $catalogRecord = $db->fetchOne(
+                'SELECT checksum_sha256 FROM public.worldknowledge_catalogs WHERE catalog_id='
+                . $db->escapeLiteral($trace['catalog_id']) . ' AND catalog_version='
+                . $db->escapeLiteral($trace['catalog_version']) . ' LIMIT 1'
+            );
+            $trace['catalog_checksum'] = strval($catalogRecord['checksum_sha256'] ?? '');
+        }
+        break;
+    }
+}
+
+$topicCount = intval($settings['topic_count']);
+$resultLimit = intval($settings['result_limit']);
+$retriever = new DialecticWorldKnowledgeRetriever($catalog);
+$retrievalStarted = hrtime(true);
+$retrieval = $retriever->extract($inputText, [], $topicCount);
+$previousExchange = '';
+$trace['context_fallback']['eligible'] = $retrieval['topics'] === []
+    && DialecticWorldKnowledgeRetriever::shouldUsePreviousExchange($inputText);
+if ($trace['context_fallback']['eligible']) {
+    $previousExchange = dialecticWorldKnowledgePreviousExchangeText($db, $inputText);
+    if ($previousExchange !== '') {
+        $trace['context_fallback']['attempted'] = true;
+        $previousRetrieval = $retriever->extract($previousExchange, [], 1);
+        if ($previousRetrieval['topics'] !== []) {
+            foreach ($previousRetrieval['matches'] as &$match) $match['context_source'] = 'previous_exchange';
+            unset($match);
+            $retrieval = $previousRetrieval;
+            $trace['context_fallback']['used'] = true;
+        }
+    }
+}
+$topics = $retrieval['topics'];
+$trace['grounded_matches'] = $retrieval['matches'];
+$trace['rejected_candidates'] = $retrieval['rejected'];
+$trace['tag_decisions'] = $retrieval['tag_decisions'];
+$trace['fallback']['eligible'] = boolval($retrieval['fallback_eligible']);
+$trace['retrieval_elapsed_ms'] = round((hrtime(true) - $retrievalStarted) / 1_000_000, 3);
+
+$fallbackEnabled = boolval($settings['extractor_fallback_enabled']);
+$fallbackConfigured = strval($settings['connector_id']) !== '';
+if ($topics === [] && $retrieval['fallback_eligible'] && $fallbackEnabled && $fallbackConfigured) {
+    $trace['fallback']['attempted'] = true;
+    $fallbackStarted = hrtime(true);
+    try {
+        require_once __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_llm_service.php';
+        $language = trim(strval($GLOBALS['CORE_LANG'] ?? 'en')) ?: 'en';
+        $fallbackText = $trace['context_fallback']['attempted'] && $previousExchange !== ''
+            ? "Previous exchange:\n{$previousExchange}\nCurrent follow-up:\n{$inputText}"
+            : $inputText;
+        $response = LLMTopic($fallbackText, $language);
+        $payload = is_string($response) ? json_decode($response, true) : null;
+        $generated = trim(strval(is_array($payload) ? ($payload['generated_tags'] ?? '') : ''));
+        $suggestions = array_values(array_filter(array_map('trim', preg_split('/[,;|]+/', $generated) ?: [])));
+        $topics = $retriever->resolveSuggestions($suggestions, [], $topicCount);
+        $trace['fallback']['suggestions'] = $suggestions;
+        $trace['fallback']['resolved_topics'] = $topics;
+    } catch (Throwable $exception) {
+        $trace['fallback']['error'] = $exception->getMessage();
+    } finally {
+        $trace['fallback']['elapsed_ms'] = round((hrtime(true) - $fallbackStarted) / 1_000_000, 3);
+    }
+}
+$topics = array_slice($topics, 0, $resultLimit);
+
+$rowsByTopic = [];
+foreach ($catalog as $row) {
+    $canonical = trim(strval($row['canonical_topic'] ?? dialecticWorldKnowledgeCanonicalTopic(strval($row['topic'] ?? ''))));
+    if ($canonical !== '') {
+        $rowsByTopic[$canonical] = $row;
+    }
+}
+
+$knowledgeTags = dialecticWorldKnowledgeKnowledgeTags();
+$trace['context_tags'] = $knowledgeTags;
+$selectedCount = 0;
+$promptEntryCount = 0;
+$deniedCount = 0;
+foreach ($topics as $topic) {
+    $row = $rowsByTopic[$topic] ?? null;
+    if (!is_array($row) || dialecticWorldKnowledgeTopicWasInjected(strval($row['topic'] ?? $topic))) {
+        continue;
+    }
+    $decision = dialecticWorldKnowledgeAccessDecision($row, $knowledgeTags);
+    $decision['source'] = 'conversation';
+    $trace['access_decisions'][] = $decision;
+    dialecticWorldKnowledgeMarkTopicInjected(strval($row['topic'] ?? $topic));
+    if ($decision['level'] === 'denied') {
+        $deniedCount++;
+        $GLOBALS['WORLDKNOWLEDGE_HINT'] .= ($GLOBALS['WORLDKNOWLEDGE_HINT'] === '' ? '' : "\n")
+            . dialecticWorldKnowledgeRenderArticleXml($row, $decision, 'conversation');
+        $promptEntryCount++;
+    } else {
+        $GLOBALS['WORLDKNOWLEDGE_HINT'] .= ($GLOBALS['WORLDKNOWLEDGE_HINT'] === '' ? '' : "\n")
+            . dialecticWorldKnowledgeRenderArticleXml($row, $decision, 'conversation');
+        $selectedCount++;
+        $promptEntryCount++;
+    }
+    $trace['selected_articles'][] = [
+        'topic' => $topic,
+        'level' => $decision['level'],
+        'source_kind' => $row['source_kind'] ?? '',
+        'catalog_id' => $row['catalog_id'] ?? null,
+        'catalog_version' => $row['catalog_version'] ?? null,
+    ];
+}
+
+$GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING'] = max(0, $resultLimit - $promptEntryCount);
+$forcedCount = dialecticWorldKnowledgeInjectForcedLocationContext($db)
+    + dialecticWorldKnowledgeInjectForcedActorContext($db);
+unset($GLOBALS['WORLDKNOWLEDGE_FORCED_REMAINING']);
+$trace['forced_signals'] = array_values($GLOBALS['WORLDKNOWLEDGE_FORCED_SIGNALS'] ?? []);
+$forcedDeniedCount = count(array_filter(
+    $trace['forced_signals'],
+    static fn(array $signal): bool => strval($signal['level'] ?? '') === 'denied'
+));
+
+if ($trace['fallback']['attempted'] && $topics !== []) {
+    $trace['status'] = 'fallback_succeeded';
+} elseif ($promptEntryCount > 0 || $forcedCount > 0 || $forcedDeniedCount > 0) {
+    $trace['status'] = 'grounded';
+} elseif ($trace['fallback']['attempted']) {
+    $trace['status'] = isset($trace['fallback']['error']) ? 'fallback_failed' : 'fallback_unresolved';
+} elseif ($trace['fallback']['eligible'] && !$fallbackEnabled) {
+    $trace['status'] = 'fallback_disabled';
+} elseif ($trace['fallback']['eligible'] && !$fallbackConfigured) {
+    $trace['status'] = 'fallback_unconfigured';
+} else {
+    $trace['status'] = 'no_match';
+}
+
+$trace['elapsed_ms'] = round((hrtime(true) - $worldKnowledgeStarted) / 1_000_000, 3);
+$articleXml = trim(strval($GLOBALS['WORLDKNOWLEDGE_HINT'] ?? ''));
+if ($articleXml !== '') {
+    $status = htmlspecialchars(strval($trace['status']), ENT_QUOTES | ENT_XML1, 'UTF-8');
+    $GLOBALS['WORLDKNOWLEDGE_HINT'] = '<oghma contract="oghma-parity-v1" status="' . $status . '">' . "\n"
+        . $articleXml . "\n</oghma>";
+    $trace['prompt_hash'] = hash('sha256', $GLOBALS['WORLDKNOWLEDGE_HINT']);
+}
+dialecticWorldKnowledgeRecordAudit($db, $trace);

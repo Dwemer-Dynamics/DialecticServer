@@ -103,13 +103,131 @@ if (!function_exists('dialecticResolveNpcRolemasterState')) {
     }
 }
 
+if (!function_exists('dialecticRelationshipTimelineState')) {
+    function dialecticRelationshipTimelineState($extendedData)
+    {
+        if (is_string($extendedData) && trim($extendedData) !== '') {
+            $extendedData = json_decode($extendedData, true);
+        }
+        if (!is_array($extendedData)) {
+            return null;
+        }
+
+        return ['relationships' => $extendedData['relationships'] ?? []];
+    }
+}
+
+if (!function_exists('dialecticRelationshipRestoreQuery')) {
+    function dialecticRelationshipRestoreQuery($timestamp, $schema = 'public')
+    {
+        if (!is_numeric($timestamp) || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', (string) $schema)) {
+            throw new InvalidArgumentException('Invalid relationship restore query input.');
+        }
+        $timestamp = (float) $timestamp;
+
+        return "WITH restore AS (
+            SELECT c.id AS npc_id, h.extended_data
+            FROM {$schema}.core_npc_master c
+            JOIN LATERAL (
+                SELECT h.extended_data
+                FROM {$schema}.core_npc_master_history h
+                WHERE h.npc_id = c.id
+                  AND (h.gamets_last_updated <= {$timestamp} OR h.gamets_last_updated IS NULL)
+                ORDER BY
+                    h.gamets_last_updated DESC NULLS LAST,
+                    CASE
+                        WHEN h.extended_data ->> '_dialectic_history_source' LIKE 'relationship%' THEN 2
+                        WHEN h.extended_data ->> '_dialectic_history_source' = 'infosave' THEN 1
+                        ELSE 0
+                    END DESC,
+                    h.created DESC,
+                    h.history_id DESC
+                LIMIT 1
+            ) h ON true
+            WHERE c.npc_name <> 'The Narrator'
+              AND NOT COALESCE((c.extended_data->>'relationships_locked')::boolean, false)
+        ),
+        updated AS (
+            UPDATE {$schema}.core_npc_master c
+            SET extended_data = (
+                (
+                    COALESCE(c.extended_data, '{}'::jsonb)
+                    - 'relationships'
+                    - 'relationships_analyzed'
+                    - 'relationships_inferred'
+                    - 'relationships_last_eval'
+                    - 'relationships_model'
+                    - 'relationships_updated'
+                    - '_dialectic_history_source'
+                )
+                || jsonb_strip_nulls(jsonb_build_object(
+                    'relationships', restore.extended_data -> 'relationships',
+                    'relationships_analyzed', restore.extended_data -> 'relationships_analyzed',
+                    'relationships_inferred', restore.extended_data -> 'relationships_inferred',
+                    'relationships_last_eval', restore.extended_data -> 'relationships_last_eval',
+                    'relationships_model', restore.extended_data -> 'relationships_model',
+                    'relationships_updated', restore.extended_data -> 'relationships_updated'
+                ))
+            )
+            FROM restore
+            WHERE c.id = restore.npc_id
+            RETURNING c.id
+        )
+        SELECT COUNT(*)::int AS affected FROM updated";
+    }
+}
+
+if (!function_exists('dialecticRelationshipFutureClearQuery')) {
+    function dialecticRelationshipFutureClearQuery($timestamp, $schema = 'public')
+    {
+        if (!is_numeric($timestamp) || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', (string) $schema)) {
+            throw new InvalidArgumentException('Invalid relationship clear query input.');
+        }
+        $timestamp = (float) $timestamp;
+
+        return "WITH cleared AS (
+                UPDATE {$schema}.core_npc_master AS c
+                SET extended_data = c.extended_data
+                    - 'relationships'
+                    - 'relationships_analyzed'
+                    - 'relationships_inferred'
+                    - 'relationships_last_eval'
+                    - 'relationships_model'
+                    - 'relationships_updated'
+                    - '_dialectic_history_source'
+                WHERE c.npc_name <> 'The Narrator'
+                  AND (c.gamets_last_updated > {$timestamp} OR c.gamets_last_updated IS NULL)
+                  AND c.extended_data IS NOT NULL
+                  AND c.extended_data ? 'relationships'
+                  AND NOT COALESCE((c.extended_data->>'relationships_locked')::boolean, false)
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM {$schema}.core_npc_master_history h
+                      WHERE h.npc_id = c.id
+                        AND (h.gamets_last_updated <= {$timestamp} OR h.gamets_last_updated IS NULL)
+                        AND h.extended_data IS NOT NULL
+                        AND h.extended_data ? 'relationships'
+                  )
+                RETURNING c.npc_name
+            ),
+            sample AS (
+                SELECT npc_name FROM cleared ORDER BY npc_name LIMIT 10
+            )
+            SELECT
+                (SELECT COUNT(*)::int FROM cleared) AS affected,
+                COALESCE((SELECT string_agg(npc_name, ', ') FROM sample), '') AS sample_names";
+    }
+}
+
 if (!function_exists('dialecticRelationshipTimelineStamp')) {
-    function dialecticRelationshipTimelineStamp($npcId)
+    // Snapshot every changed relationship state on the game timeline. Identical state is
+    // deduplicated without a real-time throttle so reconnects cannot restore stale data.
+    function dialecticRelationshipTimelineStamp($npcId, $source = 'relationship')
     {
         try {
             $npcId = (int) $npcId;
             if ($npcId <= 0 || !isset($GLOBALS['db'])) {
-                return;
+                return false;
             }
 
             $gamets = 0;
@@ -122,36 +240,74 @@ if (!function_exists('dialecticRelationshipTimelineStamp')) {
                 $gamets = (float) ($row['gamets'] ?? 0);
             }
 
-            if ($gamets > 0) {
-                $GLOBALS['db']->execQuery(
-                    "UPDATE core_npc_master SET gamets_last_updated = {$gamets} WHERE id = {$npcId}"
-                );
+            if ($gamets > 0 && $GLOBALS['db']->execQuery(
+                "UPDATE core_npc_master SET gamets_last_updated = {$gamets} WHERE id = {$npcId}"
+            ) === false) {
+                throw new RuntimeException('failed to stamp game timestamp');
             }
 
-            static $lastSnapshot = [];
-            $now = time();
-            if (($lastSnapshot[$npcId] ?? 0) > $now - 1800) {
-                return;
-            }
-
-            $row = $GLOBALS['db']->fetchOne(
-                "SELECT EXTRACT(EPOCH FROM created) AS epoch
-                 FROM core_npc_master_history
-                 WHERE npc_id = {$npcId}
-                 ORDER BY created DESC
-                 LIMIT 1"
+            $current = $GLOBALS['db']->fetchOne(
+                "SELECT extended_data FROM core_npc_master WHERE id = {$npcId} LIMIT 1"
             );
-            if ($row && (float) ($row['epoch'] ?? 0) > $now - 1800) {
-                $lastSnapshot[$npcId] = $now;
-                return;
+            if (!$current) {
+                throw new RuntimeException('NPC row not found after relationship write');
+            }
+            $currentState = dialecticRelationshipTimelineState($current['extended_data'] ?? null);
+            if ($currentState === null) {
+                throw new RuntimeException('live extended_data is not valid relationship JSON');
+            }
+
+            $eligibleClause = $gamets > 0
+                ? "AND (gamets_last_updated <= {$gamets} OR gamets_last_updated IS NULL)"
+                : '';
+            $historyQuery = "SELECT extended_data
+                FROM core_npc_master_history
+                WHERE npc_id = {$npcId}
+                  {$eligibleClause}
+                ORDER BY
+                    gamets_last_updated DESC NULLS LAST,
+                    CASE
+                        WHEN extended_data ->> '_dialectic_history_source' LIKE 'relationship%' THEN 2
+                        WHEN extended_data ->> '_dialectic_history_source' = 'infosave' THEN 1
+                        ELSE 0
+                    END DESC,
+                    created DESC,
+                    history_id DESC
+                LIMIT 1";
+            $history = $GLOBALS['db']->fetchOne($historyQuery);
+            $historyState = $history
+                ? dialecticRelationshipTimelineState($history['extended_data'] ?? null)
+                : null;
+
+            if ($history && $historyState !== null && $currentState == $historyState) {
+                error_log("[REL] Timeline snapshot skipped for npc_id {$npcId} (relationship state unchanged)");
+                return true;
+            }
+
+            $normalizedSource = strtolower(trim((string) $source));
+            $normalizedSource = preg_replace('/[^a-z0-9_-]+/', '_', $normalizedSource);
+            if ($normalizedSource === '' || strpos($normalizedSource, 'relationship') !== 0) {
+                $normalizedSource = 'relationship';
             }
 
             $npcMaster = new NpcMaster();
-            $npcMaster->backupNpcById($npcId);
-            $lastSnapshot[$npcId] = $now;
-            error_log("[REL] Timeline snapshot for npc_id {$npcId} (relationship progress persisted to history)");
+            if (!$npcMaster->backupNpcById($npcId, $normalizedSource)) {
+                throw new RuntimeException('relationship history insert failed');
+            }
+
+            $verified = $GLOBALS['db']->fetchOne($historyQuery);
+            $verifiedState = $verified
+                ? dialecticRelationshipTimelineState($verified['extended_data'] ?? null)
+                : null;
+            if ($verifiedState === null || $currentState != $verifiedState) {
+                throw new RuntimeException('relationship history snapshot verification failed');
+            }
+
+            error_log("[REL] Timeline snapshot for npc_id {$npcId} ({$normalizedSource})");
+            return true;
         } catch (Throwable $e) {
             error_log("[REL] Timeline stamp failed for npc_id " . (int) $npcId . ": " . $e->getMessage());
+            return false;
         }
     }
 }
@@ -160,6 +316,7 @@ class NpcMaster
 {
     private $table = "core_npc_master";
     private $db;
+    private string $lastError = '';
 
     public static function profileExists($npcName)
     {
@@ -232,7 +389,12 @@ class NpcMaster
         }
         $data["md5"] = md5($data["npc_name"]);
         $filtered    = array_intersect_key($data, array_flip($fields));
-        return $this->db->insert($this->table, $filtered);
+        $this->lastError = '';
+        $created = $this->db->insert($this->table, $filtered);
+        if ($created === false) {
+            $this->lastError = trim((string)$this->db->GetLastError());
+        }
+        return $created;
     }
 
     // Read NPC by ID
@@ -286,9 +448,11 @@ class NpcMaster
     }
 
     // Update NPC by ID
-    public function update($id, $data)
+    public function update($id, $data, $existingNpcData = null)
     {
-        $data = $this->normalizeNpcDataForPersistence($data);
+        $id = (int) $id;
+        $existing = is_array($existingNpcData) ? $existingNpcData : $this->getById($id);
+        $data = $this->normalizeNpcDataForPersistence($data, $existing ?: null);
         $data = $this->normalizeProfileAssignment($data);
 
         $fields = [
@@ -320,11 +484,9 @@ class NpcMaster
             "tags",
         ];
 
-        $id    = (int) $id;
         $where = "id = $id";
 
         // Prevent renaming The Narrator
-        $existing = $this->getById($id);
         if ($existing && isset($existing['npc_name']) && $existing['npc_name'] === 'The Narrator') {
             if (isset($data['npc_name']) && $data['npc_name'] !== $existing['npc_name']) {
                 unset($data['npc_name']);
@@ -341,7 +503,12 @@ class NpcMaster
         $id       = intval($id);
         $where    = "id = {$id}";
         $filtered = array_intersect_key($data, array_flip($fields));
-        return $GLOBALS["db"]->updateRow($this->table, $filtered, $where);
+        $this->lastError = '';
+        $updated = $GLOBALS["db"]->updateRow($this->table, $filtered, $where);
+        if ($updated === false) {
+            $this->lastError = trim((string)$this->db->GetLastError());
+        }
+        return $updated;
 
     }
 
@@ -353,9 +520,137 @@ class NpcMaster
         }
 
         $id = (int) $data['id'];
+        $existing = $this->getById($id);
+        $data = $this->preserveResolvedVoiceOnGenericUpdate($data, $existing);
         unset($data['id']); // Remove 'id' from the data array to avoid updating it
 
-        return $this->update($id, $data);
+        return $this->update($id, $data, $existing);
+    }
+
+    // Prevent stale runtime row snapshots from erasing a voice resolved by a newer game-data event.
+    private function preserveResolvedVoiceOnGenericUpdate($data, $existing)
+    {
+        if (!is_array($data)) {
+            return $data;
+        }
+
+        $incomingVoiceId = trim((string)($data['voiceid'] ?? ''));
+        if ($incomingVoiceId !== '' || !array_key_exists('voiceid', $data)) {
+            return $data;
+        }
+
+        unset($data['voiceid']);
+        $existingVoiceId = is_array($existing) ? trim((string)($existing['voiceid'] ?? '')) : '';
+        if ($existingVoiceId === '' || !array_key_exists('extended_data', $data)) {
+            return $data;
+        }
+
+        $incomingExtended = $this->getExtendedData($data);
+        $existingExtended = $this->getExtendedData($existing);
+        foreach (array_keys($incomingExtended) as $key) {
+            if (str_starts_with((string)$key, 'voice_')) {
+                unset($incomingExtended[$key]);
+            }
+        }
+        foreach ($existingExtended as $key => $value) {
+            if (str_starts_with((string)$key, 'voice_')) {
+                $incomingExtended[$key] = $value;
+            }
+        }
+        $data['extended_data'] = $this->encodeJsonObjectForPersistence($incomingExtended, 'extended_data');
+
+        return $data;
+    }
+
+    // Record a missing-voice refresh without rewriting the NPC row captured by the request.
+    public function updateVoiceRefreshRequest(int $id, int $requestedAt, int $attempts): bool
+    {
+        $id = max(0, $id);
+        if ($id === 0) {
+            return false;
+        }
+
+        $requestedAt = max(0, $requestedAt);
+        $attempts = max(1, $attempts);
+        $result = $this->db->execQuery("
+            UPDATE {$this->table}
+            SET extended_data = (
+                    CASE
+                        WHEN jsonb_typeof(extended_data) = 'object' THEN extended_data
+                        ELSE '{}'::jsonb
+                    END
+                ) || jsonb_build_object(
+                    'voice_refresh_requested_at', {$requestedAt},
+                    'voice_refresh_attempts', {$attempts},
+                    'voice_refresh_last_result', 'awaiting_plugin_profile'
+                )
+            WHERE id = {$id}
+              AND NULLIF(trim(voiceid), '') IS NULL
+        ");
+
+        if ($result === false) {
+            $this->lastError = trim((string)$this->db->GetLastError());
+            return false;
+        }
+
+        return true;
+    }
+
+    // Persist plugin-resolved voice data without rewriting unrelated NPC fields from a stale row.
+    public function updateResolvedVoiceMetadata(int $id, string $voiceId, array $voiceMetadata, string $replaceableVoiceId = ''): bool
+    {
+        $id = max(0, $id);
+        $voiceId = trim($voiceId);
+        if ($id === 0 || $voiceId === '') {
+            return false;
+        }
+
+        try {
+            $voiceMetadataJson = json_encode($voiceMetadata, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        } catch (JsonException $error) {
+            $this->lastError = $error->getMessage();
+            return false;
+        }
+
+        $escapedVoiceId = $this->db->escape($voiceId);
+        $escapedMetadata = $this->db->escape($voiceMetadataJson);
+        $replaceablePredicate = '';
+        if (trim($replaceableVoiceId) !== '') {
+            $escapedReplaceableVoiceId = $this->db->escape(trim($replaceableVoiceId));
+            $replaceablePredicate = " OR lower(trim(voiceid)) = lower('{$escapedReplaceableVoiceId}')";
+        }
+
+        $result = $this->db->execQuery("
+            UPDATE {$this->table}
+            SET voiceid = CASE
+                    WHEN NULLIF(trim(voiceid), '') IS NULL{$replaceablePredicate} THEN '{$escapedVoiceId}'
+                    ELSE voiceid
+                END,
+                extended_data = (
+                    CASE
+                        WHEN jsonb_typeof(extended_data) = 'object' THEN extended_data
+                        ELSE '{}'::jsonb
+                    END
+                    - 'voice_refresh_requested_at'
+                ) || jsonb_build_object(
+                    'voice_metadata', '{$escapedMetadata}'::jsonb,
+                    'voice_refresh_last_result', 'metadata_resolved',
+                    'voice_refresh_last_resolved_at', extract(epoch from now())::bigint
+                )
+            WHERE id = {$id}
+              AND (
+                    NULLIF(trim(voiceid), '') IS NULL
+                    OR lower(trim(voiceid)) = lower('{$escapedVoiceId}')
+                    {$replaceablePredicate}
+              )
+        ");
+
+        if ($result === false) {
+            $this->lastError = trim((string)$this->db->GetLastError());
+            return false;
+        }
+
+        return true;
     }
 
     // Delete NPC by ID
@@ -401,11 +696,38 @@ class NpcMaster
         return $codename;
     }
 
-    public function normalizeNpcDataForPersistence($data)
+    public function normalizeNpcDataForPersistence($data, ?array $existingNpcData = null)
     {
         if (!is_array($data)) {
             return $data;
         }
+
+        $hasIndividualMemoryUpdate = array_key_exists('individual_memory_enabled', $data);
+        if ($hasIndividualMemoryUpdate || array_key_exists('extended_data', $data)) {
+            $extendedDataSource = array_key_exists('extended_data', $data)
+                ? $data['extended_data']
+                : ($existingNpcData['extended_data'] ?? null);
+            $extendedData = $this->decodeJsonObjectForPersistence($extendedDataSource, 'extended_data');
+
+            if ($hasIndividualMemoryUpdate) {
+                if (!empty($data['individual_memory_enabled'])) {
+                    $extendedData['individual_memory_enabled'] = 1;
+                } else {
+                    unset($extendedData['individual_memory_enabled']);
+                }
+            } elseif (is_array($existingNpcData)) {
+                // This NPC-only setting belongs to the profile UI, not stale telemetry or background row snapshots.
+                $storedExtendedData = $this->getExtendedData($existingNpcData);
+                if (array_key_exists('individual_memory_enabled', $storedExtendedData)) {
+                    $extendedData['individual_memory_enabled'] = $storedExtendedData['individual_memory_enabled'];
+                } else {
+                    unset($extendedData['individual_memory_enabled']);
+                }
+            }
+
+            $data['extended_data'] = $this->encodeJsonObjectForPersistence($extendedData, 'extended_data');
+        }
+        unset($data['individual_memory_enabled']);
 
         $aliasMap = [
             'npc_misc' => 'worldknowledge_tags',
@@ -447,15 +769,15 @@ class NpcMaster
         }
 
         if (is_array($relationshipSeed)) {
-            $extendedData = $this->decodeJsonObject($data['extended_data'] ?? null);
+            $extendedData = $this->decodeJsonObjectForPersistence($data['extended_data'] ?? null, 'extended_data');
             $extendedData['relationships'] = $relationshipSeed;
-            $data['extended_data'] = json_encode($extendedData, JSON_UNESCAPED_UNICODE);
-        } elseif (isset($data['extended_data']) && is_array($data['extended_data'])) {
-            $data['extended_data'] = json_encode($data['extended_data'], JSON_UNESCAPED_UNICODE);
+            $data['extended_data'] = $this->encodeJsonObjectForPersistence($extendedData, 'extended_data');
+        } elseif (array_key_exists('extended_data', $data) && $data['extended_data'] !== null && $data['extended_data'] !== '') {
+            $data['extended_data'] = $this->encodeJsonObjectForPersistence($data['extended_data'], 'extended_data');
         }
 
-        if (isset($data['metadata']) && is_array($data['metadata'])) {
-            $data['metadata'] = json_encode($data['metadata'], JSON_UNESCAPED_UNICODE);
+        if (array_key_exists('metadata', $data) && $data['metadata'] !== null && $data['metadata'] !== '') {
+            $data['metadata'] = $this->encodeJsonObjectForPersistence($data['metadata'], 'metadata');
         }
 
         return $data;
@@ -498,14 +820,21 @@ class NpcMaster
         return is_array($row) && count($row) > 0;
     }
 
-    private function decodeJsonObject($value)
+    public function decodeJsonObjectForPersistence($value, string $fieldName = 'JSON field'): array
     {
         if (is_array($value)) {
+            if ($value !== [] && array_is_list($value)) {
+                throw new InvalidArgumentException("{$fieldName} must be a JSON object, not a list.");
+            }
             return $value;
         }
 
-        if (!is_string($value)) {
+        if ($value === null || $value === '') {
             return [];
+        }
+
+        if (!is_string($value)) {
+            throw new InvalidArgumentException("{$fieldName} must be a JSON object.");
         }
 
         $trimmed = trim($value);
@@ -513,8 +842,36 @@ class NpcMaster
             return [];
         }
 
-        $decoded = json_decode($trimmed, true);
-        return is_array($decoded) ? $decoded : [];
+        if ($trimmed[0] !== '{' && $trimmed !== '[]') {
+            throw new InvalidArgumentException("{$fieldName} must be a JSON object.");
+        }
+
+        try {
+            $decoded = json_decode($trimmed, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $e) {
+            throw new InvalidArgumentException("{$fieldName} is invalid JSON: " . $e->getMessage(), 0, $e);
+        }
+
+        if (!is_array($decoded)) {
+            throw new InvalidArgumentException("{$fieldName} must be a JSON object.");
+        }
+
+        return $decoded;
+    }
+
+    public function encodeJsonObjectForPersistence($value, string $fieldName = 'JSON field'): string
+    {
+        $decoded = $this->decodeJsonObjectForPersistence($value, $fieldName);
+        $jsonValue = $decoded === [] ? new stdClass() : $decoded;
+
+        try {
+            return json_encode(
+                $jsonValue,
+                JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            );
+        } catch (JsonException $e) {
+            throw new InvalidArgumentException("{$fieldName} contains invalid UTF-8: " . $e->getMessage(), 0, $e);
+        }
     }
 
     private function decodeRelationshipSeed($value)
@@ -536,7 +893,12 @@ class NpcMaster
             return null;
         }
 
-        $decoded = json_decode($trimmed, true);
+        try {
+            $decoded = json_decode($trimmed, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $e) {
+            throw new InvalidArgumentException('relationships is invalid JSON: ' . $e->getMessage(), 0, $e);
+        }
+
         return is_array($decoded) ? $decoded : null;
     }
 
@@ -630,7 +992,7 @@ class NpcMaster
 
         return $templateRow ?: [
             'core' => 'Roleplay as ' . $codename,
-            'worldknowledge_tags' => $codename,
+            'worldknowledge_tags' => '',
             'npc_static_bio' => '',
             'personality' => '',
             'appearance' => '',
@@ -644,10 +1006,17 @@ class NpcMaster
 
     private function composeKnowledgeString($misc, $codename)
     {
-        $miscParts = array_unique(array_filter(array_map('trim', explode(',', $misc))));
-        if (! in_array($codename, $miscParts)) {
-            $miscParts[] = $codename;
-        }
+        $normalizeTag = static function ($tag): string {
+            $normalized = strtolower(preg_replace('/[^a-z0-9]+/i', '_', trim((string)$tag)) ?? '');
+            return trim($normalized, '_');
+        };
+        $normalizedCodename = $normalizeTag($codename);
+        $miscParts = array_unique(array_filter(
+            array_map($normalizeTag, preg_split('/\s*[,|;]\s*/', (string)$misc) ?: []),
+            static fn($tag): bool => $tag !== ''
+                && $tag !== $normalizedCodename
+                && !in_array($tag, ['blocked', 'common'], true)
+        ));
         return implode(', ', $miscParts);
     }
 
@@ -682,9 +1051,9 @@ class NpcMaster
             $GLOBALS['DIALECTIC_BACKGROUND'] = $currentNpcData['npc_static_bio'];
         }
 
-        if (isset($currentNpcData['worldknowledge_tags'])) {
-            $GLOBALS['WORLDKNOWLEDGE'] = $currentNpcData['worldknowledge_tags'];
-        }
+        // Always replace the previous actor's knowledge context, including when
+        // the new profile has no explicit tags, so knowall cannot leak between turns.
+        $GLOBALS['WORLDKNOWLEDGE'] = (string)($currentNpcData['worldknowledge_tags'] ?? '');
 
         if (isset($currentNpcData['personality'])) {
             $GLOBALS['DIALECTIC_PERSONALITY'] = $currentNpcData['personality'];
@@ -839,30 +1208,93 @@ class NpcMaster
 
     public function getExtendedData($currentNpcData): array
     {
-        return json_decode($currentNpcData['extended_data'] ?? '{}', true) ?: [];
+        return $this->decodeStoredJsonObject($currentNpcData, 'extended_data');
     }
 
     public function setExtendedData($currentNpcData, array $data)
     {
-
-        $currentNpcData['extended_data'] = json_encode($data);
+        $currentNpcData['extended_data'] = $this->encodeJsonObjectForPersistence($data, 'extended_data');
         return $currentNpcData;
     }
 
     public function getMetadata($currentNpcData): array
     {
-        return json_decode($currentNpcData['metadata'] ?? '{}', true) ?: [];
+        return $this->decodeStoredJsonObject($currentNpcData, 'metadata');
     }
 
     public function setMetadata($currentNpcData, array $data)
     {
-
-        $currentNpcData['metadata'] = json_encode($data);
+        $currentNpcData['metadata'] = $this->encodeJsonObjectForPersistence($data, 'metadata');
         return $currentNpcData;
+    }
+
+    private function decodeStoredJsonObject($currentNpcData, string $fieldName): array
+    {
+        $row = is_array($currentNpcData) ? $currentNpcData : [];
+        $rawValue = $row[$fieldName] ?? '{}';
+
+        try {
+            return $this->decodeJsonObjectForPersistence($rawValue, $fieldName);
+        } catch (InvalidArgumentException $error) {
+            $recovered = $this->recoverStoredJsonObject($rawValue, $fieldName);
+            $npcId = intval($row['id'] ?? 0);
+            $npcName = trim(strval($row['npc_name'] ?? ''));
+            $repaired = false;
+
+            if ($npcId > 0 && in_array($fieldName, ['extended_data', 'metadata'], true)) {
+                $encoded = $this->encodeJsonObjectForPersistence($recovered, $fieldName);
+                $repaired = $this->db->updateRow(
+                    $this->table,
+                    [$fieldName => $encoded],
+                    "id = {$npcId}"
+                ) !== false;
+            }
+
+            static $loggedRows = [];
+            $logKey = $fieldName . ':' . $npcId . ':' . $npcName;
+            if (!isset($loggedRows[$logKey])) {
+                Logger::warn('[NPC] Normalized malformed JSON metadata' . Logger::formatContext([
+                    'npc_id' => $npcId,
+                    'npc' => $npcName,
+                    'field' => $fieldName,
+                    'repaired' => $repaired,
+                    'reason' => $error->getMessage(),
+                ]));
+                $loggedRows[$logKey] = true;
+            }
+
+            return $recovered;
+        }
+    }
+
+    private function recoverStoredJsonObject($value, string $fieldName): array
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        try {
+            $decoded = json_decode(
+                trim($value),
+                true,
+                512,
+                JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE
+            );
+            if (is_string($decoded)) {
+                return $this->decodeJsonObjectForPersistence($decoded, $fieldName);
+            }
+            if (is_array($decoded) && ($decoded === [] || !array_is_list($decoded))) {
+                return $decoded;
+            }
+        } catch (Throwable $ignored) {
+        }
+
+        return [];
     }
 
     public function updateMetadataKeysByName(string $npcName, array $setValues = [], array $unsetKeys = []): bool
     {
+        $this->lastError = '';
         $npcName = trim($npcName);
         if ($npcName === '') {
             return false;
@@ -905,9 +1337,15 @@ class NpcMaster
 
         foreach ($normalizedSetValues as $metadataKey => $value) {
             $escapedKey = $this->db->escape($metadataKey);
-            $encodedValue = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            if ($encodedValue === false) {
-                continue;
+            try {
+                $encodedValue = json_encode(
+                    $value,
+                    JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                );
+            } catch (JsonException $e) {
+                $this->lastError = "metadata.{$metadataKey} contains invalid UTF-8: " . $e->getMessage();
+                Logger::error('[NPC] ' . $this->lastError);
+                return false;
             }
 
             $escapedValue = $this->db->escape($encodedValue);
@@ -921,10 +1359,19 @@ class NpcMaster
             WHERE npc_name = '{$escapedNpcName}'
         ";
 
-        return $this->db->execQuery($query) !== false;
+        $updated = $this->db->execQuery($query) !== false;
+        if (!$updated) {
+            $this->lastError = trim((string)$this->db->GetLastError());
+        }
+        return $updated;
     }
 
-    public function backupNpcById($id)
+    public function getLastError(): string
+    {
+        return $this->lastError !== '' ? $this->lastError : 'Database operation failed.';
+    }
+
+    public function backupNpcById($id, $source = null)
     {
         $id = (int) $id;
 
@@ -942,6 +1389,15 @@ class NpcMaster
 
         // Add the current timestamp for tracking purposes (optional)
         $npc['created'] = date('Y-m-d H:i:s');
+
+        if (is_string($source) && trim($source) !== '') {
+            $extended = json_decode((string) ($npc['extended_data'] ?? '{}'), true);
+            if (!is_array($extended)) {
+                $extended = [];
+            }
+            $extended['_dialectic_history_source'] = trim($source);
+            $npc['extended_data'] = json_encode($extended, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
 
         // Insert the data into the history table
         return $this->db->insert('core_npc_master_history', $npc);
@@ -974,7 +1430,8 @@ class NpcMaster
                 id, npc_name, npc_favorite, lock_profile, prompt_head, npc_static_bio,
                 worldknowledge_tags, emote_moods, personality, relationships,
                 occupation, skills, speechstyle, goals, voiceid, metadata,
-                gender, race, refid, profile_id, dynamic_profile, extended_data,
+                gender, race, refid, profile_id, dynamic_profile,
+                jsonb_set(COALESCE(extended_data, '{}'::jsonb), '{_dialectic_history_source}', '\"infosave\"'::jsonb, true),
                 md5, $timestamp, core, base, tags, appearance, '{$createdTimestamp}'
             FROM core_npc_master
         ";
@@ -989,16 +1446,54 @@ class NpcMaster
         if (! is_numeric($timestamp)) {
             throw new InvalidArgumentException("Invalid timestamp value.");
         }
+        require_once(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'settings.php');
+        // Save-load policy belongs to the persisted global setting, never NPC/profile metadata.
+        $neverClearRelationshipData = dialecticGetGeneralSettingBool('NEVER_CLEAR_RELATIONSHIP_DATA', false);
+        $preserveRelationshipDataSql = $neverClearRelationshipData ? 'TRUE' : 'FALSE';
         $startTime = time();
+        // Preserve user-controlled memory, diary, and locked relationship settings while rolling back save-scoped history.
         $query     =
             "WITH deleted AS (
-    DELETE FROM core_npc_master
-    WHERE npc_name<>'The Narrator' and COALESCE(lock_profile,0)=0
-    and COALESCE(gamets_last_updated,0)>0
-    RETURNING id
+    DELETE FROM core_npc_master AS c
+    WHERE c.npc_name<>'The Narrator' and COALESCE(c.lock_profile,0)=0
+    and COALESCE(c.gamets_last_updated,0)>0
+    and (
+        NOT {$preserveRelationshipDataSql}
+        OR EXISTS (
+            SELECT 1 FROM core_npc_master_history eligible_history
+            WHERE eligible_history.npc_id = c.id
+              AND (eligible_history.gamets_last_updated <= $timestamp OR eligible_history.gamets_last_updated IS NULL)
+        )
+    )
+    RETURNING c.id, c.extended_data AS current_extended_data
+),
+persistent AS (
+    SELECT
+        d.id,
+        d.current_extended_data,
+        COALESCE((
+            SELECT jsonb_object_agg(entry.key, entry.value)
+            FROM jsonb_each(COALESCE(d.current_extended_data, '{}'::jsonb)) AS entry
+            WHERE entry.key = ANY (ARRAY[
+                'individual_memory_enabled',
+                'middle_term_enabled',
+                'auto_diary_enabled',
+                'auto_diary_wait_enabled',
+                'relationships_locked'
+            ])
+        ), '{}'::jsonb) AS persistent_settings,
+        CASE WHEN {$preserveRelationshipDataSql} THEN COALESCE((
+            SELECT jsonb_object_agg(entry.key, entry.value)
+            FROM jsonb_each(COALESCE(d.current_extended_data, '{}'::jsonb)) AS entry
+            WHERE entry.key = ANY (ARRAY[
+                'relationships', 'relationships_analyzed', 'relationships_inferred',
+                'relationships_last_eval', 'relationships_model', 'relationships_updated'
+            ])
+        ), '{}'::jsonb) ELSE '{}'::jsonb END AS preserved_relationships
+    FROM deleted d
 ),
 restore AS (
-    SELECT DISTINCT ON (h.npc_id)
+    SELECT
         h.npc_id AS id,
         h.npc_name,
         h.npc_favorite,
@@ -1020,17 +1515,47 @@ restore AS (
         h.refid,
         h.profile_id,
         h.dynamic_profile,
-        h.extended_data,
+        (
+            (COALESCE(h.extended_data, '{}'::jsonb) - '_dialectic_history_source') - ARRAY[
+                'individual_memory_enabled',
+                'middle_term_enabled',
+                'auto_diary_enabled',
+                'auto_diary_wait_enabled',
+                'relationships_locked'
+            ]::text[]
+            - CASE WHEN {$preserveRelationshipDataSql} THEN ARRAY[
+                'relationships', 'relationships_analyzed', 'relationships_inferred',
+                'relationships_last_eval', 'relationships_model', 'relationships_updated'
+            ]::text[] ELSE ARRAY[]::text[] END
+            || d.persistent_settings
+        ) || CASE
+            WHEN {$preserveRelationshipDataSql} THEN d.preserved_relationships
+            WHEN COALESCE((d.current_extended_data->>'relationships_locked')::boolean, false)
+                THEN jsonb_build_object(
+                    'relationships',
+                    COALESCE(d.current_extended_data->'relationships', '{}'::jsonb)
+                )
+            ELSE '{}'::jsonb
+        END AS extended_data,
         h.md5,
         h.gamets_last_updated,
         h.core,
         h.base,
         h.tags,
         h.appearance
-    FROM core_npc_master_history h
-    JOIN deleted d ON h.npc_id = d.id
-    WHERE h.gamets_last_updated <= $timestamp OR h.gamets_last_updated IS NULL
-    ORDER BY h.npc_id, h.gamets_last_updated DESC NULLS LAST,h.created DESC
+    FROM persistent d
+    JOIN LATERAL (
+        SELECT h.*
+        FROM core_npc_master_history h
+        WHERE h.npc_id = d.id
+          AND (h.gamets_last_updated <= $timestamp OR h.gamets_last_updated IS NULL)
+        ORDER BY
+            h.gamets_last_updated DESC NULLS LAST,
+            CASE WHEN h.extended_data ->> '_dialectic_history_source' = 'infosave' THEN 1 ELSE 0 END DESC,
+            h.created DESC,
+            h.history_id DESC
+        LIMIT 1
+    ) h ON true
 )
 INSERT INTO core_npc_master (
     id, npc_name, npc_favorite, lock_profile, prompt_head, npc_static_bio,
@@ -1051,21 +1576,39 @@ FROM restore
         error_log("[NPC RESTORE] using gamets: $timestamp.. " . date('Y-m-d H:i:s'));
         $GLOBALS["db"]->query($query);
 
-        // RELATIONSHIP SYSTEM: Clear "future" relationship data from NPCs that weren't restored
-        // NPCs added AFTER the save timestamp don't have history entries, so they keep their
-        // current (future) state. We need to clear their relationship data to prevent paradoxes.
-        $rel_reset_q = "UPDATE public.core_npc_master
-            SET extended_data = extended_data - 'relationships' - 'relationships_updated' - 'relationships_model' - 'relationships_inferred'
-            WHERE npc_name <> 'The Narrator'
-              AND (gamets_last_updated > $timestamp OR gamets_last_updated IS NULL)
-              AND extended_data IS NOT NULL
-              AND extended_data ? 'relationships'";
+        if ($neverClearRelationshipData) {
+            error_log('[NPC RESTORE] Preserved current relationships because Never Clear Relationship Data is enabled');
+        } else {
+            $relationshipRestoreSucceeded = false;
+            try {
+                $relationshipRestoreResult = $GLOBALS['db']->fetchOne(dialecticRelationshipRestoreQuery($timestamp));
+                if (!is_array($relationshipRestoreResult) || !array_key_exists('affected', $relationshipRestoreResult)) {
+                    throw new RuntimeException('relationship restore query did not return a result');
+                }
+                $relationshipRestoreCount = (int) ($relationshipRestoreResult['affected'] ?? 0);
+                $relationshipRestoreSucceeded = true;
+                error_log("[NPC RESTORE] Restored relationship timeline data for {$relationshipRestoreCount} NPCs at gamets $timestamp");
+            } catch (Throwable $e) {
+                error_log("[NPC RESTORE] Failed to restore NPC relationships: " . $e->getMessage());
+            }
 
-        try {
-            $GLOBALS["db"]->execQuery($rel_reset_q);
-            error_log("[NPC RESTORE] Cleared future relationship data for NPCs with gamets > $timestamp");
-        } catch (Exception $e) {
-            error_log("[NPC RESTORE] Failed to clear future relationships: " . $e->getMessage());
+            // RELATIONSHIP SYSTEM: Clear "future" relationship data from NPCs that weren't restored
+            // NPCs added AFTER the save timestamp don't have history entries, so they keep their
+            // current (future) state. We need to clear their relationship data to prevent paradoxes.
+            if ($relationshipRestoreSucceeded) {
+                try {
+                    $clearResult = $GLOBALS['db']->fetchOne(dialecticRelationshipFutureClearQuery($timestamp));
+                    if (!is_array($clearResult) || !array_key_exists('affected', $clearResult)) {
+                        throw new RuntimeException('future relationship clear query did not return a result');
+                    }
+                    $clearCount = (int) ($clearResult['affected'] ?? 0);
+                    error_log("[NPC RESTORE] Cleared future relationship data for {$clearCount} NPCs with gamets > $timestamp");
+                } catch (Throwable $e) {
+                    error_log("[NPC RESTORE] Failed to clear future relationships: " . $e->getMessage());
+                }
+            } else {
+                error_log('[NPC RESTORE] Skipped future relationship clear because timeline restore failed');
+            }
         }
 
         error_log("[NPC RESTORE] " . date('Y-m-d H:i:s') . ", NPCs restore made in " . (time() - $startTime) . " secs ");
@@ -1185,20 +1728,41 @@ FROM restore
      */
     public function isNpcInFaction($npcData, $factionFormId)
     {
-        if (!isset($npcData['extended_data']) || empty($npcData['extended_data'])) {
-            return false;
+        $decodeArray = static function ($value): array {
+            if (is_array($value)) {
+                return $value;
+            }
+            if (!is_string($value) || trim($value) === '') {
+                return [];
+            }
+            $decoded = json_decode($value, true);
+            return is_array($decoded) ? $decoded : [];
+        };
+
+        $factions = [];
+        $extendedData = $decodeArray($npcData['extended_data'] ?? null);
+        if (isset($extendedData['factions']) && is_array($extendedData['factions'])) {
+            $factions = array_merge($factions, $extendedData['factions']);
         }
 
-        $extendedData = json_decode($npcData['extended_data'], true);
-        
-        if (!is_array($extendedData) || !isset($extendedData['factions']) || !is_array($extendedData['factions'])) {
+        $metadata = $decodeArray($npcData['metadata'] ?? null);
+        if (isset($metadata['factions']) && is_array($metadata['factions'])) {
+            $factions = array_merge($factions, $metadata['factions']);
+        }
+        $actorProfile = $decodeArray($metadata['actor_profile'] ?? null);
+        if (isset($actorProfile['factions']) && is_array($actorProfile['factions'])) {
+            $factions = array_merge($factions, $actorProfile['factions']);
+        }
+
+        if (empty($factions)) {
             return false;
         }
 
         $stableReference = dialecticParseStableFormReference($factionFormId);
         if ($stableReference) {
-            foreach ($extendedData['factions'] as $faction) {
+            foreach ($factions as $faction) {
                 if (
+                    is_array($faction) &&
                     isset($faction['rank']) && $faction['rank'] > -1 &&
                     dialecticFactionEntryMatchesStableFormReference($faction, $stableReference['stable_key'])
                 ) {
@@ -1216,9 +1780,9 @@ FROM restore
         $normalizedSearchFormId = strtoupper($factionFormId);
 
         // Check if any faction in the array matches the formid
-        foreach ($extendedData['factions'] as $faction) {
-            if (isset($faction['formid']) && strtoupper($faction['formid']) === $normalizedSearchFormId) {
-                if ($faction['rank'] > -1) { // Optional: check if rank is greater than 0 to confirm active membership
+        foreach ($factions as $faction) {
+            if (is_array($faction) && isset($faction['formid']) && strtoupper($faction['formid']) === $normalizedSearchFormId) {
+                if (isset($faction['rank']) && $faction['rank'] > -1) { // Optional: check if rank is greater than 0 to confirm active membership
                     return true;
                 }
             }
@@ -1280,16 +1844,43 @@ FROM restore
             'sync_sample' => false,
         ]);
 
+        $usesVoiceSample = dialectic_tts_active_provider_uses_voice_sample();
+        $fallbackReason = '';
+        if ($usesVoiceSample && $voiceSample === '') {
+            $fallbackVoice = trim(strval($voiceResolution['fallback_voice'] ?? ''));
+            if ($fallbackVoice !== '' && strcasecmp($fallbackVoice, $resolvedVoice) !== 0) {
+                $fallbackSample = dialectic_resolve_voice_clone_wav($fallbackVoice, [
+                    'actor_name' => $currentNpcData['npc_name'] ?? '',
+                    'sync_sample' => false,
+                ]);
+                $voiceResolution['resolved_voice'] = $fallbackVoice;
+                $voiceResolution['used_fallback'] = true;
+                $voiceResolution['fallback_reason'] = 'sample_missing';
+                $resolvedVoice = $fallbackVoice;
+                $voiceSample = $fallbackSample;
+                $fallbackReason = 'sample_missing';
+
+                if (class_exists('Logger')) {
+                    Logger::warn('[TTS FALLBACK] Requested NPC voice sample is unavailable; using connector fallback' . Logger::formatContext([
+                        'npc' => $currentNpcData['npc_name'] ?? '',
+                        'requested_voice' => $voiceResolution['original_voice'] ?? '',
+                        'fallback_voice' => $fallbackVoice,
+                    ]));
+                }
+            }
+        }
+
         if (class_exists('Logger')) {
             Logger::phaseEnd('voice_clone_resolve_wav', [
                 'voice' => $resolvedVoice,
                 'sample' => $voiceSample !== '' ? 'yes' : 'no',
                 'sync_sample' => 'false',
+                'fallback_reason' => $fallbackReason,
             ], 'info');
         }
 
         $voiceResolution['resolved_voice_sample'] = $voiceSample;
-        $voiceResolution['resolved_voice_reference'] = ($voiceSample !== '' && dialectic_tts_active_provider_uses_voice_sample())
+        $voiceResolution['resolved_voice_reference'] = ($voiceSample !== '' && $usesVoiceSample)
             ? $voiceSample
             : $resolvedVoice;
         return $voiceResolution;

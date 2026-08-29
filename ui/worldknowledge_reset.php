@@ -1,66 +1,36 @@
 <?php
-session_start();
 
-// Enable error reporting
-error_reporting(E_ALL);
-ini_set('display_errors', '1');
+declare(strict_types=1);
 
-// Paths
-$rootPath = __DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR;
-require_once($rootPath . "conf" . DIRECTORY_SEPARATOR . "conf.php");
-require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "logger.php");
-require_once($rootPath . "lib" . DIRECTORY_SEPARATOR . "db_connection_settings.php");
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
-$dbSettings = dialecticDbConnectionSettings('dialectic');
-$host = $dbSettings['host'];
-$port = $dbSettings['port'];
-$dbname = $dbSettings['dbname'];
-$schema = $dbSettings['schema'];
-$username = $dbSettings['username'];
-$password = $dbSettings['password'];
+$rootPath = dirname(__DIR__) . DIRECTORY_SEPARATOR;
+require_once $rootPath . 'lib' . DIRECTORY_SEPARATOR . 'runtime_bootstrap.php';
+require_once $rootPath . 'lib' . DIRECTORY_SEPARATOR . 'worldknowledge_catalog.php';
 
-// Connect to database
-$conn = pg_connect(dialecticPgConnectionString($dbSettings));
-if (!$conn) {
-    die("Failed to connect to database: " . pg_last_error());
+dialecticRuntimeBootstrap($rootPath, [
+    'load_general_settings' => false,
+    'load_stt_connector' => false,
+]);
+
+$redirect = static function (string $message, bool $error = false): never {
+    $query = http_build_query([$error ? 'error' : 'message' => $message]);
+    header('Location: worldknowledge_upload.php?' . $query);
+    exit;
+};
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    $redirect('Factory sync requires a POST request.', true);
 }
 
 try {
-    // Start transaction
-    pg_query($conn, "BEGIN");
-
-    // First, truncate the worldknowledge table
-    $truncateQuery = "TRUNCATE TABLE {$schema}.worldknowledge RESTART IDENTITY";
-    $truncateResult = pg_query($conn, $truncateQuery);
-
-    if (!$truncateResult) {
-        throw new Exception("Error truncating table: " . pg_last_error($conn));
-    }
-
-    // Dialectic does not ship default worldknowledge content.
-    // Factory reset intentionally leaves the table empty until the user uploads Fallout-specific rows.
-    $countQuery = "SELECT COUNT(*) FROM $schema.worldknowledge";
-    $countResult = pg_query($conn, $countQuery);
-    if (!$countResult) {
-        throw new Exception("Error checking row count: " . pg_last_error($conn));
-    }
-    
-    $rowCount = pg_fetch_result($countResult, 0, 0);
-
-    // Commit transaction
-    pg_query($conn, "COMMIT");
-
-    // Close database connection
-    pg_close($conn);
-
-    // Redirect back to worldknowledge_upload.php with success message
-    header("Location: worldknowledge_upload.php?message=Factory+reset+completed+successfully.+WorldKnowledge+is+empty+and+ready+for+Dialectic-specific+uploads.");
-    exit;
-
-} catch (Exception $e) {
-    // Rollback transaction on error
-    pg_query($conn, "ROLLBACK");
-    pg_close($conn);
-    die("Reset failed: " . $e->getMessage());
+    $result = dialecticWorldKnowledgeInstallFactoryCatalog($GLOBALS['db'], $rootPath);
+    $redirect(
+        'Factory catalog synchronized: ' . $result['catalog_id'] . '/' . $result['catalog_version']
+        . ' (' . $result['row_count'] . ' articles). Custom articles were preserved.'
+    );
+} catch (Throwable $exception) {
+    $redirect('Factory sync failed: ' . $exception->getMessage(), true);
 }
-?>

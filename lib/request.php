@@ -220,6 +220,66 @@ function dialectic_event_to_game_request(array $event): array
     return $request;
 }
 
+// Renders the native combat snapshot supplied with a combat-bark event.
+function dialectic_build_combat_prompt_from_event(array $event): string
+{
+    if (strtolower(trim(strval($event["type"] ?? ""))) !== "combatbark") {
+        return "";
+    }
+
+    $json = is_array($event["json"] ?? null) ? $event["json"] : [];
+    $payload = $json["payload"] ?? ($event["payload"] ?? []);
+    if (is_string($payload)) {
+        $decoded = json_decode($payload, true);
+        $payload = is_array($decoded) ? $decoded : [];
+    }
+    if (!is_array($payload)) {
+        return "";
+    }
+
+    $combat = $payload["combat"] ?? [];
+    if (!is_array($combat)) {
+        return "";
+    }
+
+    $normalizeNames = static function ($values): array {
+        if (!is_array($values)) {
+            return [];
+        }
+
+        $names = [];
+        $seen = [];
+        foreach ($values as $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $name = preg_replace('/\s+/u', ' ', trim(strval($value)));
+            if (!is_string($name) || $name === '') {
+                continue;
+            }
+            $key = function_exists('mb_strtolower') ? mb_strtolower($name, 'UTF-8') : strtolower($name);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $names[] = htmlspecialchars($name, ENT_QUOTES | ENT_XML1 | ENT_SUBSTITUTE, 'UTF-8');
+        }
+        return $names;
+    };
+
+    $allies = $normalizeNames($combat["allies_currently_fighting"] ?? []);
+    $hostiles = $normalizeNames($combat["hostile_combatants"] ?? []);
+    if (empty($allies) && empty($hostiles)) {
+        return "";
+    }
+
+    $allyLines = implode("\n", array_map(static fn(string $name): string => "- {$name}", $allies));
+    $hostileLines = implode("\n", array_map(static fn(string $name): string => "- {$name}", $hostiles));
+
+    return "<combat>\n# Allies Currently Fighting\n{$allyLines}\n\n"
+        . "# Hostile Combatants\n{$hostileLines}\n</combat>";
+}
+
 function dialectic_extract_conversation_target(string $payload): string
 {
     $decoded = json_decode($payload, true);
@@ -361,6 +421,50 @@ function dialectic_adapt_json_input_payload_for_pipeline(array &$gameRequest): a
     $result["player"] = $player;
     $result["target"] = $target;
     $result["display"] = $display;
+    return $result;
+}
+
+function dialectic_adapt_json_vision_payload_for_pipeline(array &$gameRequest): array
+{
+    $result = [
+        "changed" => false,
+        "target" => "",
+        "description" => "",
+    ];
+    if (strtolower(trim(strval($gameRequest[0] ?? ""))) !== "vision") {
+        return $result;
+    }
+
+    $rawPayload = strval($gameRequest[3] ?? "");
+    $fields = json_decode($rawPayload, true);
+    if (!is_array($fields)) {
+        return $result;
+    }
+
+    $description = "";
+    foreach (["text", "description", "visual_context", "scene"] as $key) {
+        if (isset($fields[$key]) && is_scalar($fields[$key]) && trim(strval($fields[$key])) !== "") {
+            $description = dialectic_sanitize_pipeline_input_fragment(trim(strval($fields[$key])));
+            break;
+        }
+    }
+    if ($description === "") {
+        return $result;
+    }
+
+    $target = dialectic_extract_conversation_target($rawPayload);
+    if (strcasecmp($target, "The Narrator") === 0) {
+        $target = "";
+    }
+    $target = dialectic_sanitize_pipeline_input_fragment($target);
+    if ($target !== "") {
+        $GLOBALS["DIALECTIC_INPUT_TARGET"] = $target;
+    }
+
+    $gameRequest[3] = "PipVision visual observation: " . $description;
+    $result["changed"] = true;
+    $result["target"] = $target;
+    $result["description"] = $description;
     return $result;
 }
 

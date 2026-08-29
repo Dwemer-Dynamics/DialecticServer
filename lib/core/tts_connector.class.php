@@ -49,8 +49,8 @@ class TTSConnector
     ];
 
     private static $localUrlDefaultMap = [
-        'pockettts' => 'http://127.0.0.1:8020',
-        'chatterbox' => 'http://127.0.0.1:8020',
+        'pockettts' => 'http://127.0.0.1:8024',
+        'chatterbox' => 'http://127.0.0.1:8023',
         'xtts-fastapi' => 'http://127.0.0.1:8020',
         'omnivoice' => 'http://127.0.0.1:8021',
         'piper-tts' => 'http://127.0.0.1:5000',
@@ -58,8 +58,8 @@ class TTSConnector
     ];
 
     private static $sharedMetadataDefaultMap = [
-        'fallback_male' => 'default_male',
-        'fallback_female' => 'default_female',
+        'fallback_male' => 'maleadult02',
+        'fallback_female' => 'femaleadult02',
     ];
 
     private static $metadataDefaultMap = [
@@ -91,6 +91,7 @@ class TTSConnector
             'model_id' => 'inworld-tts-1',
             'temperature' => 1.0,
             'speed' => 1.0,
+            'fallback_voice_id' => '',
         ],
         '11labs' => [
             'optimize_streaming_latency' => '0',
@@ -328,11 +329,11 @@ class TTSConnector
         return [
             'fallback_male' => [
                 'type' => 'string',
-                'description' => 'NPC male fallback VoiceID if the NPC voice is blank or the provider rejects it.',
+                'description' => 'NPC male fallback VoiceID if the NPC voice is blank or the provider rejects it. Default: maleadult02.',
             ],
             'fallback_female' => [
                 'type' => 'string',
-                'description' => 'NPC female fallback VoiceID if the NPC voice is blank or the provider rejects it.',
+                'description' => 'NPC female fallback VoiceID if the NPC voice is blank or the provider rejects it. Default: femaleadult02.',
             ],
         ];
     }
@@ -345,10 +346,26 @@ class TTSConnector
         );
 
         if ($this->isFemaleGender($gender)) {
-            return trim(strval($metadata['fallback_female'] ?? self::$sharedMetadataDefaultMap['fallback_female']));
+            return $this->resolveFallbackVoiceMetadata(
+                $metadata['fallback_female'] ?? null,
+                self::$sharedMetadataDefaultMap['fallback_female']
+            );
         }
 
-        return trim(strval($metadata['fallback_male'] ?? self::$sharedMetadataDefaultMap['fallback_male']));
+        return $this->resolveFallbackVoiceMetadata(
+            $metadata['fallback_male'] ?? null,
+            self::$sharedMetadataDefaultMap['fallback_male']
+        );
+    }
+
+    private function resolveFallbackVoiceMetadata($value, string $default): string
+    {
+        // Legacy seed rows stored field schemas instead of resolved values.
+        if (is_array($value)) {
+            $value = $value['default'] ?? $default;
+        }
+
+        return is_scalar($value) ? trim(strval($value)) : $default;
     }
 
     public function resolveNpcVoiceForConnector(array $currentNpcData, $connectorData = null): array

@@ -181,7 +181,7 @@ class groqjson
                 
             } else {
 
-                if ($lastrole=="assistant" && $lastrole!=$element["role"] && $element["role"]!="tool" ) {
+                if ($lastrole=="assistant" && $lastrole!=$element["role"] && $element["role"]!="tool" && !empty($assistantRoleBuffer)) {
                     $contextDataCopy[]=[
                         "role"=>"assistant",
                         "content"=>"{\"character\": \"{$GLOBALS["DIALECTIC_NAME"]}\", \"listener\": \"$lastTargetBuffer\", \"mood\": \"\", \"action\": \"Talk\",\"target\": \"\", \"message\":\"".trim($assistantRoleBuffer)."\"}"
@@ -255,7 +255,7 @@ class groqjson
                                 $GLOBALS["PATCH_STORE_FUNC_RES"]="{$GLOBALS["DIALECTIC_NAME"]} issued ACTION, but {$element["content"]}";
                                 $contextDataCopy[]=[
                                     "role"=>"user",
-                                    "content"=>"The Narrator: ({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]}"
+                                    "content"=>dialecticBuildNarratorContextLine("({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]}")
                                     
                                 ];
                             } else {
@@ -263,7 +263,7 @@ class groqjson
                                 $GLOBALS["PATCH_STORE_FUNC_RES"]=strtr($lastAction,["#RESULT#"=>$element["content"]]);
                                 $contextDataCopy[]=[
                                     "role"=>"user",
-                                    "content"=>"The Narrator: ({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]} ",
+                                    "content"=>dialecticBuildNarratorContextLine("({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]}"),
                                     
                                 ];
                             }
@@ -466,6 +466,7 @@ class groqjson
             if (strlen($msg) > 0) {
                 $buffer .= $msg;
                 $this->_buffer .= $msg;
+                $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_buffer;
                 $this->_numOutputTokens += 1;
             }
             $totalBuffer .= $msg;

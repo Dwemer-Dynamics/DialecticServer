@@ -12,6 +12,7 @@ require_once(__DIR__."/core/game_plugins.php");
 require_once(__DIR__."/core/npc_master.class.php");
 require_once(__DIR__."/core/core_profiles.class.php");
 require_once(__DIR__."/prompt_injections.php");
+require_once(__DIR__."/memory_ranking.php");
 
 
 function ChangeDialecticName($new_name="") {
@@ -63,10 +64,18 @@ function ReplacePlayerNamePlaceholder($s_input) {
     //replace #PLAYER_NAME# with player name
     $s_res = $s_input;
     if ((strlen(trim($s_input))) > 12) {
+        $promptCharacterName = function_exists('dialecticGetPromptCharacterName')
+            ? dialecticGetPromptCharacterName()
+            : $GLOBALS["DIALECTIC_NAME"];
+        $narratorRoleplayName = function_exists('dialecticGetNarratorRoleplayName')
+            ? dialecticGetNarratorRoleplayName()
+            : 'The Narrator';
         $s_res = strtr($s_input, [
-            "{DIALECTIC_NAME}" =>$GLOBALS["DIALECTIC_NAME"],
+            "{DIALECTIC_NAME}" =>$promptCharacterName,
+            "{NARRATOR_NAME}" =>$narratorRoleplayName,
             "{PLAYER_NAME}"=>$GLOBALS["PLAYER_NAME"],
-            "#DIALECTIC_NAME#" =>$GLOBALS["DIALECTIC_NAME"],
+            "#DIALECTIC_NAME#" =>$promptCharacterName,
+            "#NARRATOR_NAME#" =>$narratorRoleplayName,
             "#PLAYER_NAME#"=>$GLOBALS["PLAYER_NAME"]
         ]);
     }
@@ -274,6 +283,10 @@ function dialecticInventoryMetadataLabels(array $item): array
         $labels[] = 'condition ' . ($condition <= 1.0
             ? (string)round($condition * 100) . '%'
             : rtrim(rtrim(number_format($condition, 2, '.', ''), '0'), '.'));
+    }
+
+    if (isset($item['value']) && is_numeric($item['value']) && (int)$item['value'] >= 0) {
+        $labels[] = 'value ' . (int)$item['value'] . ' caps';
     }
 
     $ammo = trim((string)($item['ammo'] ?? ''));
@@ -1297,7 +1310,10 @@ function DataLastInfoFor($actorBeingCalled, $lastNelements = -2,$includeActorDes
     }
         
     // Compact CHIM-style nearby actor list from the latest structured game snapshot.
-    $nearbyActorsList = dialecticNearbyActorNamesFromPayload(false, false);
+    $nearbyActorsList = !empty($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"]) &&
+        is_array($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"])
+        ? array_values($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"])
+        : dialecticNearbyActorNamesFromPayload(false, false);
     if (!empty($nearbyActorsList)) {
         if (!isset($GLOBALS["PROMPT_NEARBY_SECTIONS"])) {
             $GLOBALS["PROMPT_NEARBY_SECTIONS"] = "";
@@ -1578,6 +1594,154 @@ function dialecticBuildCurrentConditionBlockFromMetadata($stats, array $metadata
     return "<condition>\n#Condition\n" . implode("\n", $lines) . "\n</condition>";
 }
 
+function dialecticPlayerSurvivalStageLabel(string $kind, int $stage): string
+{
+    $labels = [
+        'hunger' => [
+            1 => 'Peckish', 2 => 'Hungry', 3 => 'Starving',
+            4 => 'Critically starving', 5 => 'Dying of starvation',
+        ],
+        'dehydration' => [
+            1 => 'Thirsty', 2 => 'Dehydrated', 3 => 'Severely dehydrated',
+            4 => 'Critically dehydrated', 5 => 'Dying of dehydration',
+        ],
+        'sleep_deprivation' => [
+            1 => 'Tired', 2 => 'Sleep deprived', 3 => 'Severely sleep deprived',
+            4 => 'Critically sleep deprived', 5 => 'Near collapse from sleep deprivation',
+        ],
+        'radiation' => [
+            1 => 'Minor radiation poisoning', 2 => 'Advanced radiation poisoning',
+            3 => 'Critical radiation poisoning', 4 => 'Deadly radiation poisoning',
+            5 => 'Fatal radiation exposure',
+        ],
+    ];
+
+    return $labels[$kind][max(0, min(5, $stage))] ?? '';
+}
+
+function dialecticIsPlayerSurvivalStateFresh(array $survival, int $staleSeconds = 180, ?int $now = null): bool
+{
+    $updatedAt = max(0, (int)($survival['updated_at'] ?? $survival['captured_at'] ?? 0));
+    if ($updatedAt <= 0) {
+        return false;
+    }
+
+    return (($now ?? time()) - $updatedAt) <= max(1, $staleSeconds);
+}
+
+function dialecticGetFreshPlayerSurvivalState(int $staleSeconds = 180): ?array
+{
+    try {
+        require_once(__DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'player.class.php');
+        $player = new Player();
+        $survival = $player->getJson('survival');
+    } catch (Throwable $e) {
+        Logger::debug('Could not read player survival state: ' . $e->getMessage());
+        return null;
+    }
+
+    if (!is_array($survival) || empty($survival)) {
+        return null;
+    }
+
+    if (!dialecticIsPlayerSurvivalStateFresh($survival, $staleSeconds)) {
+        return null;
+    }
+
+    return $survival;
+}
+
+function dialecticPlayerSurvivalEntries(?array $survival = null): array
+{
+    $survival = $survival ?? dialecticGetFreshPlayerSurvivalState();
+    if (!is_array($survival)) {
+        return [];
+    }
+
+    $entries = [];
+    if (!empty($survival['hardcore_enabled'])) {
+        $needs = is_array($survival['needs'] ?? null) ? $survival['needs'] : [];
+        foreach ([
+            'hunger' => 'Hunger',
+            'dehydration' => 'Thirst',
+            'sleep_deprivation' => 'Sleep',
+        ] as $key => $label) {
+            $stage = max(0, min(5, (int)($needs[$key]['stage'] ?? 0)));
+            $description = dialecticPlayerSurvivalStageLabel($key, $stage);
+            if ($description !== '') {
+                $entries[] = [
+                    'key' => $key,
+                    'label' => $label,
+                    'description' => $description,
+                ];
+            }
+        }
+    }
+
+    $radiation = is_array($survival['radiation'] ?? null) ? $survival['radiation'] : [];
+    $radiationStage = max(0, min(5, (int)($radiation['stage'] ?? 0)));
+    $radiationDescription = dialecticPlayerSurvivalStageLabel('radiation', $radiationStage);
+    if ($radiationDescription !== '') {
+        $entries[] = [
+            'key' => 'radiation',
+            'label' => 'Radiation',
+            'description' => $radiationDescription,
+        ];
+    }
+
+    return $entries;
+}
+
+function dialecticDescribePlayerSurvivalState(?array $survival = null): string
+{
+    $descriptions = array_map(static function (array $entry): string {
+        return strtolower((string)($entry['description'] ?? ''));
+    }, dialecticPlayerSurvivalEntries($survival));
+
+    return implode(', ', array_values(array_filter($descriptions)));
+}
+
+function dialecticBuildPlayerSurvivalConditionBlock(?array $survival = null): string
+{
+    if (!dialecticPromptContextSectionEnabled('enabled_appearance_subsections', 'current_condition')) {
+        return '';
+    }
+
+    $lines = array_map(static function (array $entry): string {
+        return '- ' . $entry['label'] . ': ' . $entry['description'];
+    }, dialecticPlayerSurvivalEntries($survival));
+
+    if (empty($lines)) {
+        return '';
+    }
+
+    $playerName = trim((string)($GLOBALS['PLAYER_NAME'] ?? 'The Courier'));
+    if ($playerName === '') {
+        $playerName = 'The Courier';
+    }
+    return "\n\n<condition>\n#{$playerName}'s Condition\n" . implode("\n", $lines) . "\n</condition>\n";
+}
+
+function dialecticPlayerSurvivalProfileEnricher(string $actorName, string $actorType, array $context = []): string
+{
+    if (strcasecmp(trim($actorType), 'player') !== 0
+        || !empty($GLOBALS['DIALECTIC_SUPPRESS_PLAYER_SURVIVAL_NEARBY'])
+        || !dialecticPromptContextSectionEnabled('enabled_appearance_subsections', 'current_condition')) {
+        return '';
+    }
+
+    $description = dialecticDescribePlayerSurvivalState();
+    return $description === '' ? '' : 'Survival: ' . $description;
+}
+
+if (function_exists('dialecticRegisterActorProfileEnricher')) {
+    dialecticRegisterActorProfileEnricher(
+        'dialectic.player_survival',
+        'dialecticPlayerSurvivalProfileEnricher',
+        55
+    );
+}
+
 function dialecticPromptContextSectionEnabled(string $bucket, string $id): bool
 {
     if (function_exists('dialecticPromptContextOptionEnabled')) {
@@ -1828,7 +1992,7 @@ function DataQuestJournal($quest)
 }
 
 function removeTalkingToOccurrences($input) {
-    $pattern = '/\((?:talking|whispering|shouting)\s+to\s+[^()]+\)/i';
+    $pattern = '/\((?:talking|whispering|shouting|speaking privately)\s+to\s+[^()]+\)/i';
     preg_match_all($pattern, $input, $matches, PREG_OFFSET_CAPTURE);
 
     // Get all positions of the matches
@@ -1859,7 +2023,7 @@ function moveDialogueTargetSuffixToEnd($input) {
         return "";
     }
 
-    $pattern = '/\s*(\((?:talking|whispering|shouting)\s+to [^()]+?\)|\(speaking loudly to [^()]+?\))\s*/i';
+    $pattern = '/\s*(\((?:talking|whispering|shouting|speaking privately)\s+to [^()]+?\)|\(speaking loudly to [^()]+?\))\s*/i';
     if (preg_match_all($pattern, $input, $matches) !== 1 || empty($matches[1])) {
         return trim(preg_replace('/\s+/', ' ', $input));
     }
@@ -2644,6 +2808,7 @@ function buildHistoricContext($actor, $lastNelements = -10,$sqlfilter="") {
                 $row["role"]="narratorci";
                 $row["content"]=trim($rowData);
                 $row["gamets"]=$lastGameTs;// gamets will be previous record gamets
+                $row['_g'] = intval($lastGameTs);
 
                 $previousRow=$row;
                 continue; // Skip adding this row to the context
@@ -2668,10 +2833,10 @@ function buildHistoricContext($actor, $lastNelements = -10,$sqlfilter="") {
 A MAJOR TIME JUMP HAS OCCURRED.
 Elapsed time since last interaction: ~$timeGapInDays days
 New setting: $currentLocation
-!!! END CONTEXT !!! ");
+!!! END CONTEXT !!! ", '_g' => intval($row['gamets']));
                 } else if ($timeGapInHours>5) {
                     $timeGapInDays=round($timeGapInHours/24,1);
-                    $lastDialogFull[] = array('role' => "narratorci", 'content' => "(minor timelapse of about $timeGapInHours hours)");
+                    $lastDialogFull[] = array('role' => "narratorci", 'content' => "(minor timelapse of about $timeGapInHours hours)", '_g' => intval($row['gamets']));
                 }
                 $lastGameTs=$row["gamets"];
             }
@@ -2681,10 +2846,10 @@ New setting: $currentLocation
                 if (!isset($timeStampBuffer[$hoursAgo])) {
                     if ($currentLocation) {
                         if (DataLastKnownLocationHuman(false,true)==$currentLocation)   // Enforce current location.
-                            $lastDialogFull[] = array('role' => "narratorci", 'content' => "LOCATION CHANGE, THIS IS THE CURRENT LOCATION: $currentLocation");
+                            $lastDialogFull[] = array('role' => "narratorci", 'content' => "LOCATION CHANGE, THIS IS THE CURRENT LOCATION: $currentLocation", '_g' => intval($row['gamets']));
                         
                         else
-                            $lastDialogFull[] = array('role' => "narratorci", 'content' => "LOCATION CHANGE to $currentLocation, timeline mark: $hoursAgo hours ago  ");
+                            $lastDialogFull[] = array('role' => "narratorci", 'content' => "LOCATION CHANGE to $currentLocation, timeline mark: $hoursAgo hours ago  ", '_g' => intval($row['gamets']));
                     }
                 }
             } else {
@@ -2702,13 +2867,13 @@ New setting: $currentLocation
             
             // If category changed, insert a subdivider
             if ($lastTimeCategory !== null && $currentTimeCategory !== $lastTimeCategory) {
-                $lastDialogFull[] = array('role' => "narratorci", 'content' => "--- {$currentTimeCategory} ---");
+                $lastDialogFull[] = array('role' => "narratorci", 'content' => "--- {$currentTimeCategory} ---", '_g' => intval($row['gamets']));
             }
             
             $lastTimeCategory = $currentTimeCategory;
         }
         
-        $row= array('role' => $lastSpeaker, 'content' => trim($rowData),'subtype'=>$row["subtype"]?:strtoupper($lastSpeaker),'type'=>$row["type"]);
+        $row= array('role' => $lastSpeaker, 'content' => trim($rowData),'subtype'=>$row["subtype"]?:strtoupper($lastSpeaker),'type'=>$row["type"], '_g' => intval($row['gamets']));
         $lastDialogFull[] = $row;
         $previousRow=$row;
 
@@ -2809,6 +2974,7 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
     $bufferDialectic=[];
     $lastDialogFullCopy=[];
     $compactedBuffer = "";
+    $assistantGamets = PHP_INT_MAX;
  
     foreach ($lastDialogFull as $n => $line) {
         if (($line["role"] == "assistant")) {
@@ -2820,6 +2986,7 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
             $cleanedText=$line["content"];
            
             $bufferDialectic[]=$cleanedText;
+            $assistantGamets = min($assistantGamets, intval($line['_g'] ?? 0));
 
             
         } else {
@@ -2844,10 +3011,11 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
 
 
                 }
-                $lastDialogFullCopy[] = ["role"=>"assistant","content"=>trim($compactedBuffer)];
+                $lastDialogFullCopy[] = ["role"=>"assistant","content"=>trim($compactedBuffer), '_g' => $assistantGamets];
 
             }
             $bufferDialectic=[];
+            $assistantGamets = PHP_INT_MAX;
             $compactedBuffer="";
             $lastDialogFullCopy[]=$line;
         } 
@@ -2877,7 +3045,7 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
 
 
         }
-        $lastDialogFullCopy[] = ["role"=>"assistant","content"=>trim($compactedBuffer)];
+        $lastDialogFullCopy[] = ["role"=>"assistant","content"=>trim($compactedBuffer), '_g' => $assistantGamets];
         $bufferDialectic=[];
     }
 
@@ -2888,10 +3056,12 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
     $lastSpeaker = "";
     $buffer = [];
     $lastDialogFull=[];
+    $bufferGamets = 0;
 
 
     foreach ($lastDialogFullCopy as $n => $line) {
         $speaker=$line["role"];
+        $lineGamets = intval($line['_g'] ?? 0);
         
         if ($speaker=="npc") { // Tricky, npc could be any char
             preg_match('/^([^:]+):/', $line["content"], $matches);
@@ -2911,17 +3081,20 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
                 // And for compacting other dialog lines: capture content after the speaker name
                 preg_match('/^\s*[^:]+:\s*(.*?)\s*(?:\([^)]*\))?\s*$/s', $line["content"], $matches);
                 $buffer[]=$matches[1] ?? $line["content"];
+                $bufferGamets = min($bufferGamets, $lineGamets);
             } else {
 
                 if (!$compactContextInfo) {
-                    $lastDialogFull[]=array('role' => $lastSpeaker, 'content' => trim(isset($buffer[0])?$buffer[0]:$line["content"]));
+                    $lastDialogFull[]=array('role' => $lastSpeaker, 'content' => trim(isset($buffer[0])?$buffer[0]:$line["content"]), '_g' => $bufferGamets);
                     if (isset($buffer[0])) {
                         $buffer = [];
                         $buffer[] = $line["content"];
+                        $bufferGamets = $lineGamets;
                     } else
                         $buffer = [];
                 } else {
                     $buffer[] = strtr($line["content"],["The Narrator:"=>"","{$GLOBALS["DIALECTIC_NAME"]}:"=>""]);
+                    $bufferGamets = min($bufferGamets, $lineGamets);
                 }
                 
             }
@@ -2930,19 +3103,20 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
             if (sizeof($buffer) > 0) {
                 if ($lastSpeaker=="narratorci" || $lastSpeaker=="narratorloc") {
                     if (!$compactContextInfo) {
-                        $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => "".implode(" ", removeEmptyElements($buffer)));  // Should be only one line
+                        $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => "".implode(" ", removeEmptyElements($buffer)), '_g' => $bufferGamets);  // Should be only one line
                     } else {
-                        $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => "* ".implode("\n* ", removeEmptyElements($buffer))); 
+                        $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => "* ".implode("\n* ", removeEmptyElements($buffer)), '_g' => $bufferGamets);
                     }
 
                 }
                 else if ($lastSpeaker=="backgroundchat")
-                    $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => implode("\n", removeEmptyElements($buffer)));
+                    $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => implode("\n", removeEmptyElements($buffer)), '_g' => $bufferGamets);
                 else 
-                    $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => moveDialogueTargetSuffixToEnd(implode(" ", removeEmptyElements($buffer))));
+                    $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => moveDialogueTargetSuffixToEnd(implode(" ", removeEmptyElements($buffer))), '_g' => $bufferGamets);
             }
             $buffer = [];
             $buffer[] = $line["content"];
+            $bufferGamets = $lineGamets;
             $lastSpeaker = $speaker;
 
             if ($speaker=="assistant") {    //Leave as is
@@ -2966,11 +3140,11 @@ function compactHistoricContext($lastDialogFull,$actor,$compactContextInfo=false
     // Last buffer, probably user input.
     if (sizeof($bufferCopy)) {
         if ($lastSpeaker=="narratorci" || $lastSpeaker=="narratorloc") 
-            $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => implode("\n* ", $bufferCopy));
+            $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => implode("\n* ", $bufferCopy), '_g' => $bufferGamets);
         else if ($lastSpeaker=="backgroundchat")
-            $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => implode("\n", $bufferCopy));
+            $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => implode("\n", $bufferCopy), '_g' => $bufferGamets);
         else 
-            $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => moveDialogueTargetSuffixToEnd(implode(" ", $bufferCopy)));
+            $lastDialogFull[] = array('role' => $lastSpeaker, 'content' => moveDialogueTargetSuffixToEnd(implode(" ", $bufferCopy)), '_g' => $bufferGamets);
     }
 
     $contextDataHistory=[];
@@ -3031,6 +3205,14 @@ function replaceRoles($lastDialogFull,$actor,$lastNelements) {
 
     error_log("[DIALECTIC] Using effective context limit of : $lastNelements");
     $orderedData = array_slice($lastDialogFull, $lastNelements);
+    // Keep the earliest source event, not the next speaker's timestamp, for merged blocks.
+    // Unknown timestamps disable STM; an empty window can use summaries up to the save time.
+    $GLOBALS['CONTEXT_WINDOW_FLOOR'] = PHP_INT_MAX;
+    foreach ($orderedData as &$entry) {
+        $GLOBALS['CONTEXT_WINDOW_FLOOR'] = min($GLOBALS['CONTEXT_WINDOW_FLOOR'], intval($entry['_g'] ?? 0));
+        unset($entry['_g'], $entry['gamets']);
+    }
+    unset($entry);
 
     file_put_contents(__DIR__."/../log/context_for_$actor.txt",print_r($orderedData,true));
     $GLOBALS["CONTEXT_BUILDING_DATA"]=$orderedData;
@@ -3130,7 +3312,8 @@ function DataSpeechJournal($topic,$limit=50)
 
 function dialecticGetLatestTravelingPartyMemberNames(): array
 {
-    $party = json_decode(DataGetCurrentPartyConf(), true);
+    $partyJson = $GLOBALS["CACHE_PARTY"] ?? DataGetCurrentPartyConf();
+    $party = json_decode($partyJson, true);
     if (!is_array($party)) {
         return [];
     }
@@ -3167,6 +3350,11 @@ function dialecticIsActorInCurrentTravelingParty(string $actorName): bool
 function DataGetCurrentTask()
 {
     global $db;
+
+    $actorName = trim((string)($GLOBALS["DIALECTIC_NAME"] ?? ''));
+    if (!dialecticIsActorInCurrentTravelingParty($actorName)) {
+        return "";
+    }
 
     $includeActiveQuests = function_exists('dialecticPromptContextOptionEnabled')
         ? dialecticPromptContextOptionEnabled('enabled_general_subsections', 'active_quests')
@@ -3792,7 +3980,12 @@ function PackIntoSummary($onlyMissingDiary=false)
     
     if ($onlyMissingDiary) {
         $results = $db->query("insert into memory_summary (gamets_truncated,n,packed_message,summary,classifier,uid,companions,scope)
-        select gamets,1,message,message,'diary',uid,speaker,'global'
+        select gamets,1,message,message,'diary',uid,
+            case
+                when nullif(trim(speaker), '') is null then ''
+                else '|' || trim(both '|' from trim(speaker)) || '|'
+            end,
+            'global'
         from memory
         where event in ('diary','auto_diary')
         and uid not in (select uid from memory_summary where classifier in  ('diary','auto_diary'))");
@@ -3950,7 +4143,12 @@ function PackIntoSummary($onlyMissingDiary=false)
         $results = $db->query($query);
         
         $results = $db->query("insert into memory_summary (gamets_truncated,n,packed_message,summary,classifier,uid,companions,scope)
-                                    select gamets,1,message,message,'diary',uid,speaker,'global'
+                                    select gamets,1,message,message,'diary',uid,
+                                        case
+                                            when nullif(trim(speaker), '') is null then ''
+                                            else '|' || trim(both '|' from trim(speaker)) || '|'
+                                        end,
+                                        'global'
                                     from memory
                                     where event='diary'
                                     and gamets>$maxRow
@@ -4006,16 +4204,16 @@ function DataRechatHistory()
 
 function extractDialogueTarget($string) {
     // Check if the string contains a directed-dialogue tag.
-    if ($string && preg_match('/\((?:talking|whispering|shouting)\s+to\s+/i', $string)) {
+    if ($string && preg_match('/\((?:talking|whispering|shouting|speaking privately)\s+to\s+/i', $string)) {
         // Extract the target's name using regular expression
-        preg_match('/\((?:talking|whispering|shouting)\s+to\s+([^\)]+)\)/i', $string, $matches);
+        preg_match('/\((?:talking|whispering|shouting|speaking privately)\s+to\s+([^\)]+)\)/i', $string, $matches);
         
         // Check if a match is found and extract the target's name
         if (isset($matches[1])) {
             $target = $matches[1];
 
             // Remove the directed-dialogue tag from the original string
-            $cleanedString = preg_replace('/\((?:talking|whispering|shouting)\s+to\s+[^\)]+\)/i', '', $string);
+            $cleanedString = preg_replace('/\((?:talking|whispering|shouting|speaking privately)\s+to\s+[^\)]+\)/i', '', $string);
             if (strpos($cleanedString,"{$GLOBALS["DIALECTIC_NAME"]}:")===0) {
                 $cleanedString=str_replace("{$GLOBALS["DIALECTIC_NAME"]}:","",$cleanedString);
             }
@@ -4254,8 +4452,8 @@ function dialecticPeoplePipeFromNearbyActorsPayload($excludeFarAway = false)
             continue;
         }
 
-        $eligible = filter_var($actor['eligible'] ?? true, FILTER_VALIDATE_BOOLEAN);
-        if (!$eligible) {
+        $sceneEligible = filter_var($actor['scene_eligible'] ?? ($actor['eligible'] ?? true), FILTER_VALIDATE_BOOLEAN);
+        if (!$sceneEligible) {
             continue;
         }
 
@@ -4319,6 +4517,11 @@ function dialecticNearbyActorNamesFromPayload($excludeFarAway = false, $includeP
 
 function DataBeingsInCloseRange($excludeFarAway=false)
 {
+    if (!empty($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"]) &&
+        is_array($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"])) {
+        return "|" . implode("|", array_values($GLOBALS["DIALECTIC_ROLEMASTER_BORED_ACTORS"])) . "|";
+    }
+
     $structuredPeople = dialecticPeoplePipeFromNearbyActorsPayload($excludeFarAway);
     if ($structuredPeople !== "") {
         return $structuredPeople;
@@ -4517,31 +4720,25 @@ function FindClosestActorName($actorName)
 
 function FindClosestNPCName($actorName)
 {
+    $actorName = trim((string)$actorName);
+    if ($actorName === "") {
+        return "";
+    }
+
     $beingsArrayCleaned = dialecticNearbyActorNamesFromPayload(true, false);
 
     if (empty($beingsArrayCleaned)) {
         return $actorName;
     }
 
-    // Find the closest match using Levenshtein distance
-    $closest = null;
-    $shortest = -1;
-
     foreach ($beingsArrayCleaned as $name) {
-        $lev = levenshtein($actorName, $name);
-        error_log("Comparing: $actorName, $name");
-
-        if ($lev == 0) {
-            return $name; // Exact match
-        }
-
-        if ($lev < $shortest || $shortest < 0) {
-            $closest = $name;
-            $shortest = $lev;
+        $name = trim((string)$name);
+        if ($name !== "" && strcasecmp($actorName, $name) === 0) {
+            return $name;
         }
     }
 
-    return (!empty(trim($closest)))?$closest:$actorName;
+    return $actorName;
 }
 
 function DirectConversationsWith($actor, $speaker="")
@@ -4609,10 +4806,125 @@ function dataGetMemoryScopeConditionSql($npcName)
 {
     if (isIndividualMemoryEnabledForNpc($npcName)) {
         $npcEsc = $GLOBALS["db"]->escape($npcName);
-        return "scope='$npcEsc'";
+        try {
+            $scopedMemory = $GLOBALS["db"]->fetchOne(
+                "SELECT 1 FROM memory_summary WHERE scope='$npcEsc' AND NULLIF(BTRIM(COALESCE(summary, '')), '') IS NOT NULL LIMIT 1"
+            );
+            if (is_array($scopedMemory) && count($scopedMemory) > 0) {
+                return "scope='$npcEsc'";
+            }
+        } catch (Throwable $e) {
+            Logger::warn("dataGetMemoryScopeConditionSql failed for {$npcName}: " . $e->getMessage());
+        }
     }
 
     return "(scope IS NULL OR scope='global')";
+}
+
+function dataGetMemoryCompanionConditionSql(
+    $npcName,
+    string $column = 'companions',
+    string $classifierColumn = 'classifier'
+): string
+{
+    $npcName = trim((string)$npcName);
+    if ($npcName === '') {
+        $narratorOnlyDiaryAccess = filter_var(
+            $GLOBALS['NARRATOR_ONLY_DIARY_ACCESS'] ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+        if (!$narratorOnlyDiaryAccess) {
+            // By default, the narrator searches every NPC diary in the global memory bank.
+            return 'TRUE';
+        }
+
+        $narratorName = $GLOBALS['db']->escape('The Narrator');
+        return "(COALESCE($classifierColumn, '') NOT IN ('diary','auto_diary','backgroundlife_diary')"
+            . " OR $column LIKE '%|$narratorName|%' OR $column='$narratorName')";
+    }
+
+    $npcEsc = $GLOBALS['db']->escape($npcName);
+    return "($column LIKE '%|$npcEsc|%' OR $column='$npcEsc')";
+}
+
+/** Read completed, undigested scenes strictly before the surviving verbatim window. */
+function DataShortTermMemoryFor(string $actor, int $windowFloor): array
+{
+    $actor = trim($actor);
+    if ($actor === '' || $actor === 'The Narrator'
+        || !filter_var($GLOBALS['SHORT_TERM_MEMORY_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        return [];
+    }
+
+    // Missing/unknown timestamps must never open the entire memory bank after a save load.
+    $currentGamets = intval($GLOBALS['gameRequest'][2] ?? 0);
+    if ($currentGamets <= 0 || $windowFloor <= 0) {
+        return [];
+    }
+    $upperBound = min($currentGamets, $windowFloor - 1);
+    $cap = max(1, min(50, intval($GLOBALS['SHORT_TERM_MEMORY_MAX'] ?? 10)));
+
+    try {
+        $npcMaster = new NpcMaster();
+        $npc = $npcMaster->getByName($actor);
+        if (!$npc) {
+            return [];
+        }
+        $extendedData = $npcMaster->getExtendedData($npc);
+        $digestThrough = 0;
+        $digests = $extendedData['middle_term_memory'] ?? [];
+        foreach (is_array($digests) ? $digests : [] as $gamets => $digest) {
+            if (is_numeric($gamets) && intval($gamets) <= $currentGamets && is_scalar($digest) && trim((string)$digest) !== '') {
+                $digestThrough = max($digestThrough, intval($gamets));
+            }
+        }
+        if ($upperBound <= $digestThrough) {
+            return [];
+        }
+
+        $scope = dataGetMemoryScopeConditionSql($actor);
+        $companions = dataGetMemoryCompanionConditionSql($actor);
+        $rows = $GLOBALS['db']->fetchAll(
+            "SELECT summary, gamets_truncated FROM memory_summary"
+            . " WHERE NULLIF(BTRIM(summary), '') IS NOT NULL AND $scope AND $companions"
+            . " AND gamets_truncated > $digestThrough AND gamets_truncated <= $upperBound"
+            . " ORDER BY gamets_truncated DESC, uid DESC LIMIT $cap"
+        );
+
+        $context = [];
+        foreach (array_reverse($rows ?: []) as $row) {
+            $summary = preg_replace('/^#Summary:\s*/i', '', trim((string)$row['summary']));
+            $summary = trim((string)preg_replace('/\s*#Tags:.*$/is', '', $summary));
+            if ($summary !== '') {
+                $when = convert_gamets2fallout_date($row['gamets_truncated']);
+                $context[] = ['role' => 'user', 'content' => "(Earlier events - $when) $summary"];
+            }
+        }
+        return $context;
+    } catch (Throwable $e) {
+        Logger::warn('[STM] Could not read short-term memory: ' . $e->getMessage());
+        return [];
+    }
+}
+
+// Removes request-routing labels before text and vector memory matching.
+function dialecticNormalizeMemorySearchInput($rawstring): string
+{
+    $text = (string)$rawstring;
+    $playerName = trim((string)($GLOBALS['PLAYER_NAME'] ?? ''));
+    if ($playerName !== '') {
+        $text = str_replace("{$playerName}:", '', $text);
+    }
+
+    $text = strtr($text, [
+        'Talking to The Narrator' => '',
+        'Whispering to The Narrator' => '',
+        'Speaking privately to The Narrator' => '',
+    ]);
+    $text = preg_replace('/\(Context location:[^)]+?\)/i', '', $text);
+    $text = preg_replace('/\((?:(?:talking|whispering|shouting)|speaking privately)\s+to\s+[^()]+\)/i', '', $text);
+
+    return trim((string)$text);
 }
 
 function DataSearchMemory($rawstring,$npcfilter) {
@@ -4625,15 +4937,7 @@ function DataSearchMemory($rawstring,$npcfilter) {
     } else if (isMinimeT5Enabled()) {
         // MiniMe keyword extraction
         Logger::info("Using minime-t5 context");
-        $rawstring=strtr($rawstring,["{$GLOBALS["PLAYER_NAME"]}:"=>""]);
-        $rawstring=strtr($rawstring,["Talking to The Narrator"=>""]);
-
-        $pattern = "/\(Context location:[^)]+?\)/"; // Remove only the exact context location pattern
-        $replacement = "";
-        $TEST_TEXT = preg_replace($pattern, $replacement, $rawstring); 
-                    
-        $pattern = '/\(talking to [^()]+\)/i';
-        $TEST_TEXT = preg_replace($pattern, '', $TEST_TEXT);
+        $TEST_TEXT = dialecticNormalizeMemorySearchInput($rawstring);
 
         $keywords=minimeExtract($TEST_TEXT);
         $reponse=json_decode($keywords,true);
@@ -4698,15 +5002,7 @@ function DataSearchMemory($rawstring,$npcfilter) {
 
     if (empty($kwStringAll)) {
         Logger::info("Using dumb context");
-        $rawstring=strtr($rawstring,["{$GLOBALS["PLAYER_NAME"]}:"=>""]);
-        $rawstring=strtr($rawstring,["Talking to The Narrator"=>""]);
-
-        $pattern = "/\(Context location:[^)]+?\)/"; // Remove only the exact context location pattern
-        $replacement = "";
-        $TEST_TEXT = preg_replace($pattern, $replacement, $rawstring); // // assistant vs user war
-                    
-        $pattern = '/\(talking to [^()]+\)/i';
-        $TEST_TEXT = preg_replace($pattern, '', $TEST_TEXT);
+        $TEST_TEXT = dialecticNormalizeMemorySearchInput($rawstring);
 
         $keywords=hashtagifySentences($TEST_TEXT);
         $kw=[];
@@ -4732,6 +5028,7 @@ function DataSearchMemory($rawstring,$npcfilter) {
     
     
     $scopeConditionSql = dataGetMemoryScopeConditionSql($npcfilter);
+    $companionConditionSql = dataGetMemoryCompanionConditionSql($npcfilter, 'A.companions', 'A.classifier');
 
     $memory=$GLOBALS["db"]->fetchAll("
         SELECT summary,gamets_truncated,
@@ -4741,7 +5038,7 @@ function DataSearchMemory($rawstring,$npcfilter) {
         where native_vec @@to_tsquery('$kwStringAny')
         and not (native_vec @@to_tsquery('#Reminiscence'))
         and $scopeConditionSql
-        and companions like '|%{$GLOBALS["db"]->escape($npcfilter)}|%'
+        and $companionConditionSql
 
         ORDER BY rank_all DESC, rank_any DESC;
         ",true);
@@ -4767,6 +5064,23 @@ function DataSearchMemory($rawstring,$npcfilter) {
 }
 
 
+function dialecticNormalizeTsQueryTerms(string $text): array
+{
+    if (!preg_match_all('/[\p{L}\p{N}_]+/u', $text, $matches)) {
+        return [];
+    }
+
+    $terms = [];
+    foreach ($matches[0] as $term) {
+        if (mb_strlen($term, 'UTF-8') < 3) {
+            continue;
+        }
+        $terms[] = $term;
+    }
+
+    return array_values(array_unique($terms));
+}
+
 function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$timeThreshold=0) {
     
         $localStartTime=microtime(true);
@@ -4784,15 +5098,7 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
             // MiniMe keyword extraction
             Logger::info("Using minime-t5 context");
             error_log("[DataSearchMemoryByVector] Using minime-t5 context");
-            $rawstring=strtr($rawstring,["{$GLOBALS["PLAYER_NAME"]}:"=>""]);
-            $rawstring=strtr($rawstring,["Talking to The Narrator"=>""]);
-
-            $pattern = "/\(Context location:[^)]+?\)/"; // Remove only the exact context location pattern
-            $replacement = "";
-            $TEST_TEXT = preg_replace($pattern, $replacement, $rawstring); 
-                        
-            $pattern = '/\(talking to [^()]+\)/i';
-            $TEST_TEXT = preg_replace($pattern, '', $TEST_TEXT);
+            $TEST_TEXT = dialecticNormalizeMemorySearchInput($rawstring);
 
             error_log("[DataSearchMemoryByVector start] minimeExtract : " . (microtime(true) - $localStartTime) . " seconds");
             $TEST_TEXT = preg_replace('/[(),;:!?."\'-]/', ' ', $TEST_TEXT);
@@ -4866,28 +5172,12 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
             
         } else {
             error_log("[DataSearchMemoryByVector] Minime disabled; using dumb context fallback.");
-            $rawstring=strtr($rawstring,["{$GLOBALS["PLAYER_NAME"]}:"=>""]);
-            $rawstring=strtr($rawstring,["Talking to The Narrator"=>""]);
-
-            $pattern = "/\(Context location:[^)]+?\)/";
-            $replacement = "";
-            $TEST_TEXT = preg_replace($pattern, $replacement, $rawstring);
-
-            $pattern = '/\(talking to [^()]+\)/i';
-            $TEST_TEXT = preg_replace($pattern, '', $TEST_TEXT);
+            $TEST_TEXT = dialecticNormalizeMemorySearchInput($rawstring);
         }
 
         if (sizeof($result)<1) {
             Logger::info("Using dumb context");
-            $rawstring=strtr($rawstring,["{$GLOBALS["PLAYER_NAME"]}:"=>""]);
-            $rawstring=strtr($rawstring,["Talking to The Narrator"=>""]);
-
-            $pattern = "/\(Context location:[^)]+?\)/"; // Remove only the exact context location pattern
-            $replacement = "";
-            $TEST_TEXT = preg_replace($pattern, $replacement, $rawstring); // // assistant vs user war
-                        
-            $pattern = '/\(talking to [^()]+\)/i';
-            $TEST_TEXT = preg_replace($pattern, '', $TEST_TEXT);
+            $TEST_TEXT = dialecticNormalizeMemorySearchInput($rawstring);
 
             $keywords=strtr($TEST_TEXT,["."=>" ",","=>" ","'"=>" "]);
             $kw=[];
@@ -4921,14 +5211,12 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
         }
 
        
-        if (empty($npcfilter)) {
-            $npcfilter=$GLOBALS["DIALECTIC_NAME"];
-        } else {
-            if ($useContextKw)
-                $result=array_merge($result,lastKeyWordsContext(5,$npcfilter));
+        if (!empty($npcfilter) && $useContextKw) {
+            $result=array_merge($result,lastKeyWordsContext(5,$npcfilter));
         }
 
         $scopeConditionSql = dataGetMemoryScopeConditionSql($npcfilter);
+        $companionConditionSql = dataGetMemoryCompanionConditionSql($npcfilter);
 
         $contextKeywords  = implode(" ", $result);
         $contextKeywords=strtr($contextKeywords,["remember"=>"","Remember"=>"","do you remember"=>""]);
@@ -4967,17 +5255,7 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
 
         }
 
-        $result = explode(" ",$contextKeywords);
-
-        $resultNormalized=[];
-        foreach ($result as $word) {
-            if (strlen($word)<3)
-                continue;
-            if (!empty($word))
-                $resultNormalized[]=$word;
-        }
-
-        
+        $resultNormalized = dialecticNormalizeTsQueryTerms($contextKeywords);
         $kwStringAny=implode(" | ",$resultNormalized);
         $kwStringAll=implode(" & ",$resultNormalized);
         error_log("[DataSearchMemoryByVector] Generated Tags: $kwStringAny" );
@@ -4985,61 +5263,47 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
 
         if (is_array($vector) && isset($vector["embedding"])) {
             $vectorString="'[".implode(",",$vector["embedding"])."]'";
-   
-            $finalQuery="
-                SELECT summary, gamets_truncated,
-                        embedding <-> $vectorString as distance,
-                         ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_any_fts,
-                         ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_all_fts,
-                         (embedding <-> $vectorString) - ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll'))
-                          AS mixed_distance
-                    FROM public.memory_summary 
-                    WHERE embedding IS NOT NULL
-                    and $scopeConditionSql
-                    and companions like '|%{$GLOBALS["db"]->escape($npcfilter)}|%'
-                    ORDER BY (embedding <-> $vectorString)
-                    LIMIT 5 OFFSET 0
-                ";
+            $rankAnySql = $kwStringAny !== ''
+                ? "ts_rank(native_vec, to_tsquery('" . $GLOBALS["db"]->escape($kwStringAny) . "'))"
+                : "0::real";
+            $rankAllSql = $kwStringAll !== ''
+                ? "ts_rank(native_vec, to_tsquery('" . $GLOBALS["db"]->escape($kwStringAll) . "'))"
+                : "0::real";
+            $rankCombinedSql = "($rankAnySql + $rankAllSql)";
 
-             $finalQuery="
+            $finalQuery="
                 SELECT rowid,gamets_truncated,
                         embedding <-> $vectorString as distance,
-                         ts_rank(native_vec, to_tsquery('$kwStringAny')) AS rank_any_fts_raw,
-                         ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_all_fts_raw,
-                         ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_any_fts,
-                         ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll')) AS rank_all_fts,
-                         (embedding <-> $vectorString) - (ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll')) ) AS mixed_distance,
+                         $rankAnySql AS rank_any_fts_raw,
+                         $rankAllSql AS rank_all_fts_raw,
+                         $rankCombinedSql AS rank_fts,
+                         (embedding <-> $vectorString) - $rankCombinedSql AS mixed_distance,
                          summary
                     FROM public.memory_summary 
                     WHERE embedding IS NOT NULL
                     and $scopeConditionSql
-                    and companions like '|%{$GLOBALS["db"]->escape($npcfilter)}|%'
+                    and $companionConditionSql
                     and (gamets_truncated<$timeThreshold or $timeThreshold=0)
                     
-                    ORDER BY 
-                        round((embedding <-> $vectorString)::numeric, 2) ASC,
-                        (ts_rank(native_vec, to_tsquery('$kwStringAny'))+ts_rank(native_vec, to_tsquery('$kwStringAll'))) DESC
+                    ORDER BY
+                        mixed_distance ASC,
+                        distance ASC,
+                        gamets_truncated DESC,
+                        rowid DESC
                     LIMIT 50 OFFSET 0
                 ";    
             $memory=$GLOBALS["db"]->fetchAll($finalQuery);
             //error_log($finalQuery);
-            $singleMemory = null;
-            $maxRankAny = -INF;
-
-            foreach ($memory as $entry) {
-                if (isset($entry['rank_any_fts']) && $entry['rank_any_fts'] > $maxRankAny) {
-                    $maxRankAny = $entry['rank_any_fts'];
-                    $singleMemory = $entry;
-                }
-            }
+            $singleMemory = dialecticSelectBestHybridMemoryCandidate($memory);
          
             if (!isset($singleMemory)) {
-                $singleMemory=["rank_any"=>null,"rank_all"=>null,"summary"=>null];
-                $singleMemory["distance"]=1.4;
-            }
-            else {
-                 $singleMemory['rank_any']=(($singleMemory["rank_any_fts"])+($singleMemory["rank_all_fts"])/2);
-                 $singleMemory['rank_all']=($singleMemory["rank_all_fts"]);
+                $singleMemory = [
+                    "rank_any" => null,
+                    "rank_all" => null,
+                    "summary" => null,
+                    "distance" => 1.4,
+                    "mixed_distance" => 1.4,
+                ];
             }
             
             /*error_log("
@@ -5058,7 +5322,8 @@ function DataSearchMemoryByVector($rawstring,$npcfilter,$useContextKw=false,$tim
                     'audit_memory',
                     array(
                         'input' => $TEST_TEXT,
-                        'keywords' =>'text2vec search / (input plus "'.$contextKeywords.'"',
+                        'keywords' =>(!empty($GLOBALS['PATCH_BYPASS_MINIME_EXTRACT']) ? 'strict semantic fallback / ' : 'text2vec search / ')
+                            . '(input plus "'.$contextKeywords.'"',
                         'rank_any'=> (1.40 - floatval($singleMemory["mixed_distance"] ?? $singleMemory["distance"] ?? 0)),// Try to mimic FTS query rank
                         'rank_all'=> (1.40 - floatval($singleMemory["distance"] ?? 0)),// Try to mimic FTS query rank
                         'memory'=>$singleMemory["summary"],
@@ -5264,18 +5529,13 @@ function snapshot_response_prompt_debug_data($connectorData = null) {
 }
 
 function dialectic_try_llm_fallback($reason = "unknown") {
-    if (isset($GLOBALS["IN_FALLBACK_MODE"])) {
-        Logger::info("[FALLBACK] Already in fallback mode; not retrying. reason={$reason}");
-        return null;
-    }
-
     if (empty($GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"]) || !is_array($GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"])) {
         Logger::info("[FALLBACK] No current profile data available; cannot retry. reason={$reason}");
         return null;
     }
 
     $profileData = $GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"];
-    $fallbackConnectorId = class_exists('LLMRandomizer')
+    $legacyFallbackConnectorId = class_exists('LLMRandomizer')
         ? LLMRandomizer::getConnectorIdForField($profileData, "llm_fallback_id")
         : ($profileData["llm_fallback_id"] ?? null);
 
@@ -5292,37 +5552,80 @@ function dialectic_try_llm_fallback($reason = "unknown") {
     $fallbackEnabled = array_key_exists("LLM_FALLBACK_ENABLED", $metadata)
         ? filter_var($metadata["LLM_FALLBACK_ENABLED"], FILTER_VALIDATE_BOOLEAN)
         : true;
-    $currentConnectorId = $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]["id"] ?? null;
-    if (!$fallbackEnabled || !$fallbackConnectorId || $fallbackConnectorId == $currentConnectorId) {
+    if (!$fallbackEnabled) {
         Logger::info("[FALLBACK] Fallback not available" . Logger::formatContext([
             "reason" => $reason,
-            "enabled" => $fallbackEnabled ? "yes" : "no",
-            "fallback_id" => $fallbackConnectorId ?? "",
-            "current_id" => $currentConnectorId ?? "",
+            "enabled" => "no",
         ]));
         return null;
     }
 
+    $fallbackConnectorIds = [];
+    foreach ([$legacyFallbackConnectorId, $metadata["LLM_FALLBACK_2_ID"] ?? null, $metadata["LLM_FALLBACK_3_ID"] ?? null] as $connectorId) {
+        $connectorId = filter_var($connectorId, FILTER_VALIDATE_INT, ["options" => ["min_range" => 1]]);
+        if ($connectorId && !in_array($connectorId, $fallbackConnectorIds, true)) {
+            $fallbackConnectorIds[] = $connectorId;
+        }
+    }
+
+    $attempted = $GLOBALS["DIALECTIC_LLM_ATTEMPTED_CONNECTOR_IDS"] ?? [];
+    if (!is_array($attempted)) {
+        $attempted = [];
+    }
+    $currentConnectorId = intval($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]["id"] ?? 0);
+    if ($currentConnectorId > 0 && !in_array($currentConnectorId, $attempted, true)) {
+        $attempted[] = $currentConnectorId;
+    }
+
     $connector = new LLMConnector();
-    $fallbackConnectorData = $connector->getById($fallbackConnectorId);
+    $fallbackConnectorData = null;
+    $fallbackConnectorId = null;
+    foreach ($fallbackConnectorIds as $candidateId) {
+        if (in_array($candidateId, $attempted, true)) {
+            continue;
+        }
+        $attempted[] = $candidateId;
+        $candidate = $connector->getById($candidateId);
+        if ($candidate) {
+            $fallbackConnectorId = $candidateId;
+            $fallbackConnectorData = $candidate;
+            break;
+        }
+        Logger::warn("[FALLBACK] Connector ID {$candidateId} not found; advancing chain. reason={$reason}");
+    }
+    $GLOBALS["DIALECTIC_LLM_ATTEMPTED_CONNECTOR_IDS"] = $attempted;
+
     if (!$fallbackConnectorData) {
-        Logger::warn("[FALLBACK] Fallback connector ID {$fallbackConnectorId} not found. reason={$reason}");
+        Logger::info("[FALLBACK] Connector chain exhausted" . Logger::formatContext([
+            "reason" => $reason,
+            "attempted" => implode(",", $attempted),
+        ]));
         return null;
     }
 
-    Logger::warn("[FALLBACK] Retrying LLM request with fallback connector" . Logger::formatContext([
+    $chainPosition = array_search($fallbackConnectorId, $fallbackConnectorIds, true);
+    Logger::warn("[FALLBACK] Retrying LLM request with connector chain" . Logger::formatContext([
         "reason" => $reason,
         "fallback_id" => $fallbackConnectorId,
+        "chain_position" => $chainPosition === false ? "" : $chainPosition + 1,
+        "chain_length" => count($fallbackConnectorIds),
         "driver" => $fallbackConnectorData["driver"] ?? "",
         "model" => $fallbackConnectorData["model"] ?? "",
     ]));
 
+    $fallbackDepth = intval($GLOBALS["DIALECTIC_LLM_FALLBACK_DEPTH"] ?? 0) + 1;
+    $GLOBALS["DIALECTIC_LLM_FALLBACK_DEPTH"] = $fallbackDepth;
     $GLOBALS["IN_FALLBACK_MODE"] = true;
     $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"] = $fallbackConnectorData;
     $connector->setOldGlobals($fallbackConnectorData);
 
     $result = call_llm_internal();
-    unset($GLOBALS["IN_FALLBACK_MODE"]);
+    $fallbackDepth = intval($GLOBALS["DIALECTIC_LLM_FALLBACK_DEPTH"] ?? 1) - 1;
+    if ($fallbackDepth <= 0) {
+        unset($GLOBALS["DIALECTIC_LLM_FALLBACK_DEPTH"], $GLOBALS["IN_FALLBACK_MODE"]);
+    } else {
+        $GLOBALS["DIALECTIC_LLM_FALLBACK_DEPTH"] = $fallbackDepth;
+    }
     return $result;
 }
 
@@ -5331,8 +5634,48 @@ function call_llm() {
     global $ERROR_TRIGGERED, $talkedSoFar, $alreadysent, $FUNCTIONS_ARE_ENABLED;
     global $overrideParameters, $request;
     
-    // Call the internal function (which now handles fallback itself)
+    unset($GLOBALS["DIALECTIC_LLM_ATTEMPTED_CONNECTOR_IDS"], $GLOBALS["DIALECTIC_LLM_FALLBACK_DEPTH"], $GLOBALS["IN_FALLBACK_MODE"]);
+    // Call the internal function (which now handles the full fallback chain itself)
     return call_llm_internal();
+}
+
+function dialecticRecoverPlainLlmSpeech(): bool
+{
+    global $gameRequest, $talkedSoFar, $alreadysent;
+
+    if (($gameRequest[0] ?? '') === 'diary' || count($talkedSoFar ?? []) > 0 || count($alreadysent ?? []) > 0) {
+        return false;
+    }
+
+    $raw = trim(strval($GLOBALS['DIALECTIC_LLM_RAW_TEXT'] ?? ''));
+    if ($raw === '' || strlen($raw) < 3 || preg_match('/[[:alpha:]]/u', $raw) !== 1) {
+        return false;
+    }
+    if (preg_match('/^(?:\{|\[|data\s*:|<!doctype|<html|error\b)/i', $raw) === 1) {
+        return false;
+    }
+
+    $raw = preg_replace('/^```(?:json|text|markdown)?\s*|\s*```$/i', '', $raw);
+    $raw = preg_replace('/<(think|thinking|reasoning)>.*?<\/\1>/is', '', $raw);
+    $clean = trim(cleanResponse($raw));
+    if ($clean === '' || preg_match('/[[:alpha:]]/u', $clean) !== 1) {
+        return false;
+    }
+
+    $sentences = array_values(array_filter(split_sentences_stream($clean), static function ($line) {
+        return trim(strval($line)) !== '';
+    }));
+    if (empty($sentences)) {
+        return false;
+    }
+
+    Logger::warn('[LLM] Recovered valid plain-text model output as speech' . Logger::formatContext([
+        'speaker' => $GLOBALS['DIALECTIC_NAME'] ?? '',
+        'chars' => strlen($clean),
+        'preview' => Logger::summarizePayload($clean, 160),
+    ]));
+    returnLines($sentences);
+    return true;
 }
 
 function call_llm_internal() {
@@ -5342,6 +5685,7 @@ function call_llm_internal() {
     
     $outputWasValid = true;
     $firstLlmChunkLogged = false;
+    unset($GLOBALS['DIALECTIC_LLM_RAW_TEXT']);
     
 
     if (isset($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"])) {
@@ -5417,7 +5761,7 @@ function call_llm_internal() {
         "mood"=>"One of :".implode("|",normalizeEmoteMoods($GLOBALS["EMOTEMOODS"] ?? "")),
         "action"=>"One of :".implode("|",$GLOBALS["FUNC_LIST"]),
         "target"=>"action target actor or action destination location name",
-        "item"=>"item identifier and name. For GiveItemTo or Consume, use exact BaseID:ItemName from inventory. For PickupItem, use exact RefID:ItemName from nearby_items",
+        "item"=>"item identifier and name. For GiveItemTo, Consume, EquipItem, or UnequipItem, use exact BaseID:ItemName from inventory. For PickupItem, use exact RefID:ItemName from nearby_items",
         "lang"=>"language used, (es|en|fr|...)"]);
 
 
@@ -5503,64 +5847,9 @@ function call_llm_internal() {
     if ($connectionHandler->primary_handler === false) {
         error_log("[FALLBACK DEBUG] primary_handler is false, checking fallback conditions");
         
-        // Check if we should try fallback BEFORE sending error message
-        if (!isset($GLOBALS["IN_FALLBACK_MODE"])) {
-            $shouldTryFallback = false;
-            $fallbackConnectorId = null;
-            
-            if (isset($GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"])) {
-                $profileData = $GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"];
-                $fallbackConnectorId = class_exists('LLMRandomizer')
-                    ? LLMRandomizer::getConnectorIdForField($profileData, "llm_fallback_id")
-                    : ($profileData["llm_fallback_id"] ?? null);
-                error_log("[FALLBACK DEBUG] Fallback connector ID from profile: " . ($fallbackConnectorId ?? "NULL"));
-                
-                // Check if fallback is enabled in metadata
-                if (!empty($profileData["metadata"])) {
-                    $metadata = is_string($profileData["metadata"]) 
-                        ? json_decode($profileData["metadata"], true) 
-                        : $profileData["metadata"];
-                    if (is_array($metadata)) {
-                        $fallbackEnabled = !empty($metadata["LLM_FALLBACK_ENABLED"]);
-                        error_log("[FALLBACK DEBUG] Fallback enabled in metadata: " . ($fallbackEnabled ? "YES" : "NO"));
-                        $currentConnectorId = $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]["id"] ?? null;
-                        error_log("[FALLBACK DEBUG] Current connector ID: " . ($currentConnectorId ?? "NULL"));
-                        $shouldTryFallback = $fallbackEnabled && $fallbackConnectorId && $fallbackConnectorId != $currentConnectorId;
-                        error_log("[FALLBACK DEBUG] Should try fallback: " . ($shouldTryFallback ? "YES" : "NO"));
-                    }
-                }
-            }
-            
-            if ($shouldTryFallback) {
-                error_log("[FALLBACK] Primary connector failed (connection error). Attempting fallback connector ID: {$fallbackConnectorId}");
-                
-                // Set fallback mode flag to prevent player TTS reprocessing
-                $GLOBALS["IN_FALLBACK_MODE"] = true;
-                
-                // Load and try fallback connector
-                $connector = new LLMConnector();
-                $fallbackConnectorData = $connector->getById($fallbackConnectorId);
-                
-                if ($fallbackConnectorData) {
-                    error_log("[FALLBACK] Loaded fallback connector: {$fallbackConnectorData["driver"]}/{$fallbackConnectorData["model"]}");
-                    $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"] = $fallbackConnectorData;
-                    $connector->setOldGlobals($fallbackConnectorData);
-                    
-                    error_log("[FALLBACK] Recursively retrying with fallback connector");
-                    // Recursively retry with fallback (flag stays set throughout retry)
-                    $result = call_llm_internal();
-                    
-                    // Clear fallback mode flag after retry completes
-                    unset($GLOBALS["IN_FALLBACK_MODE"]);
-                    
-                    return $result;
-                } else {
-                    error_log("[FALLBACK] Fallback connector ID {$fallbackConnectorId} not found.");
-                    unset($GLOBALS["IN_FALLBACK_MODE"]);
-                }
-            }
-        } else {
-            error_log("[FALLBACK DEBUG] Already in fallback mode, not retrying");
+        $fallbackResult = dialectic_try_llm_fallback("connection_error");
+        if ($fallbackResult !== null) {
+            return $fallbackResult;
         }
         
         // No fallback or fallback also failed - send error message
@@ -5586,56 +5875,9 @@ function call_llm_internal() {
     // Check for error response code
     $statusCode = method_exists($connectionHandler, 'getHttpStatusCode') ? $connectionHandler->getHttpStatusCode() : 200;
     if ($statusCode >= 300) {
-        // Check if we should try fallback BEFORE sending error message
-        if (!isset($GLOBALS["IN_FALLBACK_MODE"])) {
-            $shouldTryFallback = false;
-            $fallbackConnectorId = null;
-            
-            if (isset($GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"])) {
-                $profileData = $GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"];
-                $fallbackConnectorId = class_exists('LLMRandomizer')
-                    ? LLMRandomizer::getConnectorIdForField($profileData, "llm_fallback_id")
-                    : ($profileData["llm_fallback_id"] ?? null);
-                
-                // Check if fallback is enabled in metadata
-                if (!empty($profileData["metadata"])) {
-                    $metadata = is_string($profileData["metadata"]) 
-                        ? json_decode($profileData["metadata"], true) 
-                        : $profileData["metadata"];
-                    if (is_array($metadata)) {
-                        $fallbackEnabled = !empty($metadata["LLM_FALLBACK_ENABLED"]);
-                        $currentConnectorId = $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]["id"] ?? null;
-                        $shouldTryFallback = $fallbackEnabled && $fallbackConnectorId && $fallbackConnectorId != $currentConnectorId;
-                    }
-                }
-            }
-            
-            if ($shouldTryFallback) {
-                error_log("[FALLBACK] Primary connector failed (HTTP {$statusCode}). Attempting fallback connector ID: {$fallbackConnectorId}");
-                
-                // Set fallback mode flag to prevent player TTS reprocessing
-                $GLOBALS["IN_FALLBACK_MODE"] = true;
-                
-                // Load and try fallback connector
-                $connector = new LLMConnector();
-                $fallbackConnectorData = $connector->getById($fallbackConnectorId);
-                
-                if ($fallbackConnectorData) {
-                    $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"] = $fallbackConnectorData;
-                    $connector->setOldGlobals($fallbackConnectorData);
-                    
-                    // Recursively retry with fallback (flag stays set throughout retry)
-                    $result = call_llm_internal();
-                    
-                    // Clear fallback mode flag after retry completes
-                    unset($GLOBALS["IN_FALLBACK_MODE"]);
-                    
-                    return $result;
-                } else {
-                    error_log("[FALLBACK] Fallback connector ID {$fallbackConnectorId} not found.");
-                    unset($GLOBALS["IN_FALLBACK_MODE"]);
-                }
-            }
+        $fallbackResult = dialectic_try_llm_fallback("http_{$statusCode}");
+        if ($fallbackResult !== null) {
+            return $fallbackResult;
         }
         
         Logger::error("LLM provider error response code: $statusCode");
@@ -5676,6 +5918,14 @@ function call_llm_internal() {
         }
         if ($tmpData==-1 || (isset($GLOBALS["VALIDATE_LLM_OUTPUT_FNCT"]) && !$GLOBALS["VALIDATE_LLM_OUTPUT_FNCT"]($tmpData))) {
             if ($tmpData == -1 && count($talkedSoFar) == 0 && count($alreadysent) == 0) {
+                if (dialecticRecoverPlainLlmSpeech()) {
+                    if (method_exists($connectionHandler, "close")) {
+                        $connectionHandler->close("plain-text-recovery");
+                    }
+                    $buffer = "";
+                    $breakFlag = true;
+                    continue;
+                }
                 $streamErrorReason = "stream_error";
                 if (method_exists($connectionHandler, "getLastStreamErrorCode")) {
                     $streamErrorReason .= " code=" . strval($connectionHandler->getLastStreamErrorCode() ?? "");
@@ -5762,6 +6012,18 @@ function call_llm_internal() {
                 }
 
     } // --- end while
+
+    if ($outputWasValid && trim($buffer) === '' && count($talkedSoFar) == 0 && count($alreadysent) == 0) {
+        if (!dialecticRecoverPlainLlmSpeech()) {
+            if (method_exists($connectionHandler, "close")) {
+                $connectionHandler->close("empty-response-before-fallback");
+            }
+            $fallbackResult = dialectic_try_llm_fallback("empty_response");
+            if ($fallbackResult !== null) {
+                return $fallbackResult;
+            }
+        }
+    }
     
     
     if ($outputWasValid && trim($buffer)) {
@@ -5922,40 +6184,9 @@ function call_llm_internal() {
                             if ($destination!=$GLOBALS["PLAYER_NAME"])
                                 $actions[$n]=$replaceAction($action, "TradeItems", $destination);
 
-                        }  else if ($actionParts2[0]=="Follow") {
-                            // Lets polish the parammeters
-                            $localtarget=$actionParts2[1];
-                            $mang1=explode(",",$localtarget);
-                            $mang2=explode(" and ",$mang1[0]);
-                            $mang3=explode("(",$mang2[0]);
-                            $requestedFollowTarget=trim($mang3[0]);
-                            $playerNameForFollow=trim(strval($GLOBALS["PLAYER_NAME"] ?? ""));
-                            $isPlayerFollowTarget=(
-                                $requestedFollowTarget !== "" &&
-                                (
-                                    ($playerNameForFollow !== "" && strcasecmp($requestedFollowTarget, $playerNameForFollow) === 0) ||
-                                    in_array(strtolower($requestedFollowTarget), ["player", "me", "the player"], true)
-                                )
-                            );
-
-                            if ($isPlayerFollowTarget) {
-                                error_log("[ACTION POSTFILTER Follow] $localtarget => {$requestedFollowTarget} => FollowPlayer");
-                                $actions[$n]=$replaceAction($action, "FollowPlayer", "");
-                                continue;
-                            }
-
-                            $mang4=FindClosestActorName($requestedFollowTarget);
-
-                            error_log("[ACTION POSTFILTER Follow] $localtarget =>  {$mang3[0]} => $mang4");
-
-                            if ($mang4)
-                                $destination=$mang4;
-                            else
-                                $destination=$requestedFollowTarget;
-                            $actions[$n]=$replaceAction($action, "Follow", $destination);
-                            
-
-                            error_log("[ACTION POSTFILTER Follow] $localtarget => {$mang3[0]} => $destination");
+                        } else if (in_array($actionParts2[0], ["Follow", "FollowPlayer", "MakeFollower"], true)) {
+                            error_log("[ACTION POSTFILTER Follow] Normalizing {$actionParts2[0]} to permanent party follow");
+                            $actions[$n]=$replaceAction($action, "Follow", "");
 
                         } else if ($actionParts2[0]=="TravelTo") {
                             // Lets polish the parammeters
@@ -6056,11 +6287,6 @@ function call_llm_internal() {
 
                             error_log("[ACTION POSTFILTER MoveTo] $localtarget => $target => $resolvedTarget");
                             $actions[$n]=$replaceAction($action, "MoveTo", $resolvedTarget);
-                            
-                        }  else if ($actionParts2[0]=="FollowPlayer") {
-                            
-                            error_log("[ACTION POSTFILTER FollowPlayer] Just Cleaning here");
-                            $actions[$n]=$replaceAction($action, "FollowPlayer", "");
                             
                         }  else if ($actionParts2[0]=="ReturnBackHome") {
                             
@@ -6238,9 +6464,27 @@ function call_llm_internal() {
                     }
                     $commandArgsForResponse = array_values($decodedActionLine['parameter_args'] ?? []);
                     $payload = dialecticEncodeCommandAction($commandName, $commandArgsForResponse);
-                    dialectic_buffer_command_response_line($speaker, $payload, [
+                    $responseMetadata = [
                         "request_type" => $requestTypeForActionEmit,
-                    ]);
+                    ];
+                    $structuredParameter = $decodedActionLine['parameter'] ?? null;
+                    if (!is_array($structuredParameter)) {
+                        $parameterString = trim(strval($decodedActionLine['parameter_string'] ?? ''));
+                        if ($parameterString !== '' && $parameterString[0] === '{') {
+                            $decodedParameter = json_decode($parameterString, true);
+                            if (is_array($decodedParameter)) {
+                                $structuredParameter = $decodedParameter;
+                            }
+                        }
+                    }
+                    if (is_array($structuredParameter)) {
+                        foreach ($structuredParameter as $metadataKey => $metadataValue) {
+                            if (is_string($metadataKey) && is_scalar($metadataValue)) {
+                                $responseMetadata[$metadataKey] = $metadataValue;
+                            }
+                        }
+                    }
+                    dialectic_buffer_command_response_line($speaker, $payload, $responseMetadata);
                     $decodedCommand = dialecticDecodeCommandAction($payload);
                     $commandPayload = $decodedCommand["command_payload"];
                     $pluginOutputLogLines[] = json_encode([
@@ -6646,7 +6890,7 @@ function GetExpression($mood) {
      "CombatShout"
      ];
      
-     $result="";
+     $result="MoodNeutral";
      if ($mood=="sarcastic") {
         $result= array_rand(array_flip(["DialoguePuzzled"]), 1);
          
@@ -6683,6 +6927,18 @@ function GetExpression($mood) {
          
      } else if ($mood=="smirking") {
         $result= array_rand(array_flip(["DialogueHappy"]), 1);
+     } else if (in_array($mood, ["sexy", "kindly", "lovely", "seductive", "happy"], true)) {
+        $result="DialogueHappy";
+     } else if (in_array($mood, ["desperate", "scared", "pleading"], true)) {
+        $result="DialogueFear";
+     } else if (in_array($mood, ["assertive", "angry"], true)) {
+        $result="DialogueAnger";
+     } else if ($mood=="sad") {
+        $result="DialogueSad";
+     } else if ($mood=="surprised") {
+        $result="DialogueSurprise";
+     } else if (in_array($mood, ["drunk", "shy"], true)) {
+        $result="DialoguePuzzled";
      
          
      } else if ($mood=="serious") {
@@ -7139,7 +7395,6 @@ function buildDynamicBiography(array $FOLLOWER_CONF, bool $forLetter = false, bo
     } else {
         $STATS_ADD = "";
     }
-
     // Add dialogue target's equipment (if DIALOGUE_TARGET is set)
     if (isset($GLOBALS["DIALOGUE_TARGET"]) && !empty($GLOBALS["DIALOGUE_TARGET"])) {
         $targetName = $GLOBALS["DIALOGUE_TARGET"];

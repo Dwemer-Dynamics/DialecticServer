@@ -2,8 +2,21 @@
 
 class CoreProfile
 {
+    /** Default used when a profile has no Bored Event chance. */
+    const BORED_EVENT_DEFAULT = 30;
+
     private $table     = "core_profiles";
     private $lastError = '';
+
+    /** Clamp a stored profile value to 0-100, falling back to the fixed default. */
+    public static function normalizeBoredEventChance($raw): int
+    {
+        if (is_bool($raw) || !is_numeric($raw)) {
+            return self::BORED_EVENT_DEFAULT;
+        }
+
+        return max(0, min(100, intval($raw)));
+    }
 
     public static function defaultMetadata(): array
     {
@@ -16,11 +29,19 @@ class CoreProfile
                 'speechstyle',
                 'goals',
             ],
-            'RPG_COMMENTS' => ['levelup', 'combat_end', 'lockpick', 'sleep'],
-            'RPG_COMMENTS_CHANCE' => 50,
+            'RPG_COMMENTS' => ['levelup', 'combat_end', 'lockpick', 'sleep', 'location_changed', 'quest_updated'],
+            'RPG_COMMENTS_CHANCE' => 20,
+            'LLM_FALLBACK_ENABLED' => true,
             'COMBAT_BARK_COOLDOWN' => 30,
+            'BORED_EVENT' => self::BORED_EVENT_DEFAULT,
+            'DIARY_PROMPT' => "Please write a short summary of #PLAYER_NAME# and #DIALECTIC_NAME#'s recent dialogues and events into #DIALECTIC_NAME#'s diary. WRITE AS IF YOU WERE #DIALECTIC_NAME#. Start the diary entry with the current date and time.",
+            'DIARY_COOLDOWN' => 120,
+            'CONTEXT_HISTORY_DIARY' => 100,
             'AUTO_DIARY_ENABLED' => false,
             'AUTO_DIARY_WAIT_ENABLED' => true,
+            'LATEST_DIARY_CONTEXT_ENABLED' => false,
+            'SHORT_TERM_MEMORY_ENABLED' => false,
+            'SHORT_TERM_MEMORY_MAX' => 10,
             'SALUTATION_AFTER_A_WHILE' => false,
         ];
     }
@@ -75,9 +96,9 @@ class CoreProfile
         }
 
         $filtered = array_intersect_key($data, array_flip($fields));
-        $created = $GLOBALS["db"]->insert($this->table, $filtered);
-        $this->repairDefaultFlags($created ? intval($created) : null, $filtered);
-        return $created;
+        $createdId = $GLOBALS["db"]->insertReturningId($this->table, $filtered);
+        $this->repairDefaultFlags($createdId ?: null, $filtered);
+        return $createdId;
     }
 
     public function readAll()
@@ -319,6 +340,9 @@ class CoreProfile
 
         // Decode and apply profile metadata
         $metadata = json_decode($currentProfileData['metadata'] ?? '{}', true);
+        // Reset opt-in values before applying this profile and its later NPC overrides.
+        $GLOBALS['SHORT_TERM_MEMORY_ENABLED'] = false;
+        $GLOBALS['SHORT_TERM_MEMORY_MAX'] = 10;
         $narratorManagedKeys = [
             'REMOVE_ASTERISKS_FROM_PLAYER_INPUT',
             'REMOVE_ASTERISKS_FROM_NPC_OUTPUT',
@@ -339,6 +363,11 @@ class CoreProfile
                 }
             }
         }
+        // Replace the removed global setting with the selected profile value before NPC overrides.
+        $GLOBALS["BORED_EVENT"] = self::normalizeBoredEventChance(
+            is_array($metadata) ? ($metadata['BORED_EVENT'] ?? null) : null
+        );
+
         $GLOBALS["ENFORCE_ACTIONS_PROMPT"] = false;
         if (isset($currentProfileData["prompt"])) {
             $GLOBALS["PROFILE_PROMPT"] = $currentProfileData["prompt"];

@@ -123,7 +123,7 @@ class google_openaijson
                 
             } else {
 
-                if ($lastrole=="assistant" && $lastrole!=$element["role"] && $element["role"]!="tool" ) {
+                if ($lastrole=="assistant" && $lastrole!=$element["role"] && $element["role"]!="tool" && !empty($assistantRoleBuffer)) {
                     $contextDataCopy[]=[
                         "role"=>"assistant",
                         "content"=>"{\"character\": \"{$GLOBALS["DIALECTIC_NAME"]}\", \"listener\": \"$lastTargetBuffer\", \"mood\": \"\", \"action\": \"Talk\",\"target\": \"\", \"message\":\"".trim($assistantRoleBuffer)."\"}"
@@ -212,7 +212,7 @@ class google_openaijson
                                 $GLOBALS["PATCH_STORE_FUNC_RES"]="{$GLOBALS["DIALECTIC_NAME"]} issued ACTION, but {$element["content"]}";
                                 $contextDataCopy[]=[
                                     "role"=>"user",
-                                    "content"=>"The Narrator: ({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]}"
+                                    "content"=>dialecticBuildNarratorContextLine("({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]}")
                                     
                                 ];
                             } else {
@@ -220,7 +220,7 @@ class google_openaijson
                                 $GLOBALS["PATCH_STORE_FUNC_RES"]=strtr($lastAction,["#RESULT#"=>$element["content"]]);
                                 $contextDataCopy[]=[
                                     "role"=>"user",
-                                    "content"=>"The Narrator: ({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]} ",
+                                    "content"=>dialecticBuildNarratorContextLine("({$GLOBALS["DIALECTIC_NAME"]} used action $lastActionName). {$GLOBALS["PATCH_STORE_FUNC_RES"]}"),
                                     
                                 ];
                             }
@@ -399,6 +399,7 @@ class google_openaijson
             if (strlen(($data["choices"][0]["delta"]["content"]))>0) {
                 $buffer.=$data["choices"][0]["delta"]["content"];
                 $this->_buffer.=$data["choices"][0]["delta"]["content"];
+                $GLOBALS["DIALECTIC_LLM_RAW_TEXT"] = $this->_buffer;
                 $this->_numOutputTokens += 1;
 
             }

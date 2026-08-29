@@ -34,7 +34,7 @@ if (!function_exists('dialecticRuntimeDatabaseEncodingError')) {
     {
         $encoding = dialecticRuntimeDatabaseEncoding();
         $label = $encoding !== '' ? $encoding : 'unknown encoding';
-        return "Dialectic database uses {$label}; UTF8 is required for NPC metadata. "
+        return "DIALECTIC database uses {$label}; UTF8 is required for NPC metadata. "
             . 'Run sudo bash /var/www/html/DialecticServer/tools/migrate-dialectic-db-utf8-wsl.sh.';
     }
 }
@@ -64,6 +64,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'public.core_player',
             'public.core_profiles',
             'public.core_stt_connector',
+            'public.core_itt_connector',
             'public.core_tts_connector',
             'public.database_versioning',
             'public.descriptions',
@@ -73,6 +74,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'public.factions',
             'public.game_plugins',
             'public.general_settings',
+            'public.global_settings_presets',
             'public.import_rules',
             'public.locations',
             'public.log',
@@ -87,6 +89,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'public.rolemaster',
             'public.speech',
             'public.worldknowledge',
+            'public.visual_context',
             'public.combined_bio_templates',
             'public.combined_core_action',
             'public.combined_descriptions',
@@ -169,17 +172,24 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
 
         $requiredVersions = [
             'conf_opts' => 20260626001,
-            'core_action' => 20260624003,
+            'core_action' => 20260823003,
             'core_player' => 20260707001,
-            'general_settings' => 20260511001,
+            'general_settings' => 20260722001,
+            'global_settings_presets' => 20260828001,
+            'import_rules' => 20260730001,
             'core_stt_connector' => 20260502002,
+            'core_itt_connector' => 20260731001,
+            'visual_context' => 20260731001,
+            'pipvision_general_settings' => 20260731001,
+            'itt_connector_defaults' => 20260731002,
             'descriptions_defaults' => 20260626004,
             'prompts' => 20260627001,
-            'core_profiles' => 20260629002,
+            'core_profiles' => 20260717001,
             'moods_issued_sequence' => 20260626001,
             'core_tts_connector_metadata' => 20260626001,
             'core_tts_connector_omnivoice' => 20260708001,
             'core_tts_connector_removed_drivers' => 20260712001,
+            'tts_gender_fallback_defaults' => 20260715001,
             'legacy_translation_tables_cleanup' => 20260628001,
             'legacy_currentmission_cleanup' => 20260713003,
             'general_settings_seed_repair' => 20260713004,
@@ -188,8 +198,9 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'prompt_manager_defaults' => 20260713002,
             'dialecticnpcs_view' => 20260713002,
             'profile_defaults' => 20260713002,
-            'playthrough_metadata_schema' => 20260713002,
+            'playthrough_metadata_schema' => 20260730001,
             'relationship_async_queues' => 20260713002,
+            'fallout_worldknowledge_seed' => 20260722001,
         ];
 
         try {
@@ -254,12 +265,12 @@ if (!function_exists('dialecticRuntimeEnsureDbUpdates')) {
         $updatesPath = $enginePath . "debug" . DIRECTORY_SEPARATOR . "db_updates.php";
         $db=$GLOBALS["db"] ?? null;
         if (!file_exists($updatesPath)) {
-            throw new \RuntimeException("Dialectic database update file is missing: {$updatesPath}");
+            throw new \RuntimeException("DIALECTIC database update file is missing: {$updatesPath}");
         }
 
         require($updatesPath);
         if (dialecticRuntimeNeedsDbUpdates()) {
-            throw new \RuntimeException("Dialectic database bootstrap completed with pending schema updates.");
+            throw new \RuntimeException("DIALECTIC database bootstrap completed with pending schema updates.");
         }
         $ran = true;
     }
@@ -271,6 +282,7 @@ if (!function_exists('dialecticRuntimeApplyBootstrapOptions')) {
         $runDbUpdates = !empty($options['run_db_updates']);
         $loadGeneralSettings = !array_key_exists('load_general_settings', $options) || (bool)$options['load_general_settings'];
         $loadSttConnector = !array_key_exists('load_stt_connector', $options) || (bool)$options['load_stt_connector'];
+        $loadIttConnector = !empty($options['load_itt_connector']);
         $loadTtsConnector = $options['load_tts_connector'] ?? false;
         $loadPlayerName = !empty($options['load_player_name']);
         $loadNarrator = !empty($options['load_narrator']);
@@ -283,6 +295,9 @@ if (!function_exists('dialecticRuntimeApplyBootstrapOptions')) {
         }
         if ($loadSttConnector) {
             dialecticLoadActiveSttConnectorIntoGlobals();
+        }
+        if ($loadIttConnector) {
+            dialecticLoadActiveIttConnectorIntoGlobals();
         }
         if (is_string($loadTtsConnector) && trim($loadTtsConnector) !== '') {
             dialecticLoadPreferredTtsConnectorIntoGlobals(trim($loadTtsConnector));

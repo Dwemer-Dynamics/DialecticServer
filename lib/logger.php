@@ -8,6 +8,8 @@ class Logger {
     private static $MAX_LOG_SIZE = 10485760;
     private static $MAX_ROTATED_LOGS = 3;
     private static $ROTATED_THIS_REQUEST = [];
+    private static $FAILED_LOG_TARGETS = [];
+    private static $HANDLING_PHP_ERROR = false;
     private static $KNOWN_LOGS = [
         'dialectic.log',
         'debugStream.log',
@@ -173,13 +175,44 @@ class Logger {
 
         $logFile = self::resolveLogFile($logFile);
 
-        error_log($logEntry, 3, $logFile);
+        self::appendToLog($logFile, $logEntry);
 
         // also write to apache error log
         if (in_array(strtolower($level), ["warn", "error"])) {
             $logEntry = "[{$level}] {$requestPrefix}{$message}";
             error_log($logEntry);
         }
+    }
+
+    private static function appendToLog(string $logFile, string $logEntry): bool
+    {
+        if (isset(self::$FAILED_LOG_TARGETS[$logFile])) {
+            return false;
+        }
+
+        $written = @file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
+        if ($written !== false) {
+            return true;
+        }
+
+        self::$FAILED_LOG_TARGETS[$logFile] = true;
+        self::reportLogFailureOnce($logFile);
+        return false;
+    }
+
+    private static function reportLogFailureOnce(string $logFile): void
+    {
+        $marker = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR
+            . 'dialectic_log_failure_' . md5($logFile) . '.marker';
+        $now = time();
+        $lastReported = is_file($marker) ? (int)@filemtime($marker) : 0;
+        if ($lastReported > 0 && ($now - $lastReported) < 300) {
+            return;
+        }
+
+        @touch($marker);
+        @error_log("[WARN] Dialectic logger cannot write to {$logFile}; repeated warnings are suppressed for five minutes");
     }
 
     public static function phaseStart(string $phase, array $context = []): void {
@@ -288,10 +321,15 @@ class Logger {
     // write uncaught errors to the DIALECTIC log in addition to the apache log
     public static function errorHandler(int $errno, string $errstr, string $errfile, int $errline): bool
     {
-        
+        if (self::$HANDLING_PHP_ERROR) {
+            return false;
+        }
+
         if (error_reporting() === 0) {// when error reporting is suppressed
             return false;
         }
+
+        self::$HANDLING_PHP_ERROR = true;
 
         switch ($errno) {
             case E_USER_ERROR:
@@ -321,9 +359,11 @@ class Logger {
             $logEntry = "{$timestamp}[{$level}] %s in %s on line %d\n";
             $formattedMessage = sprintf($logEntry, $errstr, $errfile, $errline);
 
-            // write to the default log file (avoid error_log here because it would duplicate the message)
-            file_put_contents(self::resolveLogFile(self::DEFAULT_LOG), $formattedMessage, FILE_APPEND);
+            // Logger failures are suppressed and remembered so this error handler cannot recurse.
+            self::appendToLog(self::resolveLogFile(self::DEFAULT_LOG), $formattedMessage);
         }
+
+        self::$HANDLING_PHP_ERROR = false;
 
         // return false to allow PHP's default error handler to run as well
         return false;

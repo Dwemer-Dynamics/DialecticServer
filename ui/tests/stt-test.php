@@ -201,7 +201,7 @@ if (php_sapi_name() != "cli") {
  font-weight: bold;
  }
  </style></head><body><main><div class="indent5"><h1>DIALECTIC Speech-to-Text Test</h1><div class="section"><?php
- echo '<div class="status"><span class="label">Sending test audio file...</span></div>';
+ echo '<div class="status"><span class="label">Sending the bundled prerecorded test audio...</span></div>';
 
  $testFile = $defaultTestFile;
  echo '<div class="message">Sending <code>' . htmlspecialchars($testFile) . '</code></div>';
@@ -268,8 +268,8 @@ if (php_sapi_name() != "cli") {
  echo '<div class="section">';
  echo '<div class="divider"></div>';
  echo '<div style="font-size: 16px; line-height: 1.5; margin-bottom: 20px;"><span style="font-weight: bold; color: yellow; font-size: 18px;">
- IF TRANSCRIPTION IS SUCCESSFUL, THEN THE STT SERVICE WORKS!
- </span><br><b>If you are still having issues in-game, then check that your microphone is set as default in your system settings.</b><br><b>If that does not work then try Chrome Free Speech-to-Text from the STT connector page.</b></div>';
+ IF TRANSCRIPTION IS SUCCESSFUL, THEN THE STT SERVER WORKS!
+ </span><br><b>This test uses a bundled WAV and does not test microphone capture inside Fallout.</b><br><b>DIALECTIC detects the active microphone automatically during the first in-game recording and remembers the working device.</b></div>';
  echo '</div>';
  ?></div></main><?php
  include(__DIR__.DIRECTORY_SEPARATOR."../tmpl/footer.html");

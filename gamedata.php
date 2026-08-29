@@ -20,6 +20,7 @@ dialecticRuntimeBootstrap(__DIR__, [
 ]);
 $GLOBALS["db"] = $GLOBALS["db"] ?? new sql();
 require_once(__DIR__ . "/lib/core/npc_master.class.php");
+require_once(__DIR__ . "/lib/core/player.class.php");
 require_once(__DIR__ . "/lib/core/activity_status.php");
 require_once(__DIR__ . "/lib/core/game_plugins.php");
 require_once(__DIR__ . "/lib/dialectic_runtime.php");
@@ -27,6 +28,7 @@ require_once(__DIR__ . "/lib/logger.php");
 require_once(__DIR__ . "/lib/settings.php");
 require_once(__DIR__ . "/lib/save_rollback.php");
 require_once(__DIR__ . "/lib/auto_greeting.php");
+require_once(__DIR__ . "/lib/fallout_stats.php");
 
 $requestStart = microtime(true);
 
@@ -48,7 +50,20 @@ function dialecticGameDataRespond(int $statusCode, bool $ok, string $error = '',
         $payload['error'] = $error;
     }
 
-    echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
+    echo json_encode(
+        $payload,
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+    ) . PHP_EOL;
+}
+
+function dialecticGameDataGamets(array $data, string $type): int
+{
+    $gamets = intval($data['gamets'] ?? 0);
+    if ($gamets <= 0) {
+        Logger::debug("[gamedata.php] Deferred {$type} update until a fresh game timestamp is available");
+        return 0;
+    }
+    return $gamets;
 }
 
 // Only accept POST requests
@@ -77,9 +92,27 @@ if (strpos($contentType, 'application/json') === false) {
 
 // Parse JSON body
 $json = file_get_contents('php://input');
-$data = json_decode($json, true);
+try {
+    $data = json_decode(
+        $json,
+        true,
+        512,
+        JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+} catch (JsonException $e) {
+    Logger::error("[gamedata.php] Invalid JSON request" . Logger::formatContext([
+        "bytes" => strlen($json),
+        "json_error" => $e->getMessage(),
+        "payload" => Logger::summarizePayload($json),
+    ]));
+    dialecticGameDataRespond(400, false, "Invalid JSON", [
+        "bytes" => strlen($json),
+        "json_error" => $e->getMessage(),
+    ]);
+    exit;
+}
 
-if (!$data || !isset($data['type'])) {
+if (!is_array($data) || !isset($data['type'])) {
     Logger::error("[gamedata.php] Bad request - missing type field" . Logger::formatContext([
         "bytes" => strlen($json),
         "payload" => Logger::summarizePayload($json),
@@ -158,6 +191,9 @@ try {
         case 'fallout_stats':
             handleFalloutStatsUpdate($data);
             break;
+        case 'player_survival':
+            handlePlayerSurvivalUpdate($data);
+            break;
         case 'furniture':
             handleFurnitureUpdate($data, $npcMaster);
             break;
@@ -174,10 +210,10 @@ try {
             handleLoadedPluginsUpdate($data);
             break;
         case 'world_locations':
-            handleWorldLocationsUpdate($data);
+            $responseExtra = handleWorldLocationsUpdate($data);
             break;
         case 'world_factions':
-            handleWorldFactionsUpdate($data);
+            $responseExtra = handleWorldFactionsUpdate($data);
             break;
         case 'dialogue_delivery':
             handleDialogueDeliveryUpdate($data);
@@ -359,16 +395,16 @@ function handleLoadedPluginsUpdate(array $data): void
     Logger::debug("[gamedata.php] Updated loaded plugin manifest ({$pluginCount} plugins)");
 }
 
-function handleWorldLocationsUpdate(array $data): void
+function handleWorldLocationsUpdate(array $data): array
 {
     $db = $GLOBALS['db'];
-    $locations = $data['locations'] ?? [];
-    if (!is_array($locations)) {
-        Logger::warn("[gamedata.php] world_locations missing locations payload");
-        return;
+    if (!array_key_exists('locations', $data) || !is_array($data['locations'])) {
+        throw new InvalidArgumentException('world_locations missing locations payload');
     }
+    $locations = $data['locations'];
 
-    if (filter_var($data['replace'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+    $replace = filter_var($data['replace'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    if ($replace) {
         $db->execQuery("TRUNCATE TABLE public.locations");
     }
 
@@ -417,18 +453,25 @@ function handleWorldLocationsUpdate(array $data): void
     }
 
     Logger::debug("[gamedata.php] Updated world locations ({$saved} rows)");
+    return [
+        'received' => count($locations),
+        'saved' => $saved,
+        'replace' => $replace,
+        'batch_index' => max(0, (int)($data['batch_index'] ?? 0)),
+        'batch_count' => max(0, (int)($data['batch_count'] ?? 0)),
+    ];
 }
 
-function handleWorldFactionsUpdate(array $data): void
+function handleWorldFactionsUpdate(array $data): array
 {
     $db = $GLOBALS['db'];
-    $factions = $data['factions'] ?? [];
-    if (!is_array($factions)) {
-        Logger::warn("[gamedata.php] world_factions missing factions payload");
-        return;
+    if (!array_key_exists('factions', $data) || !is_array($data['factions'])) {
+        throw new InvalidArgumentException('world_factions missing factions payload');
     }
+    $factions = $data['factions'];
 
-    if (filter_var($data['replace'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+    $replace = filter_var($data['replace'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    if ($replace) {
         $db->execQuery("TRUNCATE TABLE public.factions");
     }
 
@@ -458,6 +501,13 @@ function handleWorldFactionsUpdate(array $data): void
     }
 
     Logger::debug("[gamedata.php] Updated world factions ({$saved} rows)");
+    return [
+        'received' => count($factions),
+        'saved' => $saved,
+        'replace' => $replace,
+        'batch_index' => max(0, (int)($data['batch_index'] ?? 0)),
+        'batch_count' => max(0, (int)($data['batch_count'] ?? 0)),
+    ];
 }
 
 function handleDialogueDeliveryUpdate(array $data): void
@@ -472,7 +522,7 @@ function handleDialogueDeliveryUpdate(array $data): void
         return;
     }
 
-    $allowedStates = ['emitted', 'spoken', 'aborted', 'failed'];
+    $allowedStates = ['emitted', 'spoken', 'text_only', 'aborted', 'failed'];
     if (!in_array($state, $allowedStates, true)) {
         Logger::warn("[gamedata.php] dialogue_delivery ignored invalid state '{$state}'");
         return;
@@ -606,6 +656,11 @@ function handleWorldContextUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
 
+    $gamets = dialecticGameDataGamets($data, 'world_context');
+    if ($gamets <= 0) {
+        return;
+    }
+
     $location = cleanBridgeString($data['location'] ?? '');
     $worldspace = cleanBridgeString($data['worldspace'] ?? '');
     if ($location === '') {
@@ -623,10 +678,11 @@ function handleWorldContextUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
+    $recentCutoff = time() - 120;
+    $db->execQuery(
+        "UPDATE eventlog SET gamets={$gamets} " .
+        "WHERE sess='dialectic' AND gamets<=5 AND localts>={$recentCutoff}"
+    );
 
     $context = "(Context location: {$location}, State: {$state}";
     if ($worldspace !== '' && strcasecmp($worldspace, $location) !== 0) {
@@ -708,6 +764,10 @@ function dialecticNearbyActorIsSceneParticipant(array $actor): bool
 function handleNearbyActorsUpdate(array $data, NpcMaster $npcMaster): array
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'nearby_actors');
+    if ($gamets <= 0) {
+        return ['deferred' => true, 'reason' => 'missing_gamets'];
+    }
     $previousRow = $db->fetchOne("SELECT party FROM eventlog WHERE type='nearby_actors' ORDER BY rowid DESC LIMIT 1");
     $previousSnapshot = is_array($previousRow)
         ? (json_decode((string)($previousRow['party'] ?? ''), true) ?: [])
@@ -721,11 +781,6 @@ function handleNearbyActorsUpdate(array $data, NpcMaster $npcMaster): array
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
-
     $player = cleanBridgeString($data['player'] ?? '');
     $peopleNames = [];
     foreach ($actors as $actor) {
@@ -751,7 +806,16 @@ function handleNearbyActorsUpdate(array $data, NpcMaster $npcMaster): array
         $peopleNames[] = $player;
     }
 
-    $ensureActorProfileFromPayload = static function (array $actor) use ($db): void {
+    $worldContext = [];
+    $worldContextRow = $db->fetchOne("SELECT party FROM eventlog WHERE type='world_context' ORDER BY gamets DESC, rowid DESC LIMIT 1");
+    if (is_array($worldContextRow)) {
+        $decodedWorldContext = json_decode((string)($worldContextRow['party'] ?? ''), true);
+        if (is_array($decodedWorldContext)) {
+            $worldContext = $decodedWorldContext;
+        }
+    }
+
+    $ensureActorProfileFromPayload = static function (array $actor) use ($db, $worldContext): void {
         $name = cleanBridgeString($actor['name'] ?? '');
         if ($name === '' || $name === '<no name>' || strcasecmp($name, 'The Narrator') === 0) {
             return;
@@ -777,6 +841,34 @@ function handleNearbyActorsUpdate(array $data, NpcMaster $npcMaster): array
                 SET base = COALESCE(NULLIF(base, ''), '" . $db->escape($baseid) . "')
                 WHERE npc_name = '" . $db->escape($name) . "'
             ");
+        }
+
+        if (is_numeric($actor['x'] ?? null) && is_numeric($actor['y'] ?? null)) {
+            $lastPosition = [
+                'x' => floatval($actor['x']),
+                'y' => floatval($actor['y']),
+                'z' => is_numeric($actor['z'] ?? null) ? floatval($actor['z']) : 0.0,
+                'yaw' => is_numeric($actor['yaw'] ?? null) ? floatval($actor['yaw']) : 0.0,
+                'cell_formid' => cleanBridgeString($actor['cell_formid'] ?? ''),
+                'worldspace_formid' => cleanBridgeString($actor['worldspace_formid'] ?? ''),
+                'is_interior' => filter_var($actor['is_interior'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'location' => cleanBridgeString($worldContext['location'] ?? ''),
+                'worldspace' => cleanBridgeString($worldContext['worldspace'] ?? ''),
+                'updated_at' => time(),
+            ];
+            $encodedPosition = json_encode($lastPosition, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($encodedPosition !== false) {
+                $db->execQuery("
+                    UPDATE public.core_npc_master
+                    SET metadata = jsonb_set(
+                        COALESCE(metadata, '{}'::jsonb),
+                        '{last_coords}',
+                        '" . $db->escape($encodedPosition) . "'::jsonb,
+                        true
+                    )
+                    WHERE npc_name = '" . $db->escape($name) . "'
+                ");
+            }
         }
     };
 
@@ -978,6 +1070,10 @@ function dialecticNormalizeNearbyItemsContainer($items): array
 function handleNearbyItemsUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'nearby_items');
+    if ($gamets <= 0) {
+        return;
+    }
     $rawItems = $data['items'] ?? [];
     $items = dialecticNormalizeNearbyItemsContainer($rawItems);
 
@@ -985,11 +1081,6 @@ function handleNearbyItemsUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
-
     $normalizedItems = [];
     $skippedSamples = [];
     foreach ($items as $item) {
@@ -1062,6 +1153,10 @@ function handleNearbyItemsUpdate(array $data): void
 function handlePointsOfInterestUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'points_of_interest');
+    if ($gamets <= 0) {
+        return;
+    }
     $pois = $data['pois'] ?? [];
     if (!is_array($pois)) {
         $pois = [];
@@ -1071,11 +1166,6 @@ function handlePointsOfInterestUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
-
     $player = cleanBridgeString($data['player'] ?? '');
     $poiNames = [];
     $skippedPoiSamples = [];
@@ -1149,6 +1239,10 @@ function handlePointsOfInterestUpdate(array $data): void
 function handleActiveQuestsUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'active_quests');
+    if ($gamets <= 0) {
+        return;
+    }
     $quests = $data['quests'] ?? [];
     if (!is_array($quests)) {
         $quests = [];
@@ -1158,11 +1252,6 @@ function handleActiveQuestsUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = $ts;
-    }
-
     // The in-game journal snapshot is the source of truth for this table.
     $db->delete('quests', '1=1');
 
@@ -1247,6 +1336,10 @@ function handleActiveQuestsUpdate(array $data): void
 function handleTradeSummaryUpdate(array $data): void
 {
     $db = $GLOBALS['db'];
+    $gamets = dialecticGameDataGamets($data, 'trade_summary');
+    if ($gamets <= 0) {
+        return;
+    }
 
     $speaker = cleanBridgeString($data['speaker'] ?? '');
     $player = cleanBridgeString($data['player'] ?? ($GLOBALS['PLAYER_NAME'] ?? ''));
@@ -1259,11 +1352,6 @@ function handleTradeSummaryUpdate(array $data): void
     if ($ts <= 0) {
         $ts = time();
     }
-    $gamets = intval($data['gamets'] ?? 0);
-    if ($gamets <= 0) {
-        $gamets = DataLastKnownGameTS();
-    }
-
     $people = [];
     foreach ([$speaker, $player] as $name) {
         if ($name !== '' && !in_array($name, $people, true)) {
@@ -1351,6 +1439,9 @@ function buildInventoryMetadataValue(array $items): array
             }
             if (array_key_exists('type', $item) && $item['type'] !== null && $item['type'] !== '') {
                 $inventoryItem['type'] = intval($item['type']);
+            }
+            if (array_key_exists('value', $item) && is_numeric($item['value'])) {
+                $inventoryItem['value'] = max(0, intval($item['value']));
             }
             if (array_key_exists('ammo', $item) && $item['ammo'] !== null && $item['ammo'] !== '') {
                 $inventoryItem['ammo'] = (string)$item['ammo'];
@@ -1498,6 +1589,66 @@ function dialecticMaybeSyncPlayerNameFromGameData(array $data): void
     }
 }
 
+function dialecticNormalizeSurvivalValue($value): float
+{
+    if (!is_numeric($value)) {
+        return 0.0;
+    }
+    return max(0.0, min(1000000.0, (float)$value));
+}
+
+function dialecticSurvivalStageFromValue(float $value): int
+{
+    return max(0, min(5, (int)floor(max(0.0, $value) / 200.0)));
+}
+
+function handlePlayerSurvivalUpdate(array $data): void
+{
+    $schema = cleanBridgeString($data['schema'] ?? '');
+    if ($schema !== 'dialectic.player_survival.v1') {
+        throw new InvalidArgumentException('Unsupported player survival schema');
+    }
+
+    $needs = is_array($data['needs'] ?? null) ? $data['needs'] : [];
+    $radiationPayload = is_array($data['radiation'] ?? null) ? $data['radiation'] : [];
+    $normalizedNeeds = [];
+    foreach (['hunger', 'dehydration', 'sleep_deprivation'] as $need) {
+        $payload = is_array($needs[$need] ?? null) ? $needs[$need] : [];
+        $value = dialecticNormalizeSurvivalValue($payload['value'] ?? 0);
+        $normalizedNeeds[$need] = [
+            'value' => $value,
+            'stage' => dialecticSurvivalStageFromValue($value),
+        ];
+    }
+
+    $radiationValue = dialecticNormalizeSurvivalValue($radiationPayload['value'] ?? 0);
+    $survival = [
+        'schema' => 'dialectic.player_survival.v1',
+        'hardcore_enabled' => dialecticGameDataBool($data['hardcore_enabled'] ?? false),
+        'needs' => $normalizedNeeds,
+        'radiation' => [
+            'value' => $radiationValue,
+            'stage' => dialecticSurvivalStageFromValue($radiationValue),
+        ],
+        'gamets' => max(0, (int)($data['gamets'] ?? 0)),
+        'captured_at' => max(0, (int)($data['timestamp'] ?? 0)),
+        'updated_at' => time(),
+    ];
+
+    $player = new Player();
+    if (!$player->setJson('survival', $survival)) {
+        throw new RuntimeException('Unable to store player survival state');
+    }
+
+    Logger::debug('[gamedata.php] Updated player survival state' . Logger::formatContext([
+        'hardcore' => $survival['hardcore_enabled'],
+        'hunger_stage' => $normalizedNeeds['hunger']['stage'],
+        'dehydration_stage' => $normalizedNeeds['dehydration']['stage'],
+        'sleep_stage' => $normalizedNeeds['sleep_deprivation']['stage'],
+        'radiation_stage' => $survival['radiation']['stage'],
+    ]));
+}
+
 function flattenActorProfileFields(array $data): array
 {
     $identity = is_array($data['identity'] ?? null) ? $data['identity'] : [];
@@ -1569,6 +1720,107 @@ function sanitizeActorProfilePayload(array $data): array
     return $profile;
 }
 
+function dialecticApplyActorProfileRules(array $currentData, array $data, NpcMaster $npcMaster): void
+{
+    $db = $GLOBALS['db'];
+    $factionNames = [];
+    $factionFormIds = [];
+    foreach (($data['factions'] ?? []) as $faction) {
+        if (!is_array($faction) || intval($faction['rank'] ?? -1) < 0) {
+            continue;
+        }
+        $name = cleanBridgeString($faction['name'] ?? '');
+        if ($name !== '' && strcasecmp($name, 'Unknown Faction') !== 0) {
+            $factionNames[] = $name;
+        }
+        $formId = dialecticNormalizeHexIdentifier($faction['formid'] ?? '', 8);
+        if ($formId !== '') {
+            $factionFormIds[] = $formId;
+        }
+    }
+
+    $factionFormIds = array_values(array_unique($factionFormIds));
+    if (!empty($factionFormIds)) {
+        $formIdLiterals = implode(', ', array_map(
+            static fn($formId) => "'" . $db->escape($formId) . "'",
+            $factionFormIds
+        ));
+        foreach ($db->fetchAll("SELECT name FROM public.factions WHERE formid IN ({$formIdLiterals})") as $factionRow) {
+            $name = trim((string)($factionRow['name'] ?? ''));
+            if ($name !== '') {
+                $factionNames[] = $name;
+            }
+        }
+    }
+    $factionNames = array_values(array_unique($factionNames));
+
+    $mods = is_array($data['mods'] ?? null)
+        ? array_values(array_filter(
+            array_map(static fn($mod) => trim((string)$mod), $data['mods']),
+            static fn($mod) => $mod !== ''
+        ))
+        : [];
+    $modsArray = empty($mods)
+        ? "ARRAY[]::text[]"
+        : "ARRAY['" . implode("','", array_map([$db, 'escape'], $mods)) . "']::text[]";
+    $factionsArray = empty($factionNames)
+        ? "ARRAY[]::text[]"
+        : "ARRAY['" . implode("','", array_map([$db, 'escape'], $factionNames)) . "']::text[]";
+
+    $npcName = $db->escape((string)($currentData['npc_name'] ?? ''));
+    $npcRace = $db->escape((string)($currentData['race'] ?? ''));
+    $npcGender = $db->escape((string)($currentData['gender'] ?? ''));
+    $npcBase = $db->escape((string)($currentData['base'] ?? ''));
+    $rules = $db->fetchAll("
+        SELECT *
+          FROM public.import_rules r
+         WHERE r.enabled = TRUE
+           AND (NULLIF(BTRIM(r.match_name), '') IS NULL OR '{$npcName}' ~ r.match_name)
+           AND (NULLIF(BTRIM(r.match_race), '') IS NULL OR '{$npcRace}' ~ r.match_race)
+           AND (NULLIF(BTRIM(r.match_gender), '') IS NULL OR '{$npcGender}' ~ r.match_gender)
+           AND (NULLIF(BTRIM(r.match_base), '') IS NULL OR '{$npcBase}' ~ r.match_base)
+           AND (
+                NULLIF(BTRIM(r.match_faction), '') IS NULL
+                OR EXISTS (
+                    SELECT 1
+                      FROM unnest({$factionsArray}) AS npc_faction(name)
+                     WHERE npc_faction.name ~ r.match_faction
+                )
+           )
+           AND (r.match_mods IS NULL OR r.match_mods <@ {$modsArray})
+         ORDER BY r.priority DESC, r.id DESC
+    ");
+
+    if (empty($rules)) {
+        return;
+    }
+
+    $metadata = json_decode((string)($currentData['metadata'] ?? ''), true);
+    if (!is_array($metadata)) {
+        $metadata = [];
+    }
+    foreach ($rules as $rule) {
+        if (!empty($rule['profile'])) {
+            $currentData['profile_id'] = intval($rule['profile']);
+        }
+        $actions = json_decode((string)($rule['action'] ?? ''), true);
+        if (!is_array($actions)) {
+            continue;
+        }
+        foreach ($actions as $key => $value) {
+            if ($key === 'metadata' && is_array($value)) {
+                $metadata = array_merge($metadata, $value);
+            } else {
+                $currentData[$key] = $value;
+            }
+        }
+    }
+
+    $currentData['metadata'] = json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    $npcMaster->updateByArray($currentData);
+    Logger::info("[PROFILE_RULES] Applied " . count($rules) . " rule(s) to {$currentData['npc_name']}");
+}
+
 function handleActorProfileUpdate(array $data, NpcMaster $npcMaster): void
 {
     $actorName = cleanBridgeString($data['actor_name'] ?? '');
@@ -1625,6 +1877,9 @@ function handleActorProfileUpdate(array $data, NpcMaster $npcMaster): void
         ");
     }
 
+    $currentData = $npcMaster->getByName($currentData['npc_name']) ?: $currentData;
+    dialecticApplyActorProfileRules($currentData, $data, $npcMaster);
+
     Logger::debug("[gamedata.php] Updated actor_profile for {$currentData['npc_name']}");
 }
 
@@ -1675,8 +1930,7 @@ function handleNpcVoiceUpdate(array $data, NpcMaster $npcMaster): void {
         return;
     }
 
-    $extended = $npcMaster->getExtendedData($currentData);
-    $extended['voice_metadata'] = [
+    $voiceMetadata = [
         'voiceid' => $attachableVoiceId !== '' ? $attachableVoiceId : $voiceId,
         'voice_formid' => $voiceFormId,
         'voice_name' => $voiceName,
@@ -1685,17 +1939,18 @@ function handleNpcVoiceUpdate(array $data, NpcMaster $npcMaster): void {
     ];
 
     if ($attachableVoiceId !== '') {
-        unset($extended['voice_refresh_requested_at']);
-        $extended['voice_refresh_last_result'] = 'metadata_resolved';
-        $extended['voice_refresh_last_resolved_at'] = time();
-
-        $currentData['voiceid'] = $attachableVoiceId;
+        $replaceableVoiceId = $currentVoiceIsTemporarySilent ? $currentVoiceId : '';
+        if (!$npcMaster->updateResolvedVoiceMetadata((int)$currentData['id'], $attachableVoiceId, $voiceMetadata, $replaceableVoiceId)) {
+            Logger::error("[gamedata.php] Failed to persist NPC voice metadata for {$currentData['npc_name']}: " . $npcMaster->getLastError());
+            return;
+        }
     } else {
+        $extended = $npcMaster->getExtendedData($currentData);
+        $extended['voice_metadata'] = $voiceMetadata;
         $extended['voice_refresh_last_result'] = 'metadata_formid_only';
+        $currentData = $npcMaster->setExtendedData($currentData, $extended);
+        $npcMaster->updateByArray($currentData);
     }
-
-    $currentData = $npcMaster->setExtendedData($currentData, $extended);
-    $npcMaster->updateByArray($currentData);
 
     Logger::debug("[gamedata.php] Updated NPC voice metadata for {$currentData['npc_name']} ({$voiceFormId})");
 }
@@ -1917,31 +2172,74 @@ function handleStatsUpdate(array $data, NpcMaster $npcMaster): void {
     Logger::debug("[gamedata.php] Updated stats for {$actorType}: {$actorName}");
 }
 
-/**
- * Handle Fallout statistics update (player only)
- * This handles the ~40 Fallout stats like Quests Completed, Days Passed, etc.
- */
+/** Store a validated Fallout player-stat snapshot for player tooling and the dashboard. */
 function handleFalloutStatsUpdate(array $data): void {
     if (!isset($data['stats']) || !is_array($data['stats'])) {
         Logger::error("[gamedata.php] Fallout stats update missing stats data");
         return;
     }
-    
-    try {
-        require_once(__DIR__ . "/lib/core/player.class.php");
-        $player = new Player();
-        
-        $stats = $data['stats'];
-        
-        // Save each stat to core_player table
-        foreach ($stats as $statKey => $statValue) {
-            $player->set($statKey, (string)$statValue);
+
+    $schema = trim((string)($data['schema'] ?? ''));
+    if ($schema !== 'dialectic.fallout_stats.v1') {
+        Logger::warn("[gamedata.php] Rejected Fallout stats update with unsupported schema" . Logger::formatContext([
+            'schema' => $schema,
+        ]));
+        return;
+    }
+
+    $allowed = array_fill_keys(dialecticFalloutStatNames(), true);
+    $stats = [];
+    foreach ($data['stats'] as $statKey => $statValue) {
+        $statKey = trim((string)$statKey);
+        if (!isset($allowed[$statKey]) || !is_numeric($statValue)) {
+            continue;
         }
-        
-        Logger::debug("[gamedata.php] Updated " . count($stats) . " Fallout stats to core_player");
-        
+        $stats[$statKey] = max(0, min(2147483647, (int)$statValue));
+    }
+    if ($stats === []) {
+        Logger::warn("[gamedata.php] Fallout stats update contained no supported values");
+        return;
+    }
+
+    try {
+        $db = $GLOBALS['db'];
+        $valueRows = [];
+        foreach ($stats as $statKey => $statValue) {
+            $valueRows[] = "('" . $db->escape($statKey) . "', '" . $db->escape((string)$statValue) . "')";
+        }
+
+        $valuesSql = implode(',', $valueRows);
+        if ($db->query("INSERT INTO core_player (id, value) VALUES {$valuesSql} ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value") === false) {
+            throw new RuntimeException('Could not update core_player Fallout statistics');
+        }
+        if ($db->query("INSERT INTO conf_opts (id, value) VALUES {$valuesSql} ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value") === false) {
+            throw new RuntimeException('Could not update conf_opts Fallout statistics');
+        }
+
+        $snapshot = [
+            'schema' => 'dialectic.fallout_stats.v1',
+            'actor_name' => trim((string)($data['actor_name'] ?? '')),
+            'refid' => trim((string)($data['refid'] ?? '0x00000014')),
+            'gamets' => (int)($data['gamets'] ?? 0),
+            'updated_at' => time(),
+            'stats' => $stats,
+        ];
+        $snapshotJson = json_encode($snapshot, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($snapshotJson !== false) {
+            $safeSnapshot = $db->escape($snapshotJson);
+            if ($db->query("INSERT INTO core_player (id, value) VALUES ('fallout_stats', '{$safeSnapshot}') ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value") === false) {
+                throw new RuntimeException('Could not update Fallout statistics snapshot');
+            }
+        }
+
+        Logger::info("[FALLOUT_STATS_UPDATE] Stored Fallout player stats" . Logger::formatContext([
+            'count' => count($stats),
+            'actor' => $data['actor_name'] ?? '',
+            'gamets' => $data['gamets'] ?? 0,
+        ]));
     } catch (Exception $e) {
         Logger::error("[gamedata.php] Failed to save Fallout stats: " . $e->getMessage());
+        throw $e;
     }
 }
 

@@ -39,6 +39,10 @@ class sql
     {
         self::ensureLink();
         $i=0;
+        $values = [];
+        if (empty($data)) {
+            return false;
+        }
         $columns = implode(', ', array_keys($data));
         foreach (array_keys($data) as $d) {
             $values[]='$'.(++$i);
@@ -49,10 +53,12 @@ class sql
         //error_log($query);
         $params = array_values($data);
         //error_log(print_r($params,true));
-        $result = pg_query_params(self::$link, $query, $params);
+        $result = @pg_query_params(self::$link, $query, $params);
         if (!$result) {
-            Logger::error(pg_last_error(self::$link) . print_r(debug_backtrace(), true));
+            Logger::error(pg_last_error(self::$link));
+            return false;
         }
+        return true;
     }
 
     public function query($query)
@@ -142,12 +148,21 @@ class sql
         return pg_escape_literal(self::$link, (string)$string);
     }
 
+    public function GetLastError()
+    {
+        return self::$link ? pg_last_error(self::$link) . ' ' : 'SQL: connection not initialized. ';
+    }
+
     public function updateRow($table, $data, $where)
     {
         self::ensureLink();
         $setClauses = [];
         $params = [];
         $i = 0;
+
+        if (empty($data)) {
+            return false;
+        }
 
         foreach ($data as $column => $value) {
             $setClauses[] = "$column = $" . (++$i);
@@ -158,10 +173,12 @@ class sql
 
         $query = "UPDATE $table SET $set WHERE $where";
         
-        $result = pg_query_params(self::$link, $query, $params);
+        $result = @pg_query_params(self::$link, $query, $params);
         if (!$result) {
-            Logger::error(pg_last_error(self::$link) . print_r(debug_backtrace(), true));
+            Logger::error(pg_last_error(self::$link));
+            return false;
         }
+        return true;
     }
 
     public function upsertRow($table, $data, $where) {
@@ -207,7 +224,7 @@ class sql
         }
 
         // Execute the query
-        $result = pg_query_params(self::$link, $query, $params);
+        $result = @pg_query_params(self::$link, $query, $params);
         if (!$result) {
             Logger::error(pg_last_error(self::$link) . print_r(debug_backtrace(), true));
             return false;

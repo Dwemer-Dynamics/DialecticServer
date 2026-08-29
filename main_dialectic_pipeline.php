@@ -47,6 +47,7 @@ dialecticRuntimeBootstrap($path, [
     'load_narrator' => true,
     'run_db_updates' => false,
 ]);
+require_once($path . "lib/player2_health.php");
 require_once($path . "lib/auditing.php");
 require_once($path . "lib/model_dynmodel.php");
 require_once($path . "lib/minimet5_service.php");
@@ -231,6 +232,9 @@ $GLOBALS["DIALECTIC_TURN_START_TIME"] = $startTime;
 $GLOBALS["AUDIT_RUNID_REQUEST"]=$gameRequest[0];
 
 $gameRequest[0] = strtolower($gameRequest[0]); // Who put 'diary' uppercase?
+if (PHP_SAPI !== 'cli' && !getenv('PHPUNIT_TEST') && $gameRequest[0] !== 'request') {
+    dialecticPlayer2HealthMarkGameActivity();
+}
 Logger::phaseStart("turn", [
     "type" => $gameRequest[0],
     "gamets" => $gameRequest[2] ?? "",
@@ -306,6 +310,16 @@ if (function_exists("dialectic_adapt_json_input_payload_for_pipeline")) {
     }
 }
 
+if (function_exists("dialectic_adapt_json_vision_payload_for_pipeline")) {
+    $normalizedVisionPayload = dialectic_adapt_json_vision_payload_for_pipeline($gameRequest);
+    if (!empty($normalizedVisionPayload["changed"])) {
+        Logger::info("[main] Adapted structured PipVision payload for vision pipeline" . Logger::formatContext([
+            "target" => $normalizedVisionPayload["target"] ?? "",
+            "chars" => strlen((string)($normalizedVisionPayload["description"] ?? "")),
+        ]));
+    }
+}
+
 // In directed DIALECTIC modes, normalize incoming dialogue tags so logs/prompts stay aligned
 // with the active speaking style.
 $dialecticExecutionMode = strtoupper((string)($GLOBALS["DIALECTIC_EXECUTION_MODE"] ?? ""));
@@ -341,7 +355,7 @@ if (in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext","ch
 
 
 $fast_commands = ["updateprofile","updateprofile_narrator","diary","diary_narrator","diary_player","setconf","request","_speech","captured_dialogue",
-    "infoaction","status_msg","delete_event","itemfound","chat","waitstart","waitstop",
+    "infoaction","status_msg","delete_event","itemfound","chat","goodnight","waitstart","waitstop",
     "updateprofiles_batch_async","core_profile_assign","switchrace","combatbark",
     "region"];
 
@@ -432,7 +446,7 @@ if (in_array(($gameRequest[0] ?? ''), ['bored', 'auto_greeting'], true) && diale
     }
 }
 
-if (in_array(($gameRequest[0] ?? ''), ['rpg_lvlup', 'combatend', 'combatendmighty', 'combatbark', 'lockpicked', 'goodmorning', 'player_consumed'], true) && dialecticRuntimeGetActiveProfile() === null) {
+if (in_array(($gameRequest[0] ?? ''), ['rpg_lvlup', 'combatend', 'combatendmighty', 'combatbark', 'lockpicked', 'goodmorning', 'player_consumed', 'location_changed', 'quest_updated'], true) && dialecticRuntimeGetActiveProfile() === null) {
     $rpgTarget = function_exists('dialectic_extract_conversation_target')
         ? dialectic_extract_conversation_target((string)($gameRequest[3] ?? ""))
         : "";
@@ -451,7 +465,7 @@ if (in_array(($gameRequest[0] ?? ''), ['rpg_lvlup', 'combatend', 'combatendmight
 }
 
 $inputRequestType = $gameRequest[0] ?? '';
-if (in_array($inputRequestType, ["inputtext", "inputtext_s", "cheatmode"], true)) {
+if (in_array($inputRequestType, ["inputtext", "inputtext_s", "cheatmode", "vision"], true)) {
     Logger::phaseStart("input_profile_bind", [
         "type" => $inputRequestType,
     ]);
@@ -607,7 +621,7 @@ $OVERRIDES["MINIME_T5"] = isset($GLOBALS["MINIME_T5"]) ? $GLOBALS["MINIME_T5"] :
             $currentProfileData = null;
 
             // Highest-confidence target extraction from player text payload.
-            if ($requestText !== "" && preg_match('/\(\s*(?:(?:talking|whispering|shouting)\s+to|speaking\s+loudly\s+to)\s+([^()]+?)(?:\s+from\s+far\s+away)?\s*\)/i', $requestText, $matches)) {
+            if ($requestText !== "" && preg_match('/\(\s*(?:(?:talking|whispering|shouting|speaking\s+privately)\s+to|speaking\s+loudly\s+to)\s+([^()]+?)(?:\s+from\s+far\s+away)?\s*\)/i', $requestText, $matches)) {
                 $candidate = trim($matches[1]);
                 if ($candidate !== "") {
                     $fallbackNpcName = $candidate;
@@ -617,6 +631,7 @@ $OVERRIDES["MINIME_T5"] = isset($GLOBALS["MINIME_T5"]) ? $GLOBALS["MINIME_T5"] :
             $isNarratorScopedRequest = in_array($gameRequest[0], ["narrator_inputtext", "narration", "narrator_welcome"], true)
                 || stripos($requestText, '(Talking to The Narrator)') !== false
                 || stripos($requestText, '(Whispering to The Narrator)') !== false
+                || stripos($requestText, '(Speaking privately to The Narrator)') !== false
                 || stripos($requestText, '(Shouting to The Narrator)') !== false
                 || ($fallbackNpcName !== null && strcasecmp($fallbackNpcName, "The Narrator") === 0);
 
@@ -973,8 +988,33 @@ if (in_array($gameRequest[0],["bored"])) {
     if (!empty($GLOBALS["NARRATOR_BORED_EVENT_ACTIVE"])) {
         Logger::info("[NARRATOR_BORED] Using narrator bored flow");
     } elseif ((isset($GLOBALS["BORED_EVENT_SERVERSIDE"])&&($GLOBALS["BORED_EVENT_SERVERSIDE"]))) {
-        Logger::info("Redirecting bored event to rolemaster");
-        `php service/manager.php rolemaster instruction ""`;
+        $boredPayload = json_decode((string)($gameRequest[3] ?? ''), true);
+        $boredPayload = is_array($boredPayload) ? $boredPayload : [];
+        $boredSeedActor = trim((string)($boredPayload['actor_name'] ?? $boredPayload['speaker'] ?? ''));
+        $boredEligibleActors = is_array($boredPayload['eligible_actors'] ?? null)
+            ? array_values($boredPayload['eligible_actors'])
+            : [];
+        Logger::info(
+            "Redirecting bored event to rolemaster with seed actor '{$boredSeedActor}' and "
+            . count($boredEligibleActors) . " eligible actor(s)"
+        );
+        $phpCli = PHP_BINDIR . DIRECTORY_SEPARATOR . "php";
+        if (!is_file($phpCli) && !is_file($phpCli . ".exe")) {
+            $binaryName = strtolower((string)pathinfo(PHP_BINARY, PATHINFO_FILENAME));
+            $phpCli = (strpos($binaryName, "php") === 0 && is_file(PHP_BINARY))
+                ? PHP_BINARY
+                : "php";
+        }
+        $managerPath = __DIR__ . DIRECTORY_SEPARATOR . "service" . DIRECTORY_SEPARATOR . "manager.php";
+        $command = escapeshellarg($phpCli)
+            . " " . escapeshellarg($managerPath)
+            . " rolemaster instruction " . escapeshellarg("")
+            . " bored " . escapeshellarg($boredSeedActor)
+            . " " . escapeshellarg(json_encode($boredEligibleActors, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        exec($command, $output, $returnCode);
+        if ($returnCode !== 0) {
+            Logger::warn("Failed to start bored rolemaster request (exit code {$returnCode})");
+        }
         terminate();
 
     }
@@ -1098,6 +1138,14 @@ Logger::phaseEnd("processor_comm", [
 
 
 if (in_array($gameRequest[0],["rechat","narration"]) ) {
+    $configuredDialecticMode = strtoupper(trim((string)(
+        $GLOBALS["DIALECTIC_CONFIGURED_EXECUTION_MODE"] ?? "STANDARD"
+    )));
+    if (!dialecticExecutionModeAllowsRechatEvent($configuredDialecticMode, $gameRequest[0])) {
+        Logger::info("[RECHAT_SELECT] Terminating " . ($gameRequest[0] ?? "rechat") .
+            " because {$configuredDialecticMode} mode does not allow it");
+        terminate();
+    }
     Logger::phaseStart("rechat_pre_management", [
         "type" => $gameRequest[0] ?? "",
         "speaker" => $GLOBALS["DIALECTIC_NAME"] ?? "",
@@ -1255,7 +1303,8 @@ if (in_array($gameRequest[0],["rechat","narration"]) ) {
     // Trigger after any NPC response (after first NPC responds to player)
     // AND only on "rechat" events (not on events already converted to "narration")
     // AND only if The Narrator wasn't the last speaker (prevent consecutive narrations)
-    if (!empty($GLOBALS["RANDOM_NARATION"]) && $GLOBALS["RANDOM_NARATION"] && $gameRequest[0] === "rechat" && sizeof($rechatHistory) >= 1) {
+    if (dialecticExecutionModeAllowsRechatEvent($configuredDialecticMode, "narration") &&
+        !empty($GLOBALS["RANDOM_NARATION"]) && $GLOBALS["RANDOM_NARATION"] && $gameRequest[0] === "rechat" && sizeof($rechatHistory) >= 1) {
         // Check if the last event was a narration event (if so, skip to prevent consecutive narrations)
         $lastEvent = $db->fetchOne("SELECT type FROM eventlog WHERE type IN ('rechat', 'narration') ORDER BY gamets DESC, ts DESC LIMIT 1");
         $wasLastNarration = ($lastEvent && $lastEvent['type'] === 'narration');
@@ -1382,7 +1431,7 @@ Logger::phaseStart("post_rechat_runtime_prepare", [
 ]);
 
 if (
-    in_array($gameRequest[0], ["inputtext", "inputtext_s"], true) &&
+    in_array($gameRequest[0], ["inputtext", "inputtext_s", "vision"], true) &&
     empty($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"])
 ) {
     $jsonSpeaker = function_exists('dialectic_extract_conversation_target')
@@ -1744,7 +1793,7 @@ if (in_array('Training', $GLOBALS["ENABLED_FUNCTIONS"]) && isset($currentNpcData
         $functionName = "Train" . ucfirst($skill);
         $GLOBALS["FUNCTIONS"][] = [
             "name" => $functionName,
-            "description" => "{$GLOBALS["DIALECTIC_NAME"]} offers {$tier} {$skill} training.",
+            "description" => (function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : $GLOBALS["DIALECTIC_NAME"]) . " offers {$tier} {$skill} training.",
             "parameters" => [
                 "type" => "object",
                 "properties" => [
@@ -1785,7 +1834,8 @@ if (!empty($GLOBALS["NARRATOR_BORED_EVENT_ACTIVE"]) && $gameRequest[0] == "bored
     }
 
     $PROMPTS["bored"]["cue"] = [strtr($boredPrompt, [
-        '{DIALECTIC_NAME}' => $GLOBALS["DIALECTIC_NAME"] ?? 'The Narrator',
+        '{DIALECTIC_NAME}' => function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : ($GLOBALS["DIALECTIC_NAME"] ?? 'The Narrator'),
+        '{NARRATOR_NAME}' => function_exists('dialecticGetNarratorRoleplayName') ? dialecticGetNarratorRoleplayName() : 'The Narrator',
         '{PLAYER_NAME}' => $GLOBALS["PLAYER_NAME"] ?? 'Player',
         '{TEMPLATE_DIALOG}' => $GLOBALS["TEMPLATE_DIALOG"] ?? '',
     ])];
@@ -1861,8 +1911,8 @@ Logger::phaseStart("pre_llm_audience_scope", [
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
 ]);
 $playerInputEventTypes = ["inputtext", "inputtext_s", "narrator_inputtext", "cheatmode"];
-$authoritativeAudienceEventTypes = array_merge($playerInputEventTypes, ["player_consumed"]);
-$turnPeopleSnapshotEventTypes = array_merge($playerInputEventTypes, ["rechat"]);
+$authoritativeAudienceEventTypes = array_merge($playerInputEventTypes, ["player_consumed", "vision"]);
+$turnPeopleSnapshotEventTypes = array_merge($playerInputEventTypes, ["rechat", "vision"]);
 $requestAudienceSnapshot = dialecticDecodeAudienceSnapshotField($gameRequest[4] ?? "");
 $hasAuthoritativeRequestAudience = (
     in_array($gameRequest[0] ?? "", $authoritativeAudienceEventTypes, true) &&
@@ -1874,14 +1924,21 @@ if (($gameRequest[0] ?? "") === "rechat" && isset($GLOBALS["RECHAT_RESOLVED_TARG
 }
 $authoritativePeople = $hasAuthoritativeRequestAudience ? $requestAudienceSnapshot : $resolvedRechatPeople;
 
-if (function_exists('isWhisperExecutionMode') &&
-    function_exists('buildWhisperPrivatePeople') &&
-    isWhisperExecutionMode() &&
-    in_array($gameRequest[0] ?? "", $playerInputEventTypes, true)) {
-    $whisperPrivatePeople = buildWhisperPrivatePeople($GLOBALS["DIALECTIC_NAME"] ?? "");
-    if ($whisperPrivatePeople !== "") {
-        $authoritativePeople = $whisperPrivatePeople;
-        Logger::info("Scoped CACHE_PEOPLE for WHISPER {$gameRequest[0]}: " . $whisperPrivatePeople);
+if (isWhisperExecutionMode() && in_array($gameRequest[0] ?? "", $playerInputEventTypes, true)) {
+    $privatePeople = buildPrivateConversationPeople($GLOBALS["DIALECTIC_NAME"] ?? "");
+    if ($privatePeople !== "") {
+        $authoritativePeople = $privatePeople;
+        Logger::info("Scoped CACHE_PEOPLE for " . ($GLOBALS["DIALECTIC_EXECUTION_MODE"] ?? "private") .
+            " " . ($gameRequest[0] ?? "input") . ": " . $privatePeople);
+    }
+} elseif (isCloseExecutionMode() &&
+          in_array($gameRequest[0] ?? "", $playerInputEventTypes, true) &&
+          $authoritativePeople === "") {
+    $closeFallbackPeople = buildPrivateConversationPeople($GLOBALS["DIALECTIC_NAME"] ?? "");
+    if ($closeFallbackPeople !== "") {
+        $authoritativePeople = $closeFallbackPeople;
+        Logger::info("Scoped CACHE_PEOPLE for CLOSE " . ($gameRequest[0] ?? "input") .
+            " from private fallback: " . $closeFallbackPeople);
     }
 }
 
@@ -2024,6 +2081,8 @@ $rpgCommentEventMap = [
     'rpg_lvlup'     => 'levelup',
     'lockpicked'    => 'lockpick',
     'goodmorning'   => 'sleep',
+    'location_changed' => 'location_changed',
+    'quest_updated' => 'quest_updated',
 ];
 $rpgCommentEventType = $rpgCommentEventMap[$gameRequest[0]] ?? null;
 
@@ -2155,12 +2214,21 @@ if (in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext","ch
 
 error_log("TRACE:\t".__LINE__. "\t".__FILE__.":\t".(microtime(true) - $startTime));
 
-// Whisper-mode speaking behavior: make the NPC explicitly treat this exchange as whispered.
+// Mode-specific response behavior keeps private and projected speech distinct.
 if (isset($GLOBALS["DIALECTIC_EXECUTION_MODE"]) && strtoupper((string)$GLOBALS["DIALECTIC_EXECUTION_MODE"]) === "WHISPER") {
     if (!isset($GLOBALS["COMMAND_PROMPT"]) || !is_string($GLOBALS["COMMAND_PROMPT"])) {
         $GLOBALS["COMMAND_PROMPT"] = "";
     }
     $GLOBALS["COMMAND_PROMPT"] .= "\n\n[Whisper mode is active. {$GLOBALS["PLAYER_NAME"]} is whispering to you. Reply by whispering back in a quiet, discreet, close-range tone and keep the delivery private.]";
+} elseif (isset($GLOBALS["DIALECTIC_EXECUTION_MODE"]) && strtoupper((string)$GLOBALS["DIALECTIC_EXECUTION_MODE"]) === "CLOSE") {
+    if (!isset($GLOBALS["COMMAND_PROMPT"]) || !is_string($GLOBALS["COMMAND_PROMPT"])) {
+        $GLOBALS["COMMAND_PROMPT"] = "";
+    }
+    $closeAudience = implode(', ', parsePeoplePipeList(dialecticGetCurrentTurnPeopleSnapshot()));
+    $closeAudienceInstruction = ($closeAudience !== "")
+        ? "Only these people are near enough to hear: {$closeAudience}. Reply quietly and address only people on this list."
+        : "Reply quietly and address only the player and selected listener.";
+    $GLOBALS["COMMAND_PROMPT"] .= "\n\n[Close mode is active. {$GLOBALS["PLAYER_NAME"]} is speaking quietly to everyone standing close by. {$closeAudienceInstruction}]";
 } elseif (isset($GLOBALS["DIALECTIC_EXECUTION_MODE"]) && strtoupper((string)$GLOBALS["DIALECTIC_EXECUTION_MODE"]) === "SHOUT") {
     if (!isset($GLOBALS["COMMAND_PROMPT"]) || !is_string($GLOBALS["COMMAND_PROMPT"])) {
         $GLOBALS["COMMAND_PROMPT"] = "";
@@ -2281,6 +2349,7 @@ if (!function_exists('isWorldKnowledgeSettingEnabled')) {
 $minimeEnabled = isMinimeT5Enabled();
 $worldknowledgeCustomEnabled = isWorldKnowledgeSettingEnabled($GLOBALS["WORLDKNOWLEDGE_CUSTOM"] ?? false);
 $worldknowledgeInfiniumEnabled = isWorldKnowledgeSettingEnabled($GLOBALS["WORLDKNOWLEDGE_INFINIUM"] ?? false);
+$locationWorldKnowledgeEnabled = isWorldKnowledgeSettingEnabled($GLOBALS["LOCATION_WORLDKNOWLEDGE"] ?? true);
 
 // Debug: Log the actual values being checked BEFORE the conditional
 error_log("[WORLDKNOWLEDGE CHECK] MINIME_T5(auto)=" . ($minimeEnabled ? 'Y' : 'N')
@@ -2289,7 +2358,7 @@ error_log("[WORLDKNOWLEDGE CHECK] MINIME_T5(auto)=" . ($minimeEnabled ? 'Y' : 'N
     . " | WORLDKNOWLEDGE_INFINIUM=" . var_export($GLOBALS["WORLDKNOWLEDGE_INFINIUM"] ?? null, true)
     . " (enabled=" . ($worldknowledgeInfiniumEnabled ? 'Y' : 'N') . ")");
 
-if (($minimeEnabled || $worldknowledgeCustomEnabled) && $worldknowledgeInfiniumEnabled) {
+if ($worldknowledgeInfiniumEnabled) {
     Logger::phaseStart("worldknowledge_processor", [
         "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
     ]);
@@ -2310,20 +2379,42 @@ if (sizeof($memoryInjectionCtx)>0) {
     logEvent($gameRequestCopy,$GLOBALS["DIALECTIC_NAME"]);// Memory log only avaibale to current NPC.
 }
 
-$contextDataFull = array_merge($contextDataWorld, $contextDataHistoric);
-
 $contextDataHistoric = filterHistoricContextForNarratorVisibility(
     $contextDataHistoric,
     $GLOBALS["DIALECTIC_NAME"] ?? ""
 );
-$contextDataFull = array_merge($contextDataWorld, $contextDataHistoric);
+require_once __DIR__ . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "compact_context_history.php";
+$compactHistoryBlock = '';
+$compactHistoryEnabled = dialecticShouldCompactNpcContextHistory($GLOBALS["DIALECTIC_NAME"] ?? "");
+// Preserve live dialogue verbatim. A partially overlapping summary waits until the
+// whole scene is outside the window; unlike the upstream port, no rows are cropped.
+// Current followers have IS_NPC=false; the helper checks NPC identity and opt-in.
+if ($GLOBALS['DIALECTIC_NAME'] !== 'The Narrator'
+    && (!$compactHistoryEnabled || filter_var($GLOBALS['SHORT_TERM_MEMORY_IN_COMPACT_CHAT'] ?? true, FILTER_VALIDATE_BOOLEAN))) {
+    $contextDataHistoric = array_merge(
+        DataShortTermMemoryFor($GLOBALS['DIALECTIC_NAME'], intval($GLOBALS['CONTEXT_WINDOW_FLOOR'] ?? 0)),
+        $contextDataHistoric
+    );
+}
+if ($compactHistoryEnabled) {
+    $compactHistoryBlock = dialecticFormatCompactNpcContextHistory(
+        $contextDataHistoric,
+        (string)($GLOBALS["DIALECTIC_NAME"] ?? "")
+    );
+}
 
-$GLOBALS["DIALECTIC_CONTEXT"] = implode("\n", array_values(array_filter(array_map(
-    static function ($entry) {
-        return is_array($entry) ? trim((string)($entry["content"] ?? "")) : "";
-    },
-    $contextDataHistoric
-))));
+$GLOBALS["DIALECTIC_CONTEXT"] = $compactHistoryEnabled
+    ? $compactHistoryBlock
+    : implode("\n", array_values(array_filter(array_map(
+        static function ($entry) {
+            return is_array($entry) ? trim((string)($entry["content"] ?? "")) : "";
+        },
+        $contextDataHistoric
+    ))));
+if ($compactHistoryEnabled) {
+    $contextDataHistoric = [];
+}
+$contextDataFull = array_merge($contextDataWorld, $contextDataHistoric);
 require_once __DIR__ . DIRECTORY_SEPARATOR . "ext" . DIRECTORY_SEPARATOR
     . "relationship_system" . DIRECTORY_SEPARATOR . "context_pre.php";
 
@@ -2338,6 +2429,12 @@ Logger::phaseStart("prompt_dynamic_context_build", [
 ]);
 $dynamicBiography = buildDynamicBiography($GLOBALS);
 $worldPrompt = buildWorldPrompt($gameRequest[2] ?? 0);
+require_once(__DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'visual_context.php');
+$visualContextPrompt = dialecticBuildVisualContextPrompt(
+    function_exists('dialecticLatestWorldContextPayload')
+        ? (dialecticLatestWorldContextPayload() ?: [])
+        : []
+);
 
 $playerBioSection = "";
 try {
@@ -2377,16 +2474,17 @@ if ($GLOBALS["DIALECTIC_NAME"] !== "The Narrator" && ($activeProfile = dialectic
     }
 }
 
-// Narration-like requests should stay descriptive instead of drifting into
-// ordinary conversation turns.
+// Vision requests stay grounded in the current scene while producing a brief
+// in-character reaction instead of drifting into ordinary conversation.
 if ($gameRequest[0] === "vision") {
-    $GLOBALS["COMMAND_PROMPT"] = "Respond with a current-scene explanation only. Focus on what is visibly present in the provided scene context. Use the Talk action.";
+    $GLOBALS["COMMAND_PROMPT"] = "Respond with one brief, in-character thought or reaction to the current scene. Focus on what stands out instead of describing the whole scene. Use the Talk action.";
 } else if ($gameRequest[0] === "narration" || $gameRequest[0] === "narrator_welcome") {
     $GLOBALS["COMMAND_PROMPT"] = "Respond with atmospheric narration only. Use the Talk action.";
 }
 
 // Ensure actions and nearby sections are added to PROMPT_HEAD before building system prompt
 require_once(__DIR__.DIRECTORY_SEPARATOR."functions".DIRECTORY_SEPARATOR."json_response.php");
+require_once(__DIR__.DIRECTORY_SEPARATOR."lib".DIRECTORY_SEPARATOR."prompt_composition.php");
 
 if (
     $gameRequest[0] === "narrator_inputtext"
@@ -2403,6 +2501,12 @@ if (
 $nearbySections = "";
 if (isset($GLOBALS["PROMPT_NEARBY_SECTIONS"]) && !empty($GLOBALS["PROMPT_NEARBY_SECTIONS"])) {
     $nearbySections = $GLOBALS["PROMPT_NEARBY_SECTIONS"];
+}
+$combatSection = function_exists('dialectic_build_combat_prompt_from_event')
+    ? dialectic_build_combat_prompt_from_event($GLOBALS["DIALECTIC_REQUEST_EVENT"] ?? [])
+    : "";
+if ($combatSection !== "") {
+    $combatSection = "\n\n" . $combatSection;
 }
 
 // Build actions list string
@@ -2444,11 +2548,20 @@ if (isset($GLOBALS["TTSFUNCTION"]) && !empty($GLOBALS["TTSFUNCTION"])) {
 
 $promptInjectionContext = [
     "game_request" => $gameRequest,
-    "dialectic_name" => $GLOBALS["DIALECTIC_NAME"] ?? "",
+    "dialectic_name" => function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : ($GLOBALS["DIALECTIC_NAME"] ?? ""),
+    "narrator_name" => function_exists('dialecticGetNarratorRoleplayName') ? dialecticGetNarratorRoleplayName() : 'The Narrator',
     "player_name" => $GLOBALS["PLAYER_NAME"] ?? "",
 ];
 $characterBottomInjections = function_exists('dialecticRenderPromptInjections')
     ? dialecticRenderPromptInjections("character_bottom", $promptInjectionContext)
+    : "";
+$latestDiaryContext = function_exists('dialecticBuildLatestDiaryContextBlock')
+    ? dialecticBuildLatestDiaryContextBlock(
+        strval($GLOBALS["DIALECTIC_NAME"] ?? ''),
+        is_array($GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"] ?? null)
+            ? $GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"]
+            : []
+    )
     : "";
 $promptBottomInjections = function_exists('dialecticRenderPromptInjections')
     ? dialecticRenderPromptInjections("prompt_bottom", $promptInjectionContext)
@@ -2456,29 +2569,50 @@ $promptBottomInjections = function_exists('dialecticRenderPromptInjections')
 
 $knowledgeSection = "";
 if (!empty($GLOBALS["WORLDKNOWLEDGE_HINT"])) {
-    $knowledgeSection = "\n\n<knowledge>\n" . $GLOBALS["WORLDKNOWLEDGE_HINT"] . "\n</knowledge>";
+    $knowledgeSection = "\n\n<fallout_context>\n<knowledge>\n" . $GLOBALS["WORLDKNOWLEDGE_HINT"] . "\n</knowledge>\n</fallout_context>";
 }
 
 $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
-    "\n</roleplay_instructions>" . $worldPrompt .
-    "\n\n<character>\n" . $GLOBALS["DIALECTIC_PERS"] . $dynamicBiography . $characterBottomInjections .
+    "\n</roleplay_instructions>" . $worldPrompt . ($visualContextPrompt !== '' ? "\n\n" . $visualContextPrompt : '') .
+    "\n\n<character>\n" . $GLOBALS["DIALECTIC_PERS"] . $dynamicBiography . $latestDiaryContext . $characterBottomInjections .
     "\n</character>" . $knowledgeSection .
     "\n\n<general_instructions>\n" . $GLOBALS["COMMAND_PROMPT"] .
-    "\n</general_instructions>" . $actionsList . $nearbySections . $promptBottomInjections . $paralinguisticTagsPrompt . "\n";
+    "\n</general_instructions>" . $actionsList . $combatSection . $nearbySections . $promptBottomInjections . $paralinguisticTagsPrompt . "\n";
+
+$promptCompositionSections = [
+    'roleplay_instructions' => $GLOBALS['PROMPT_HEAD'] ?? '',
+    'world' => $worldPrompt ?? '',
+    'visual_context' => $visualContextPrompt ?? '',
+    'character' => ($GLOBALS['DIALECTIC_PERS'] ?? '') . ($dynamicBiography ?? '') . ($latestDiaryContext ?? '') . ($characterBottomInjections ?? ''),
+    'knowledge' => $knowledgeSection ?? '',
+    'general_instructions' => $GLOBALS['COMMAND_PROMPT'] ?? '',
+    'actions' => $actionsList ?? '',
+    'combat' => $combatSection ?? '',
+    'nearby_actors' => $nearbySections ?? '',
+    'plugin_injections' => $promptBottomInjections ?? '',
+    'paralinguistic_tags' => $paralinguisticTagsPrompt ?? '',
+];
 
 $systemPrompt = dialecticFormatPromptXmlSections(
     strtr(
         $systemPromptRaw,
-        ["#PLAYER_NAME#" => $GLOBALS["PLAYER_NAME"], "#DIALECTIC_NAME#" => $GLOBALS["DIALECTIC_NAME"]]
+        [
+            "#PLAYER_NAME#" => $GLOBALS["PLAYER_NAME"],
+            "#DIALECTIC_NAME#" => function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : $GLOBALS["DIALECTIC_NAME"],
+            "#NARRATOR_NAME#" => function_exists('dialecticGetNarratorRoleplayName') ? dialecticGetNarratorRoleplayName() : 'The Narrator',
+        ]
     )
 );
 
 $systemPrompt = dialecticApplyPromptContextOptionsToSystemPrompt($systemPrompt);
+$promptHeadMarkdownEnabled = filter_var($GLOBALS['PROMPT_HEAD_MARKDOWN_ENABLED'] ?? true, FILTER_VALIDATE_BOOLEAN);
+$systemPrompt = dialecticFormatPromptHeadSection($systemPrompt, $promptHeadMarkdownEnabled);
 
 $head[] = array('role' => 'system', 'content' => $systemPrompt);
+$head = dialecticAppendCompactHistoryToPrompt($head, $compactHistoryBlock, $promptHeadMarkdownEnabled);
 Logger::phaseEnd("prompt_dynamic_context_build", [
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
-    "system_chars" => strlen((string)$systemPrompt),
+    "system_chars" => strlen((string)($head[0]['content'] ?? $systemPrompt)),
     "nearby_chars" => strlen((string)$nearbySections),
     "actions_chars" => strlen((string)$actionsList),
 ], "info");
@@ -2556,11 +2690,29 @@ if ($gameRequest[0] == "funcret") {
     
 }
 
+if (isset($contextData) && is_array($contextData) && function_exists('dialecticApplyNarratorRoleplayNameToContext')) {
+    $contextData = dialecticApplyNarratorRoleplayNameToContext($contextData);
+}
+
 
 if (microtime(true) - $startTime > 0.25) {
     $dbExecutionTime = $GLOBALS["DB_EXECUTION_TIME"] ?? 0;
     error_log("*TRACE SQL: TOTAL DATABASE query execution time: {$dbExecutionTime} seconds");
     error_log("*TRACE: ".__LINE__. " at ".__FILE__.": ".(microtime(true) - $startTime)." secs building call");
+}
+
+if (($gameRequest[0] ?? '') !== 'diary') {
+    dialecticLogPromptComposition(
+        strval($gameRequest[0] ?? ''),
+        array_merge(
+            $promptCompositionSections,
+            [
+                'history' => $contextDataFull ?? [],
+                'memory_injection' => $memoryInjectionCtx ?? [],
+            ]
+        ),
+        $contextData ?? []
+    );
 }
 
 //returnLines(["Mmm..let me think"]);

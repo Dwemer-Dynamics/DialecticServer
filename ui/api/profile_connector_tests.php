@@ -116,6 +116,16 @@ function profileConnectorTestsLlmRequiresApiKey(array $row): bool
     $provider = strtolower(profileConnectorTestsString($row['provider'] ?? ''));
     $url = strtolower(profileConnectorTestsString($row['url'] ?? ''));
 
+    if ($driver === 'openaijson') {
+        require_once dirname(__DIR__, 2) . '/lib/core/local_llm_setup.php';
+        try {
+            dialecticLocalLlmValidateUrl($url);
+            return false;
+        } catch (InvalidArgumentException $e) {
+            // Public providers still require a configured API key.
+        }
+    }
+
     $remoteDrivers = [
         'anthropic',
         'google_openaijson',
@@ -456,12 +466,17 @@ function profileConnectorTestsTestLlm(int $connectorId): array
         }
     }
 
+    // Connector response parsing uses the shared mood, animation, and
+    // expression helpers that are present during normal request handling.
+    require_once($GLOBALS["ENGINE_PATH"] . "lib" . DIRECTORY_SEPARATOR . "data_functions.php");
+
     $run = profileConnectorTestsRunWithCapturedErrors(function () use ($llm, $connector, $driver) {
         $GLOBALS["DIALECTIC_NAME"] = 'DIALECTIC Profile Test';
         $GLOBALS["PLAYER_NAME"] = $GLOBALS["PLAYER_NAME"] ?? 'Courier';
         $GLOBALS["DEBUG_DATA"] = [];
         $GLOBALS["FUNCTIONS_ARE_ENABLED"] = false;
         $GLOBALS["PATCH_PROMPT_ENFORCE_ACTIONS"] = false;
+        $GLOBALS["COMMAND_PROMPT"] = '';
         $GLOBALS["COMMAND_PROMPT_ENFORCE_ACTIONS"] = '';
 
         $llm->setOldGlobals($connector);

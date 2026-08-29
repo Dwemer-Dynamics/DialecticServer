@@ -9,10 +9,11 @@
 //      Example:(Volkur falls to the ground wounded)
 //
 // * Whisper (WHISPER)
-//      (When enabled, we should send to plugin via InternalSetting a reduced DISTANCE_ACTIVATING_NPC,
-//      from this point, all NPC beyond that distance should be marked as far away, We must take this in 
-//      account to only store people NOT far away on eventlog (so far away NPCs won't have access to this context).
-//       If player is in stealh mode, no rechat (this is a standard behavior).
+//      Routes the turn privately to the selected listener using a quiet request-local range.
+//
+// * Close (CLOSE)
+//      Routes to the nearby group that can hear the player within the plugin-owned 200-unit close radius
+//      (100 while sneaking). Selecting a responder does not exclude nearby hearers.
 //
 // * Shout (SHOUT)
 //      Expands local hearing/activation range and marks dialogue as shouted.
@@ -199,6 +200,7 @@ function dialecticModeExtractRequestedMode(array $gameRequest, string $receivedD
     $allowedModes = [
         "STANDARD",
         "WHISPER",
+        "CLOSE",
         "SHOUT",
         "NARRATOR",
         "DIRECTOR",
@@ -274,6 +276,7 @@ $EXECUTION_MODE_=$db->fetchOne("SELECT value FROM conf_opts WHERE id='dialectic_
 $EXECUTION_MODE=isset($EXECUTION_MODE_["value"])?$EXECUTION_MODE_["value"]:"STANDARD";
 
 $EXECUTION_MODE=strtoupper($EXECUTION_MODE);
+$GLOBALS["DIALECTIC_CONFIGURED_EXECUTION_MODE"] = $EXECUTION_MODE;
 
 if (!in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext"])) {
     $EXECUTION_MODE="STANDARD";
@@ -299,37 +302,13 @@ if ($EXECUTION_MODE=="STANDARD") {
 
 
 } else if ($EXECUTION_MODE=="WHISPER") {
-    // Hard whisper range for DIALECTIC whisper mode.
-    $GLOBALS["WHISPER_RANGE"] = 200;
-    
-    // Send commands to plugin to reduce NPC detection range to whisper distance
-    dialecticQueueCommandResponse(
-        "rolemaster",
-        "SetConf",
-        ["setting" => "_max_distance_outside", "value" => $GLOBALS["WHISPER_RANGE"], "restart" => "0", "scope" => ""]
-    );
-    dialecticQueueCommandResponse(
-        "rolemaster",
-        "SetConf",
-        ["setting" => "_max_distance_inside", "value" => $GLOBALS["WHISPER_RANGE"], "restart" => "0", "scope" => ""]
-    );
-    
-    // Disable rechat when player is sneaking (handled by plugin side based on stealth state)
+    // The game plugin owns request-local whisper distance and audience routing.
+
+} else if ($EXECUTION_MODE=="CLOSE") {
+    // The game plugin owns the compact close radius and nearby group audience.
 
 } else if ($EXECUTION_MODE=="SHOUT") {
-    $GLOBALS["SHOUT_RANGE_INSIDE"] = 2400;
-    $GLOBALS["SHOUT_RANGE_OUTSIDE"] = 4800;
-
-    dialecticQueueCommandResponse(
-        "rolemaster",
-        "SetConf",
-        ["setting" => "_max_distance_outside", "value" => $GLOBALS["SHOUT_RANGE_OUTSIDE"], "restart" => "0", "scope" => ""]
-    );
-    dialecticQueueCommandResponse(
-        "rolemaster",
-        "SetConf",
-        ["setting" => "_max_distance_inside", "value" => $GLOBALS["SHOUT_RANGE_INSIDE"], "restart" => "0", "scope" => ""]
-    );
+    // The game plugin owns request-local shout distance and audience routing.
 
 } else if ($EXECUTION_MODE=="NARRATOR") {
     if (in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext"], true)) {
@@ -400,35 +379,6 @@ if (isset($CONTEXT_MODE["value"]) && $CONTEXT_MODE["value"]==1)
     $GLOBALS["CLEAN_CONTEXT_FOCUS_CHAT"]=true;
 else
     $GLOBALS["CLEAN_CONTEXT_FOCUS_CHAT"]=false;
-
-// Restore normal distances when leaving whisper/shout modes
-if (!in_array($EXECUTION_MODE, ["WHISPER", "SHOUT"], true)) {
-    // Check if we were previously in a mode that changed distance and need to restore
-    $prevMode = $db->fetchOne("SELECT value FROM conf_opts WHERE id='dialectic_mode_previous'");
-    if (isset($prevMode["value"]) && in_array(strtoupper($prevMode["value"]), ["WHISPER", "SHOUT"], true)) {
-        // Restore normal distances (2400 outdoors, 1200 indoors)
-        dialecticQueueCommandResponse(
-            "rolemaster",
-            "SetConf",
-            ["setting" => "_max_distance_outside", "value" => "2400", "restart" => "0", "scope" => ""]
-        );
-        dialecticQueueCommandResponse(
-            "rolemaster",
-            "SetConf",
-            ["setting" => "_max_distance_inside", "value" => "1200", "restart" => "0", "scope" => ""]
-        );
-    }
-}
-
-// Store current mode as previous for next check
-$db->upsertRow(
-    'conf_opts',
-    array(
-        'id' => 'dialectic_mode_previous',
-        'value' => $EXECUTION_MODE
-    ),
-    "id='dialectic_mode_previous'"
-);
 
 
 ?>

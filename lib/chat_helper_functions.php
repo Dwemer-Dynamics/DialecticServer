@@ -8,6 +8,55 @@ define("_MAX_SUBTITLE_LENGTH", 1000);
 
 require_once(__DIR__."/utils_game_timestamp.php");
 require_once(__DIR__."/emote_moods.php");
+require_once(__DIR__."/npc_tts_status.php");
+
+function dialecticBuildLatestDiaryContextBlock(string $npcName, array $profileData): string
+{
+    $safeNpcName = trim($npcName);
+    if ($safeNpcName === '') {
+        return '';
+    }
+
+    $metadata = json_decode(strval($profileData['metadata'] ?? '{}'), true);
+    if (!is_array($metadata)
+        || !filter_var($metadata['LATEST_DIARY_CONTEXT_ENABLED'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        return '';
+    }
+
+    $db = $GLOBALS['db'] ?? null;
+    if (!is_object($db) || !method_exists($db, 'fetchOne') || !method_exists($db, 'escape')) {
+        return '';
+    }
+
+    try {
+        $escapedName = $db->escape($safeNpcName);
+        $entry = $db->fetchOne(
+            "SELECT topic, content
+             FROM diarylog
+             WHERE lower(trim(people)) = lower('{$escapedName}')
+             ORDER BY gamets DESC, localts DESC, rowid DESC
+             LIMIT 1"
+        );
+    } catch (Throwable $e) {
+        Logger::warn("[LATEST_DIARY_CONTEXT] Unable to load diary context for {$safeNpcName}: " . $e->getMessage());
+        return '';
+    }
+
+    $content = trim(strval($entry['content'] ?? ''));
+    if ($content === '') {
+        return '';
+    }
+
+    $topic = trim(strval($entry['topic'] ?? ''));
+    $diaryText = $topic !== '' ? "Date: {$topic}\n{$content}" : $content;
+    $escapedText = htmlspecialchars(
+        $diaryText,
+        ENT_QUOTES | ENT_XML1 | ENT_SUBSTITUTE,
+        'UTF-8'
+    );
+
+    return "\n<latest_diary_entry>\n{$escapedText}\n</latest_diary_entry>\n";
+}
 
 function callConfiguredTts($textString, $mood, $stringforhash)
 {
@@ -40,6 +89,43 @@ function dialecticTtsCacheKeyForLine(string $speaker, string $text): string
     }
 
     return $text;
+}
+
+// Apply Fallout faction-specific pronunciation without changing subtitles or stored dialogue.
+function dialecticApplyLegionTtsPronunciation(string $text, ?array $npcData = null): string
+{
+    if (stripos($text, 'Caesar') === false) {
+        return $text;
+    }
+
+    $npcData = $npcData ?? ($GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA'] ?? null);
+    $speaker = trim(strval($GLOBALS['DIALECTIC_NAME'] ?? ''));
+    $npcName = is_array($npcData) ? trim(strval($npcData['npc_name'] ?? '')) : '';
+    if (!is_array($npcData) || $speaker === '' || $npcName === '' || strcasecmp($speaker, $npcName) !== 0) {
+        return $text;
+    }
+
+    if (!class_exists('NpcMaster')) {
+        require_once(__DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'npc_master.class.php');
+    }
+
+    $npcMaster = new NpcMaster();
+    $caesarsLegionFaction = '0x000EE68A';
+    $knowledgeTags = preg_split(
+        '/[,|\s]+/u',
+        strtolower(strval($npcData['worldknowledge_tags'] ?? '')),
+        -1,
+        PREG_SPLIT_NO_EMPTY
+    );
+    $isLegionNpc = $npcMaster->isNpcInFaction($npcData, $caesarsLegionFaction)
+        || $npcMaster->isNpcInFaction($npcData, substr($caesarsLegionFaction, 2))
+        || in_array('caesars_legion', is_array($knowledgeTags) ? $knowledgeTags : [], true);
+    if (!$isLegionNpc) {
+        return $text;
+    }
+
+    $pronounced = preg_replace('/\bCaesar\b/iu', 'Kaiser', $text);
+    return is_string($pronounced) ? $pronounced : $text;
 }
 
 function canRetryNpcTtsWithFallback(): bool
@@ -892,7 +978,7 @@ function cleanupDisplayText($text, $speakerName = null) {
 function formatPlayerSubtitleText($text, $speakerName = null) {
     $speakerName = $speakerName ?? ($GLOBALS["PLAYER_NAME"] ?? null);
     $subtitleText = preg_replace(
-        '/\s*\((?:(?:Talking|Whispering|Shouting) to [^)]+|speaking loudly to [^)]+ from far away)\)\s*$/i',
+        '/\s*\((?:(?:Talking|Whispering|Shouting|Speaking privately) to [^)]+|speaking loudly to [^)]+ from far away)\)\s*$/i',
         '',
         $text
     );
@@ -987,7 +1073,7 @@ function loadNarratorVoiceSettings() {
     $narrator = new Narrator();
     $profileId = $narrator->getProfileId();
     if ($profileId) {
-        $profileManager = new CoreProfiles();
+        $profileManager = new CoreProfile();
         $profileData = $profileManager->getById($profileId);
         if (is_array($profileData) && !empty($profileData)) {
             $ttsConnectorId = intval($profileData['tts_connector_id'] ?? 0);
@@ -1146,9 +1232,13 @@ function dialectic_generate_deferred_tts(): void
 
     foreach ($pending as $entry) {
         $text = trim((string)($entry["text"] ?? ""));
+        $cacheSeed = trim((string)($entry["cache_seed"] ?? ($entry["cache_key"] ?? "")));
         $cacheKey = trim((string)($entry["cache_key"] ?? ""));
+        if (dialectic_npc_tts_status_key($cacheKey) === "") {
+            $cacheKey = md5($cacheSeed);
+        }
         $speaker = trim((string)($entry["speaker"] ?? ($GLOBALS["DIALECTIC_NAME"] ?? "")));
-        if ($text === "" || $cacheKey === "") {
+        if ($text === "" || $cacheSeed === "" || $cacheKey === "") {
             continue;
         }
 
@@ -1159,13 +1249,18 @@ function dialectic_generate_deferred_tts(): void
             "cache_key" => $cacheKey,
             "chars" => strlen($text),
         ]);
-        $ttsOutput = callNpcTtsWithFallback($text, (string)($entry["mood"] ?? "default"), $cacheKey);
+        $ttsOutput = callNpcTtsWithFallback($text, (string)($entry["mood"] ?? "default"), $cacheSeed);
         if (!$ttsOutput && isset($GLOBALS["TTS_FALLBACK_FNCT"])) {
-            $ttsOutput = $GLOBALS["TTS_FALLBACK_FNCT"]($text, (string)($entry["mood"] ?? "default"), $cacheKey);
+            $ttsOutput = $GLOBALS["TTS_FALLBACK_FNCT"]($text, (string)($entry["mood"] ?? "default"), $cacheSeed);
         }
 
-        if ($ttsOutput) {
+        $cachePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . "soundcache" . DIRECTORY_SEPARATOR . $cacheKey . ".wav";
+        if ($ttsOutput && is_file($cachePath) && @filesize($cachePath) > 44) {
             $GLOBALS["TRACK"]["FILES_GENERATED"][] = $ttsOutput;
+            dialectic_write_npc_tts_status($cacheKey, "ready", [
+                "speaker" => $speaker,
+                "output" => $ttsOutput,
+            ]);
             Logger::info("[TTS] Generated deferred JSON-mode TTS for {$speaker}: {$ttsOutput}");
             Logger::phaseEnd($phaseName, [
                 "status" => "ok",
@@ -1173,6 +1268,10 @@ function dialectic_generate_deferred_tts(): void
                 "output" => $ttsOutput,
             ], "info");
         } else {
+            dialectic_write_npc_tts_status($cacheKey, "failed", [
+                "speaker" => $speaker,
+                "reason" => "generation_failed",
+            ]);
             Logger::warn("[TTS] Deferred JSON-mode TTS failed for {$speaker}: {$cacheKey}");
             Logger::phaseEnd($phaseName, [
                 "status" => "failed",
@@ -1228,8 +1327,12 @@ function dialectic_spawn_deferred_npc_tts_worker(array $entry): bool
     }
 
     $text = trim((string)($entry['text'] ?? ''));
+    $cacheSeed = trim((string)($entry['cache_seed'] ?? ($entry['cache_key'] ?? '')));
     $cacheKey = trim((string)($entry['cache_key'] ?? ''));
-    if ($text === '' || $cacheKey === '') {
+    if (dialectic_npc_tts_status_key($cacheKey) === '') {
+        $cacheKey = md5($cacheSeed);
+    }
+    if ($text === '' || $cacheSeed === '' || $cacheKey === '') {
         return false;
     }
 
@@ -1238,7 +1341,7 @@ function dialectic_spawn_deferred_npc_tts_worker(array $entry): bool
         @mkdir($jobsDir, 0775, true);
     }
 
-    $jobId = md5($cacheKey);
+    $jobId = $cacheKey;
     $jobPath = $jobsDir . DIRECTORY_SEPARATOR . $jobId . '.json';
     $lockPath = $jobsDir . DIRECTORY_SEPARATOR . $jobId . '.lock';
 
@@ -1258,11 +1361,17 @@ function dialectic_spawn_deferred_npc_tts_worker(array $entry): bool
     }
 
     $entry['lock_path'] = $lockPath;
+    $entry['cache_seed'] = $cacheSeed;
+    $entry['cache_key'] = $cacheKey;
     $entry['engine_root'] = $root;
     $entry['request_id'] = class_exists('Logger') ? Logger::getRequestId() : ($GLOBALS['DIALECTIC_REQUEST_ID'] ?? '');
     $entry['npc_data'] = $GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA'] ?? null;
     $entry['profile_data'] = $GLOBALS['DIALECTIC_CORE_CURRENT_PROFILE_DATA'] ?? null;
     $entry['connector_data'] = $GLOBALS['DIALECTIC_CORE_CURRENT_CONNECTOR_DATA'] ?? null;
+    dialectic_write_npc_tts_status($cacheKey, 'pending', [
+        'speaker' => $entry['speaker'] ?? '',
+        'request_id' => $entry['request_id'],
+    ], $root);
 
     if (@file_put_contents($jobPath, json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), LOCK_EX) === false) {
         @unlink($lockPath);
@@ -1365,8 +1474,8 @@ function returnLines($lines,$writeOutput=true)
         // regardless of inline narration mode.
         $isPlayerSpeech = isset($GLOBALS["DIALECTIC_NAME"]) && strcasecmp((string)$GLOBALS["DIALECTIC_NAME"], "Player") === 0;
         if ($inlineNarrationEnabled || $isPlayerSpeech) {
-            $sentence = preg_replace('/\s*\((?:Talking|Whispering|Shouting)\s+to\s+[^)]+\)\s*$/i', '', $sentence);
-            $sentenceForSubtitles = preg_replace('/\s*\((?:Talking|Whispering|Shouting)\s+to\s+[^)]+\)\s*$/i', '', $sentenceForSubtitles);
+            $sentence = preg_replace('/\s*\((?:Talking|Whispering|Shouting|Speaking privately)\s+to\s+[^)]+\)\s*$/i', '', $sentence);
+            $sentenceForSubtitles = preg_replace('/\s*\((?:Talking|Whispering|Shouting|Speaking privately)\s+to\s+[^)]+\)\s*$/i', '', $sentenceForSubtitles);
         }
 
         // Check if we should split narration to The Narrator BEFORE unmoodSentence strips asterisks
@@ -1471,6 +1580,7 @@ function returnLines($lines,$writeOutput=true)
         $pendingNpcTtsText = "";
         $pendingNpcTtsMood = "";
         $pendingNpcTtsCacheKey = "";
+        $pendingNpcTtsPronunciationApplied = false;
         $npcTtsGeneratedBeforeEmit = false;
 
         if (isset($GLOBALS["FEATURES"]["MISC"]["TTS_RANDOM_PITCH"])&&($GLOBALS["FEATURES"]["MISC"]["TTS_RANDOM_PITCH"])) {
@@ -1526,63 +1636,69 @@ function returnLines($lines,$writeOutput=true)
 
                 Logger::info("[INLINE_NARRATION] Saved NPC name: " . $savedDialecticName);
 
-                // Process each narration block with The Narrator's voice
-                foreach ($narrationParts['narrations'] as $narrationText) {
-                    if (empty(trim($narrationText))) {
-                        continue; // Skip empty narrations
-                    }
-
-                    Logger::info("[INLINE_NARRATION] Processing narration: " . $narrationText);
-
-                    // Switch to Narrator voice
-                    loadNarratorVoiceSettings();
-                    $GLOBALS["DIALECTIC_NAME"] = "The Narrator";
-
-                    Logger::info("[INLINE_NARRATION] Switched to Narrator, voice settings loaded");
-
-                    // Prepare narration for TTS (with asterisks for subtitle display)
-                    $narrationForTTS = $narrationText;
-                    $narrationForSubtitles = formatNarrationSubtitleText($narrationText);
-
-                    Logger::info("[INLINE_NARRATION] Generating TTS with function: " . $GLOBALS["TTSFUNCTION"]);
-
-                    // Generate TTS for narration using the configured TTS function
-                    $narratorTtsOutput = callConfiguredTts(
-                        $narrationForTTS,
-                        "default",
-                        dialecticTtsCacheKeyForLine("The Narrator", $narrationForSubtitles)
-                    );
-
-                    // Track narrator TTS output
-                    if ($narratorTtsOutput) {
-                        $GLOBALS["TRACK"]["FILES_GENERATED"][] = $narratorTtsOutput;
-                        Logger::info("[INLINE_NARRATION] Narrator TTS generated: " . $narratorTtsOutput);
-
-                        // Output narrator speech to game immediately
-                        if ($writeOutput) {
-                            // Use the same format as the main output at line 1093
-                            $narratorListener = isset($GLOBALS["SCRIPTLINE_LISTENER_ATOMIC"]) ? $GLOBALS["SCRIPTLINE_LISTENER_ATOMIC"] : "";
-                            $narratorExpression = ""; // No expression for narrator
-                            $narratorAnimation = ""; // No animation for narrator
-
-                            dialectic_buffer_speech_response_line(
-                                "The Narrator",
-                                $narrationForSubtitles,
-                                $narratorExpression,
-                                $narratorListener,
-                                $narratorAnimation,
-                                $narrationText
-                            );
-                            Logger::info("[INLINE_NARRATION] Narrator speech sent to game: " . $narrationForSubtitles);
+                try {
+                    // Process each narration block with The Narrator's voice
+                    foreach ($narrationParts['narrations'] as $narrationText) {
+                        if (empty(trim($narrationText))) {
+                            continue; // Skip empty narrations
                         }
-                    } else {
-                        Logger::warn("[INLINE_NARRATION] WARNING: Narrator TTS returned null/empty");
-                    }
-                }
 
-                // Restore NPC voice settings
-                restoreVoiceSettings($savedVoiceSettings);
-                $GLOBALS["DIALECTIC_NAME"] = $savedDialecticName;
+                        Logger::info("[INLINE_NARRATION] Processing narration: " . $narrationText);
+
+                        try {
+                            // Switch to Narrator voice
+                            loadNarratorVoiceSettings();
+                            $GLOBALS["DIALECTIC_NAME"] = "The Narrator";
+
+                            Logger::info("[INLINE_NARRATION] Switched to Narrator, voice settings loaded");
+
+                            // Prepare narration for TTS (with asterisks for subtitle display)
+                            $narrationForTTS = $narrationText;
+                            $narrationForSubtitles = formatNarrationSubtitleText($narrationText);
+
+                            Logger::info("[INLINE_NARRATION] Generating TTS with function: " . $GLOBALS["TTSFUNCTION"]);
+
+                            // Generate TTS for narration using the configured TTS function
+                            $narratorTtsOutput = callConfiguredTts(
+                                $narrationForTTS,
+                                "default",
+                                dialecticTtsCacheKeyForLine("The Narrator", $narrationForSubtitles)
+                            );
+
+                            // Track narrator TTS output
+                            if ($narratorTtsOutput) {
+                                $GLOBALS["TRACK"]["FILES_GENERATED"][] = $narratorTtsOutput;
+                                Logger::info("[INLINE_NARRATION] Narrator TTS generated: " . $narratorTtsOutput);
+
+                                // Output narrator speech to game immediately
+                                if ($writeOutput) {
+                                    // Use the same format as the main output at line 1093
+                                    $narratorListener = isset($GLOBALS["SCRIPTLINE_LISTENER_ATOMIC"]) ? $GLOBALS["SCRIPTLINE_LISTENER_ATOMIC"] : "";
+                                    $narratorExpression = ""; // No expression for narrator
+                                    $narratorAnimation = ""; // No animation for narrator
+
+                                    dialectic_buffer_speech_response_line(
+                                        "The Narrator",
+                                        $narrationForSubtitles,
+                                        $narratorExpression,
+                                        $narratorListener,
+                                        $narratorAnimation,
+                                        $narrationText
+                                    );
+                                    Logger::info("[INLINE_NARRATION] Narrator speech sent to game: " . $narrationForSubtitles);
+                                }
+                            } else {
+                                Logger::warn("[INLINE_NARRATION] WARNING: Narrator TTS returned null/empty");
+                            }
+                        } catch (Throwable $e) {
+                            Logger::error("[INLINE_NARRATION] Narrator routing failed; continuing with NPC dialogue: " . $e->getMessage());
+                        }
+                    }
+                } finally {
+                    // Always restore the NPC voice, including after narrator connector failures.
+                    restoreVoiceSettings($savedVoiceSettings);
+                    $GLOBALS["DIALECTIC_NAME"] = $savedDialecticName;
+                }
 
                 // Now generate TTS for the NPC's dialogue (if any)
                 if (!empty($narrationParts['dialogue'])) {
@@ -1605,9 +1721,11 @@ function returnLines($lines,$writeOutput=true)
             }
 
             if ($shouldEmitNpcLine && trim((string)$responseForTTS) !== "") {
-                $pendingNpcTtsText = $responseForTTS;
+                $pendingNpcTtsText = dialecticApplyLegionTtsPronunciation((string)$responseForTTS);
                 $pendingNpcTtsMood = $mood;
-                $pendingNpcTtsCacheKey = dialecticTtsCacheKeyForLine($GLOBALS["DIALECTIC_NAME"], $responseForSubtitles);
+                $pendingNpcTtsPronunciationApplied = $pendingNpcTtsText !== $responseForTTS;
+                $ttsCacheText = $pendingNpcTtsPronunciationApplied ? $pendingNpcTtsText : $responseForSubtitles;
+                $pendingNpcTtsCacheKey = dialecticTtsCacheKeyForLine($GLOBALS["DIALECTIC_NAME"], $ttsCacheText);
 
                 if (trim($responseText)) {
                     $talkedSoFar[] = $responseText;
@@ -1782,7 +1900,9 @@ function returnLines($lines,$writeOutput=true)
                 $currentUtteranceId = dialecticGenerateUtteranceId();
                 $GLOBALS["SCRIPTLINE_UTTERANCE_ID"] = $currentUtteranceId;
 
-                $responseTextPhonetic = "";
+                $responseTextPhonetic = $pendingNpcTtsPronunciationApplied ? $pendingNpcTtsText : "";
+                $responseTtsText = $pendingNpcTtsPronunciationApplied ? $pendingNpcTtsText : "";
+                $responseTtsCacheKey = $pendingNpcTtsPronunciationApplied ? md5($pendingNpcTtsCacheKey) : "";
                 
                 $volumeBoost = 1.0;
 
@@ -1841,7 +1961,9 @@ function returnLines($lines,$writeOutput=true)
                     $responseTextPhonetic,
                     $volumeBoost,
                     (string)$GLOBALS["SCRIPTLINE_RECHAT_TARGET"],
-                    $currentUtteranceId
+                    $currentUtteranceId,
+                    $responseTtsText,
+                    $responseTtsCacheKey
                 );
 
                 $GLOBALS["DEBUG_DATA"]["OUTPUT_LOG"] = json_encode([
@@ -1910,7 +2032,8 @@ function returnLines($lines,$writeOutput=true)
                 "speaker" => (string)$GLOBALS["DIALECTIC_NAME"],
                 "text" => $pendingNpcTtsText,
                 "mood" => $pendingNpcTtsMood,
-                "cache_key" => $pendingNpcTtsCacheKey,
+                "cache_seed" => $pendingNpcTtsCacheKey,
+                "cache_key" => md5($pendingNpcTtsCacheKey),
                 "tts_function" => (string)($GLOBALS["TTSFUNCTION"] ?? ""),
             ];
             $spawnedWorker = $streamingMode && dialectic_spawn_deferred_npc_tts_worker($deferredEntry);
@@ -2519,6 +2642,17 @@ function getGametsLimitFor($actor) {
 
 
 
+function dialecticMemorySearchInputFromRequest(array $gameRequest): string
+{
+    $rawInput = trim((string)($gameRequest[3] ?? ''));
+    if (($gameRequest[0] ?? '') !== 'rechat') {
+        return $rawInput;
+    }
+
+    $payload = dialecticParseServerSideRechatPayload($rawInput);
+    return trim((string)($payload['origin_line'] ?? ''));
+}
+
 function offerMemory($gameRequest)
 {
     global $db;
@@ -2540,6 +2674,7 @@ function offerMemory($gameRequest)
     }
 
     $timeThreshold=round($gameRequest[2]-(getGametsLimitFor($npc)/0.0000024),0)-1;
+    $memorySearchInput = dialecticMemorySearchInputFromRequest($gameRequest);
 
     error_log("[DataSearchMemoryByVector] Using timeThreshold $timeThreshold");
     $contextKeywords  = implode(" ", lastKeyWordsContext(5,$npc));
@@ -2547,9 +2682,9 @@ function offerMemory($gameRequest)
     if ($GLOBALS["FEATURES"]["MEMORY_EMBEDDING"]["USE_TEXT2VEC"]) {
         $localStartTime = microtime(true);
         error_log("[DataSearchMemoryByVector calling]  : " . (microtime(true) - $localStartTime) . " seconds");
-        $res = DataSearchMemoryByVector($gameRequest[3], $npc, true,$timeThreshold);
+        $res = DataSearchMemoryByVector($memorySearchInput, $npc, true,$timeThreshold);
         error_log("[DataSearchMemoryByVector called 1]  : " . (microtime(true) - $localStartTime) . " seconds");
-        $res2 = DataSearchMemoryByVector($gameRequest[3], $npc,false,$timeThreshold);
+        $res2 = DataSearchMemoryByVector($memorySearchInput, $npc,false,$timeThreshold);
         error_log("[DataSearchMemoryByVector called 2]  : " . (microtime(true) - $localStartTime) . " seconds");
 
         if (isset($res[0]) && isset($res2[0])) {
@@ -2557,21 +2692,57 @@ function offerMemory($gameRequest)
         } else {
             $resFinal = isset($res[0]['rank_any']) ? $res : (isset($res2[0]['rank_any']) ? $res2 : []);
         }
+
+        // Recover only strong semantic matches when MiniMe suppresses the primary recall.
+        $strictSemanticFallback = false;
+        $hasPrimaryCandidate = isset($resFinal[0])
+            && is_array($resFinal[0])
+            && trim((string)($resFinal[0]['summary'] ?? '')) !== '';
+        if (!$hasPrimaryCandidate && isMinimeT5Enabled()) {
+            $GLOBALS['MEMORY_STRICT_FALLBACK_ATTEMPTED'] = true;
+            $hadBypassSetting = array_key_exists('PATCH_BYPASS_MINIME_EXTRACT', $GLOBALS);
+            $previousBypassSetting = $GLOBALS['PATCH_BYPASS_MINIME_EXTRACT'] ?? null;
+            try {
+                $GLOBALS['PATCH_BYPASS_MINIME_EXTRACT'] = true;
+                $fallbackResult = DataSearchMemoryByVector($memorySearchInput, $npc, false, $timeThreshold);
+            } finally {
+                if ($hadBypassSetting) {
+                    $GLOBALS['PATCH_BYPASS_MINIME_EXTRACT'] = $previousBypassSetting;
+                } else {
+                    unset($GLOBALS['PATCH_BYPASS_MINIME_EXTRACT']);
+                }
+            }
+
+            if (isset($fallbackResult[0])
+                && is_array($fallbackResult[0])
+                && trim((string)($fallbackResult[0]['summary'] ?? '')) !== '') {
+                $resFinal = $fallbackResult;
+                $strictSemanticFallback = true;
+                Logger::info('[MEMORY] Primary recall produced no candidate; evaluating strict semantic fallback');
+            } else {
+                Logger::info('[MEMORY] Primary recall produced no candidate and strict semantic fallback found no candidate');
+            }
+        }
         $memories = $resFinal;
         
     } else {
-        $memories=DataSearchMemory($gameRequest[3],$npc);
+        $memories=DataSearchMemory($memorySearchInput,$npc);
     }
    
     
+    $thresholdModifier = floatval($GLOBALS["MEMORY_THRESHOLD_MODIFIER"] ?? 0);
+    if (!empty($strictSemanticFallback)) {
+        $thresholdModifier = max($thresholdModifier, 0.5);
+    }
+
     if (isset($memories[0])) {
         Logger::trace(print_r($memories[0],true));
 
-        if (($memories[0]["rank_any"]==$memories[0]["rank_all"])&&($memories[0]["rank_any"]> (0.25+$GLOBALS["MEMORY_THRESHOLD_MODIFIER"]) )) {
+        if (($memories[0]["rank_any"]==$memories[0]["rank_all"])&&($memories[0]["rank_any"]> (0.25+$thresholdModifier) )) {
             
             $memory=(isset($memories[0]["summary"])?$memories[0]["summary"]:"");
             
-        } else if ((($memories[0]["rank_all"]+$memories[0]["rank_any"])/2)> (0.25+ $GLOBALS["MEMORY_THRESHOLD_MODIFIER"])) {
+        } else if ((($memories[0]["rank_all"]+$memories[0]["rank_any"])/2)> (0.25+ $thresholdModifier)) {
             
             $memory=(isset($memories[0]["summary"])?$memories[0]["summary"]:"");
             
@@ -2579,13 +2750,19 @@ function offerMemory($gameRequest)
             
             $memory=(isset($memories[0]["summary"])?$memories[0]["summary"]:"");
             
-        } else if (($memories[0]["rank_any"]> (0.50 + $GLOBALS["MEMORY_THRESHOLD_MODIFIER"])) && isset($memories[0]["mixed_distance"])) {// Search by mixed vector/fts .
+        } else if (($memories[0]["rank_any"]> (0.50 + $thresholdModifier)) && isset($memories[0]["mixed_distance"])) {// Search by mixed vector/fts .
             
             $memory=(isset($memories[0]["summary"])?$memories[0]["summary"]:"");
             
         } else {
-           Logger::trace("[MEMORY] Memory discarded by scoring");
-           error_log("[MEMORY] Memory discarded by scoring");
+           $decisionContext = Logger::formatContext([
+               'rank_any' => $memories[0]['rank_any'] ?? null,
+               'rank_all' => $memories[0]['rank_all'] ?? null,
+               'threshold_modifier' => $thresholdModifier,
+               'strict_fallback' => !empty($strictSemanticFallback) ? 1 : 0,
+           ]);
+           Logger::trace("[MEMORY] Memory discarded by scoring" . $decisionContext);
+           error_log("[MEMORY] Memory discarded by scoring" . $decisionContext);
            return "";
         }
     } else {
@@ -2889,13 +3066,33 @@ function isWhisperExecutionMode()
     return ($mode === "WHISPER");
 }
 
+function isCloseExecutionMode()
+{
+    $mode = isset($GLOBALS["DIALECTIC_EXECUTION_MODE"]) ? strtoupper(trim((string)$GLOBALS["DIALECTIC_EXECUTION_MODE"])) : "";
+    return ($mode === "CLOSE");
+}
+
+// Close permits audience-scoped NPC replies, but still excludes random Narrator interjections.
+function dialecticExecutionModeAllowsRechatEvent(string $mode, string $eventType): bool
+{
+    $mode = strtoupper(trim($mode));
+    return in_array($eventType, ['rechat', 'narration'], true)
+        && $mode !== 'WHISPER'
+        && !($mode === 'CLOSE' && $eventType === 'narration');
+}
+
+function isPrivateConversationExecutionMode()
+{
+    return isWhisperExecutionMode() || isCloseExecutionMode();
+}
+
 function isShoutExecutionMode()
 {
     $mode = isset($GLOBALS["DIALECTIC_EXECUTION_MODE"]) ? strtoupper(trim((string)$GLOBALS["DIALECTIC_EXECUTION_MODE"])) : "";
     return ($mode === "SHOUT");
 }
 
-function buildWhisperPrivatePeople($listenerName = "")
+function buildPrivateConversationPeople($listenerName = "")
 {
     $participants = [];
 
@@ -2909,6 +3106,11 @@ function buildWhisperPrivatePeople($listenerName = "")
     }
 
     return normalizePeoplePipeList($participants);
+}
+
+function buildWhisperPrivatePeople($listenerName = "")
+{
+    return buildPrivateConversationPeople($listenerName);
 }
 
 function buildDialogueTargetSuffix($listenerName, $isSpeakingLoudly = false)
@@ -3030,6 +3232,10 @@ function normalizeDialogueListenerName($listenerName)
 
     if (strcasecmp($listenerName, "Courier") === 0 && !empty($GLOBALS["PLAYER_NAME"])) {
         return trim((string)$GLOBALS["PLAYER_NAME"]);
+    }
+
+    if (function_exists('dialecticNormalizeNarratorRoleplayActorName')) {
+        return dialecticNormalizeNarratorRoleplayActorName($listenerName);
     }
 
     return $listenerName;
@@ -3307,6 +3513,37 @@ function dialecticRechatActorBlockReason($actorName, $npcData = null)
         !dialecticRechatClassifierContains($text, "robobrain") &&
         !dialecticRechatClassifierContains($text, "sentry bot")) {
         return "generic creature category is not allowed for rechat";
+    }
+
+    return "";
+}
+
+function dialecticRechatActivityBlockReason($npcData, bool $explicitlyAddressed = false): string
+{
+    if (!is_array($npcData)) {
+        return "";
+    }
+
+    require_once __DIR__ . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPARATOR . "activity_status.php";
+    $metadata = $npcData["metadata"] ?? [];
+    if (is_string($metadata) && trim($metadata) !== "") {
+        $metadata = json_decode($metadata, true);
+    }
+    if (!is_array($metadata)) {
+        return "";
+    }
+
+    $status = dialecticNormalizeActivityStatus($metadata);
+    if (empty($status["available"]) || empty($status["fresh"])) {
+        return "";
+    }
+
+    $action = strtolower(trim((string)($status["current_action"] ?? "")));
+    if (!empty($status["is_unconscious"]) || $action === "unconscious") {
+        return "fresh activity status marks actor unconscious";
+    }
+    if ((!empty($status["is_sleeping"]) || $action === "sleeping") && !$explicitlyAddressed) {
+        return "fresh activity status marks actor sleeping";
     }
 
     return "";
@@ -3631,6 +3868,15 @@ function dialecticResolveServerSideRechatTarget(array $payload)
     $selected = "";
     $nearbyStatusMap = dialecticLatestNearbyActorStatusMapForRechat();
 
+    if ($speakerName !== "" && !isPlayerDialogueListenerName($speakerName)) {
+        $speakerNpcData = $npcMaster->getByName($speakerName);
+        $speakerActivityBlock = dialecticRechatActivityBlockReason($speakerNpcData, false);
+        if ($speakerActivityBlock !== "") {
+            Logger::info("[RECHAT_SELECT] Stopping autonomous continuation from {$speakerName}: {$speakerActivityBlock}");
+            $candidates = [];
+        }
+    }
+
     foreach ($candidates as $candidate) {
         if ($candidate === "") {
             continue;
@@ -3651,6 +3897,14 @@ function dialecticResolveServerSideRechatTarget(array $payload)
         $blockReason = dialecticRechatActorBlockReason($candidate, $candidateNpcData);
         if ($blockReason !== "") {
             Logger::info("[RECHAT_SELECT] Skipping {$candidate}: {$blockReason}");
+            continue;
+        }
+        $explicitlyAddressed =
+            ($listenerHint !== "" && strcasecmp($candidate, $listenerHint) === 0) ||
+            ($rechatTargetHint !== "" && strcasecmp($candidate, $rechatTargetHint) === 0);
+        $activityBlockReason = dialecticRechatActivityBlockReason($candidateNpcData, $explicitlyAddressed);
+        if ($activityBlockReason !== "") {
+            Logger::info("[RECHAT_SELECT] Skipping {$candidate}: {$activityBlockReason}");
             continue;
         }
         $nearbyBlockReason = dialecticRechatNearbyActorBlockReason(
@@ -3795,7 +4049,7 @@ function convertDirectedDialogueTagsToVerb($eventData, $verb)
     }
 
     return preg_replace_callback(
-        '/\(\s*([Tt]alking|[Ww]hispering|[Ss]houting)\s+to\s+([^()]+?)\s*\)/u',
+        '/\(\s*([Tt]alking|[Ww]hispering|[Ss]houting|[Ss]peaking\s+privately)\s+to\s+([^()]+?)\s*\)/u',
         static function ($matches) use ($verb) {
             $prefix = ctype_upper(substr((string)$matches[1], 0, 1)) ? $verb : strtolower($verb);
             $target = trim((string)$matches[2]);
@@ -3808,6 +4062,11 @@ function convertDirectedDialogueTagsToVerb($eventData, $verb)
 function convertTalkingTagsToWhispering($eventData)
 {
     return convertDirectedDialogueTagsToVerb($eventData, 'Whispering');
+}
+
+function convertTalkingTagsToPrivate($eventData)
+{
+    return convertDirectedDialogueTagsToVerb($eventData, 'Speaking privately');
 }
 
 function convertTalkingTagsToShouting($eventData)
@@ -3828,7 +4087,7 @@ function extractTalkTargetMetadata($eventData)
         return $metadata;
     }
 
-    if (!preg_match('/\(\s*(?:(?:talking|whispering|shouting)\s+to|speaking\s+loudly\s+to)\s+([^()]+?)(?:\s+from\s+far\s+away)?\s*\)/i', $eventData, $matches)) {
+    if (!preg_match('/\(\s*(?:(?:talking|whispering|shouting|speaking\s+privately)\s+to|speaking\s+loudly\s+to)\s+([^()]+?)(?:\s+from\s+far\s+away)?\s*\)/i', $eventData, $matches)) {
         return $metadata;
     }
 
@@ -3914,7 +4173,7 @@ function extractCoreUtteranceFromInputEvent($eventData)
         $eventData = trim((string)$matches[1]);
     }
 
-    $eventData = preg_replace('/\s*\(\s*(?:(?:talking|whispering)\s+to|speaking\s+loudly\s+to)\s+[^)]*\)\s*$/iu', '', $eventData);
+    $eventData = preg_replace('/\s*\(\s*(?:(?:talking|whispering|speaking\s+privately)\s+to|speaking\s+loudly\s+to)\s+[^)]*\)\s*$/iu', '', $eventData);
     return trim((string)$eventData);
 }
 
@@ -3959,7 +4218,7 @@ function extractCoreUtteranceFromChatEvent($eventData)
         $eventData = trim((string)$matches[1]);
     }
 
-    $eventData = preg_replace('/\s*\(\s*(?:(?:talking|whispering|shouting)\s+to|speaking\s+loudly\s+to)\s+[^)]*\)\s*$/iu', '', $eventData);
+    $eventData = preg_replace('/\s*\(\s*(?:(?:talking|whispering|shouting|speaking\s+privately)\s+to|speaking\s+loudly\s+to)\s+[^)]*\)\s*$/iu', '', $eventData);
     return trim((string)$eventData);
 }
 
@@ -4338,7 +4597,8 @@ function buildNarratorSharedPeopleForEvent($eventType, $eventData, $listenerName
         return "";
     }
 
-    if (stripos((string)$eventData, '(whispering to ') !== false) {
+    if (stripos((string)$eventData, '(whispering to ') !== false ||
+        stripos((string)$eventData, '(speaking privately to ') !== false) {
         return "";
     }
 
@@ -4357,6 +4617,36 @@ function extractGenericEventParticipants($eventType, $eventData)
     $participants = [];
     $eventType = strtolower((string)$eventType);
     $eventData = (string)$eventData;
+
+    $structured = json_decode(trim($eventData), true);
+    if (is_array($structured)) {
+        foreach (["speaker", "npc", "actor", "listener", "target", "player", "player_name"] as $key) {
+            if (!array_key_exists($key, $structured)) {
+                continue;
+            }
+            $people = dialecticNormalizePeopleValue($structured[$key]);
+            foreach (parsePeoplePipeList($people) as $name) {
+                appendUniqueActorName($participants, $name);
+            }
+        }
+
+        $audience = $structured["audience_snapshot"] ?? null;
+        if (is_string($audience)) {
+            $decodedAudience = json_decode($audience, true);
+            $audience = is_array($decodedAudience) ? $decodedAudience : $audience;
+        }
+        if (is_array($audience)) {
+            foreach (["people", "companions", "actors"] as $key) {
+                if (!array_key_exists($key, $audience)) {
+                    continue;
+                }
+                foreach (parsePeoplePipeList(dialecticNormalizePeopleValue($audience[$key])) as $name) {
+                    appendUniqueActorName($participants, $name);
+                }
+            }
+        }
+        return $participants;
+    }
 
     $speakerName = extractSpeakerNameFromInputEvent($eventData);
     if ($speakerName === "") {
@@ -4914,7 +5204,7 @@ function filterHistoricContextForNarratorVisibility(array $contextDataHistoric, 
         }
 
         $content = isset($entry["content"]) ? (string)$entry["content"] : "";
-        if (preg_match('/\(\s*(?:Talking|Whispering|Shouting|Speaking loudly)\s+to\s+The Narrator(?:\s+from\s+far\s+away)?\s*\)/i', $content) === 1) {
+        if (preg_match('/\(\s*(?:Talking|Whispering|Shouting|Speaking privately|Speaking loudly)\s+to\s+The Narrator(?:\s+from\s+far\s+away)?\s*\)/i', $content) === 1) {
             return false;
         }
 
@@ -4958,10 +5248,16 @@ function logEvent($dataArray,$forcePeople='')
     if (!isset($dataArray)) { // function called without parameter values
         Logger::error("logEvent: undefined input parameter");
     } else {
-        if( (!isset($dataArray[2])) || ($dataArray[2] < 5) ) { // wrong game timestamp. Sometime this function is called with gamets 0 or 1 then successive incremented values 
-            $new_gts = DataLastKnownGameTS();    
-            Logger::error("logEvent: wrong game timestamp " . ($dataArray[2] ?? 0) . " replaced with " . $new_gts);
-            $dataArray[2] = $new_gts;
+        if ((!isset($dataArray[2])) || ($dataArray[2] < 5)) {
+            // Never substitute wall-clock time or a timestamp from the previously
+            // loaded save. The next valid world-context update backfills these
+            // short-lived startup rows with the fresh in-game timestamp.
+            static $missingGametsLogged = false;
+            if (!$missingGametsLogged) {
+                Logger::debug("logEvent: retaining pending game timestamp until world context is ready");
+                $missingGametsLogged = true;
+            }
+            $dataArray[2] = 0;
         }
 
         $eventType = strtolower((string)($dataArray[0] ?? ""));
@@ -5112,11 +5408,18 @@ function arrayToBulletedList($items, $bulletChar = " *") {
  */
 function make_replacements_bracketed($text)
 {
+    $promptCharacterName = function_exists('dialecticGetPromptCharacterName')
+        ? dialecticGetPromptCharacterName()
+        : $GLOBALS["DIALECTIC_NAME"];
+    $narratorRoleplayName = function_exists('dialecticGetNarratorRoleplayName')
+        ? dialecticGetNarratorRoleplayName()
+        : 'The Narrator';
 
     return strtr($text, [
         "{LOCATION}" => DataLastKnownLocationHuman(),
         "{PLAYER_NAME}"   => $GLOBALS["PLAYER_NAME"],
-        "{DIALECTIC_NAME}"   => $GLOBALS["DIALECTIC_NAME"],
+        "{DIALECTIC_NAME}"   => $promptCharacterName,
+        "{NARRATOR_NAME}" => $narratorRoleplayName,
         "{TEMPLATE_DIALOG}"   => $GLOBALS["TEMPLATE_DIALOG"],
     ]);
 }

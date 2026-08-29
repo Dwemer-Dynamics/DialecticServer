@@ -25,14 +25,25 @@ $webRoot = rtrim($webRoot, '/');
 
 require_once(__DIR__ . DIRECTORY_SEPARATOR . "../profile_loader.php");
 $TITLE = "Configuration";
+$BODY_CLASS = 'hub-page dialectic-hub-flow';
 ob_start();
 include(__DIR__ . DIRECTORY_SEPARATOR . "../tmpl/head.html");
 include(__DIR__ . DIRECTORY_SEPARATOR . "../tmpl/navbar.php");
 
 $validTabs = [
-    'npc', 'globals', 'profiles', 'llm', 'ttscfg', 'sttcfg', 'keys',
+    'npc', 'globals', 'profiles', 'llm', 'ttscfg', 'sttcfg', 'pipvision', 'keys',
     'player', 'narrator', 'worldknowledge', 'npcbio', 'items', 'actions',
-    'prompts', 'xtts'
+    'prompts', 'serverplugins', 'xtts'
+];
+$configSections = [
+    'settings' => ['label' => 'Settings', 'tabs' => ['globals' => 'Global Settings', 'profiles' => 'Profiles', 'npc' => 'DIALECTIC NPCs', 'player' => 'Player', 'narrator' => 'Narration']],
+    'ai-voice' => ['label' => 'AI & Voice', 'tabs' => ['llm' => 'LLM', 'ttscfg' => 'TTS', 'xtts' => 'TTS Studio', 'sttcfg' => 'STT', 'pipvision' => 'ITT', 'keys' => 'API Keys']],
+    'world-behavior' => ['label' => 'World & Behavior', 'tabs' => ['npcbio' => 'NPC Biographies', 'worldknowledge' => 'World Knowledge', 'items' => 'Descriptions', 'actions' => 'Action Editor', 'prompts' => 'Prompts Manager']],
+];
+$tabIcons = [
+    'npc' => '&#x1F31F;', 'profiles' => '&#x1F5C3;&#xFE0F;', 'player' => '&#x1F464;', 'narrator' => '&#x1F5E3;&#xFE0F;', 'npcbio' => '&#x1FAAA;',
+    'llm' => '&#x1F9E0;', 'ttscfg' => '&#x1F50A;', 'xtts' => '&#x1F4E2;', 'sttcfg' => '&#x1F3A4;', 'pipvision' => '&#x1F5BC;&#xFE0F;', 'keys' => '&#x1F511;',
+    'globals' => '&#x1F310;', 'worldknowledge' => '&#x1F4DC;', 'items' => '&#x1F4D6;', 'actions' => '&#x2694;&#xFE0F;', 'prompts' => '&#x1F4AC;', 'serverplugins' => '&#x1F9E9;',
 ];
 $initialTab = isset($_GET['tab']) ? trim((string)$_GET['tab']) : 'npc';
 if (!in_array($initialTab, $validTabs, true)) {
@@ -59,7 +70,7 @@ function dialecticConfigHubIframeAttrs($tabId, $src, $loading = 'lazy')
 
 <link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css">
 <style>
-main { padding: 80px 10px 10px; height: 100vh; }
+main { padding: 0 10px 8px; height: calc(100vh - var(--hub-navbar-offset)); }
 .tab-buttons { display: flex; flex-wrap: wrap; margin: 20px 0; border-bottom: 2px solid rgba(255, 182, 65, 0.2); gap: 5px; word-spacing: 5px; }
 .tab-button { background: linear-gradient(180deg, rgba(42, 42, 42, 0.8), rgba(34, 34, 34, 0.9)); border: 2px solid #3a3a3a; border-bottom: none; padding: 12px 18px; color: #f8f9fa; cursor: pointer; border-top-left-radius: 8px; border-top-right-radius: 8px; transition: all 0.3s ease; font-size: 1em; white-space: nowrap; font-family: 'Gothic821', sans-serif; word-spacing: 5px; letter-spacing: 1.5px; margin-bottom: -2px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
 .tab-button:hover { background: linear-gradient(180deg, rgba(58, 58, 58, 0.9), rgba(48, 48, 48, 1)); color: rgb(255, 182, 65); border-color: rgba(255, 182, 65, 0.3); box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); }
@@ -70,6 +81,7 @@ main { padding: 80px 10px 10px; height: 100vh; }
 .embed { width: 100%; height: 100%; border: 0; background: transparent; }
 @media (max-height: 800px) { .embed-wrap { min-height: 420px; } }
 </style>
+<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/hub-navigation.css?v=<?php echo filemtime(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . 'hub-navigation.css'); ?>">
 
 <main class="d-flex flex-column">
     <div id="toast" class="toast-notification">
@@ -77,22 +89,19 @@ main { padding: 80px 10px 10px; height: 100vh; }
     </div>
 
     <div class="top-area">
-        <div class="tab-buttons">
-            <button class="tab-button<?php echo dialecticConfigHubActiveClass('npc'); ?>" data-tab="npc">&#x1F31F; DIALECTIC NPCs</button>
-            <button class="tab-button" data-tab="globals">&#x1F310; Global Settings</button>
-            <button class="tab-button" data-tab="profiles">&#x1F5C3;&#xFE0F; Profiles</button>
-            <button class="tab-button" data-tab="llm">&#x1F9E0; LLM</button>
-            <button class="tab-button" data-tab="ttscfg">&#x1F50A; TTS</button>
-            <button class="tab-button" data-tab="sttcfg">&#x1F3A4; STT</button>
-            <button class="tab-button" data-tab="keys">&#x1F511; API Keys</button>
-            <button class="tab-button" data-tab="player">&#x1F464; Player</button>
-            <button class="tab-button" data-tab="narrator">&#x1F5E3;&#xFE0F; Narration</button>
-            <button class="tab-button" data-tab="worldknowledge">&#x1F4DC; World Knowledge</button>
-            <button class="tab-button<?php echo dialecticConfigHubActiveClass('npcbio'); ?>" data-tab="npcbio">&#x1FAAA; NPC Biographies</button>
-            <button class="tab-button" data-tab="items">&#x1F4DC; Descriptions</button>
-            <button class="tab-button" data-tab="actions">&#x2694;&#xFE0F; Action Editor</button>
-            <button class="tab-button" data-tab="prompts">&#x1F4AC; Prompts Manager</button>
-            <button class="tab-button" data-tab="xtts">&#x1F4E2; TTS Studio</button>
+        <div class="config-navigation" aria-label="Configuration sections">
+            <div class="tab-groups">
+                <?php foreach ($configSections as $sectionId => $section): ?>
+                    <section class="tab-group <?php echo array_key_exists($initialTab, $section['tabs']) ? 'active' : ''; ?>" data-category="<?php echo htmlspecialchars($sectionId, ENT_QUOTES, 'UTF-8'); ?>">
+                        <div class="tab-group-label"><?php echo htmlspecialchars($section['label'], ENT_QUOTES, 'UTF-8'); ?></div>
+                        <div class="tab-buttons" role="tablist" aria-label="<?php echo htmlspecialchars($section['label'], ENT_QUOTES, 'UTF-8'); ?> configuration pages">
+                            <?php foreach ($section['tabs'] as $tabId => $tabLabel): ?>
+                                <button class="tab-button<?php echo dialecticConfigHubActiveClass($tabId); ?>" type="button" data-tab="<?php echo htmlspecialchars($tabId, ENT_QUOTES, 'UTF-8'); ?>" data-category="<?php echo htmlspecialchars($sectionId, ENT_QUOTES, 'UTF-8'); ?>"><span class="tab-icon" aria-hidden="true"><?php echo $tabIcons[$tabId] ?? ''; ?></span><span><?php echo htmlspecialchars($tabLabel, ENT_QUOTES, 'UTF-8'); ?></span></button>
+                            <?php endforeach; ?>
+                        </div>
+                    </section>
+                <?php endforeach; ?>
+            </div>
         </div>
     </div>
 
@@ -157,6 +166,11 @@ main { padding: 80px 10px 10px; height: 100vh; }
                 <iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/stt_connectors.php?embed=1"></iframe>
             </div>
         </div>
+        <div id="pipvision" class="tab-content">
+            <div class="embed-wrap">
+                <iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/itt_connectors.php?embed=1"></iframe>
+            </div>
+        </div>
         <div id="keys" class="tab-content">
             <div class="embed-wrap">
                 <iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/core/api_badge.php?embed=1"></iframe>
@@ -172,12 +186,18 @@ main { padding: 80px 10px 10px; height: 100vh; }
                 <iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/prompts_manager.php?embed=1"></iframe>
             </div>
         </div>
+        <div id="serverplugins" class="tab-content">
+            <div class="embed-wrap">
+                <iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/server_plugins.php?embed=1"></iframe>
+            </div>
+        </div>
     </div>
 </main>
 
 <script>
 (function(){
     const buttons = document.querySelectorAll('.tab-button');
+    const groups = document.querySelectorAll('.tab-group');
     const tabs = document.querySelectorAll('.tab-content');
 
     function reloadIframe(container) {
@@ -191,6 +211,9 @@ main { padding: 80px 10px 10px; height: 100vh; }
     }
 
     function activate(id) {
+        const selected = Array.from(buttons).find(function(button){ return button.dataset.tab === id; });
+        const category = selected ? selected.dataset.category : '';
+        groups.forEach(function(group){ group.classList.toggle('active', group.dataset.category === category); });
         buttons.forEach(function(button){
             button.classList.toggle('active', button.dataset.tab === id);
         });

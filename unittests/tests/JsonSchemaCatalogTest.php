@@ -4,6 +4,8 @@ use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'response.php';
 require_once dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'logger.php';
+require_once dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'lib'.DIRECTORY_SEPARATOR.'core'
+    .DIRECTORY_SEPARATOR.'narrator.class.php';
 
 final class JsonSchemaCatalogTest extends TestCase
 {
@@ -61,14 +63,30 @@ final class JsonSchemaCatalogTest extends TestCase
         $GLOBALS['DIALECTIC_RESPONSE_STREAMING'] = false;
         $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'] = [];
 
-        dialectic_buffer_command_response_line('Veronica', dialecticEncodeCommandAction('Follow', ['Graussy']));
+        dialectic_buffer_command_response_line('Veronica', dialecticEncodeCommandAction('Follow', []));
 
         $this->assertCount(1, $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES']);
         $line = $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'][0];
         $this->assertSame('dialectic.response.line.v1', $line['schema']);
         $this->assertSame('rolecommand', $line['action']);
         $this->assertSame('Follow', $line['command_name']);
-        $this->assertSame(['Graussy'], $line['command_args']);
+        $this->assertArrayNotHasKey('command_args', $line);
+    }
+
+    public function testNarratorResponseKeepsCanonicalSpeakerAndAddsDisplayName(): void
+    {
+        $GLOBALS['DIALECTIC_RESPONSE_FORMAT'] = 'json';
+        $GLOBALS['DIALECTIC_RESPONSE_STREAMING'] = false;
+        $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'] = [];
+        $GLOBALS['NARRATOR_ROLEPLAY_NAME'] = 'Mercy';
+
+        dialectic_buffer_response_line('The Narrator', 'say', 'Welcome back.');
+
+        $this->assertCount(1, $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES']);
+        $line = $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'][0];
+        $this->assertSame('The Narrator', $line['speaker']);
+        $this->assertSame('Mercy', $line['display_name']);
+        $this->assertSame('Welcome back.', $line['subtitle']);
     }
 
     public function testRechatSpeechCarriesExactFacingTargetFormId(): void
@@ -98,6 +116,34 @@ final class JsonSchemaCatalogTest extends TestCase
         $line = $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'][0];
         $this->assertSame('0x000E32A9', $line['listener_formid']);
         $this->assertSame('0x000E32A9', $line['rechat_target_formid']);
+    }
+
+    public function testSpeechResponseKeepsSubtitleSeparateFromHiddenTtsText(): void
+    {
+        $GLOBALS['DIALECTIC_RESPONSE_FORMAT'] = 'json';
+        $GLOBALS['DIALECTIC_RESPONSE_STREAMING'] = false;
+        $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'] = [];
+
+        dialectic_buffer_speech_response_line(
+            'Vulpes Inculta',
+            'Caesar commands it.',
+            '',
+            'Courier',
+            '',
+            'Kaiser commands it.',
+            1.0,
+            'Courier',
+            'utt_legion_pronunciation',
+            'Kaiser commands it.',
+            'legion_tts_cache_key'
+        );
+
+        $this->assertCount(1, $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES']);
+        $line = $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'][0];
+        $this->assertSame('Caesar commands it.', $line['text']);
+        $this->assertSame('Caesar commands it.', $line['subtitle']);
+        $this->assertSame('Kaiser commands it.', $line['tts_text']);
+        $this->assertSame('legion_tts_cache_key', $line['tts_cache_key']);
     }
 
     public function testStreamRequestedIsIndependentFromJsonEnvelopeMode(): void

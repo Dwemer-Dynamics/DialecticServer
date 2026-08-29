@@ -53,4 +53,24 @@ final class RequestStreamingTest extends TestCase
         $this->assertTrue(dialectic_should_stream_json_response($event, 'application/x-ndjson', ''));
         $this->assertTrue(dialectic_should_stream_json_response($event, '', '1'));
     }
+
+    public function testCombatBarkPromptContainsOnlyCurrentAlliesAndHostiles(): void
+    {
+        $event = dialectic_normalize_json_event([
+            'schema' => 'dialectic.event.v1',
+            'type' => 'combatbark',
+            'payload' => [
+                'schema' => 'dialectic.rpg_event.v1',
+                'combat' => [
+                    'allies_currently_fighting' => ['Graussy', 'Veronica'],
+                    'hostile_combatants' => ['Giant Radscorpion'],
+                ],
+            ],
+        ]);
+
+        $this->assertSame(
+            "<combat>\n# Allies Currently Fighting\n- Graussy\n- Veronica\n\n# Hostile Combatants\n- Giant Radscorpion\n</combat>",
+            dialectic_build_combat_prompt_from_event($event)
+        );
+    }
 }

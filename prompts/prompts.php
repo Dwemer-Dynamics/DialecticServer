@@ -12,7 +12,7 @@ function shouldTriggerRPGComment($eventType) {
     }
     
     // Get the trigger chance percentage (default 50%)
-    $chance = 50;
+    $chance = 20;
     if (isset($GLOBALS["RPG_COMMENTS_CHANCE"])) {
         $chance = intval($GLOBALS["RPG_COMMENTS_CHANCE"]);
     }
@@ -34,7 +34,7 @@ function shouldTriggerRPGComment($eventType) {
     return (rand(1, 100) <= $chance);
 }
 
-$dialecticVisionPrompt = "Describe only what is present in the provided current-scene context.";
+$dialecticVisionPrompt = "Give one or two short, in-character sentences about what stands out to you in the current scene and what you think or feel about it. Do not list everything visible. Stay grounded in the provided scene context.";
 
 $PROMPTS=array(
     "narration"=>[ 
@@ -257,6 +257,22 @@ $PROMPTS=array(
         })()],
         "extra" => ["dontuse" => true]
     ],
+    "location_changed"=>[
+        "cue"=>["({$GLOBALS["DIALECTIC_NAME"]} comments naturally on arriving at the new location, using the supplied event and current world context. {$GLOBALS["TEMPLATE_DIALOG"]}"],
+        "player_request"=>[(static function () use ($gameRequest) {
+            $payload = json_decode((string)($gameRequest[3] ?? ""), true);
+            return is_array($payload) ? (string)($payload["text"] ?? "") : (string)($gameRequest[3] ?? "");
+        })()],
+        "extra" => shouldTriggerRPGComment("location_changed") ? [] : ["dontuse" => true]
+    ],
+    "quest_updated"=>[
+        "cue"=>["({$GLOBALS["DIALECTIC_NAME"]} comments briefly on the active quest or objective changing. Do not invent objectives beyond the supplied event and active quest context. {$GLOBALS["TEMPLATE_DIALOG"]}"],
+        "player_request"=>[(static function () use ($gameRequest) {
+            $payload = json_decode((string)($gameRequest[3] ?? ""), true);
+            return is_array($payload) ? (string)($payload["text"] ?? "") : (string)($gameRequest[3] ?? "");
+        })()],
+        "extra" => shouldTriggerRPGComment("quest_updated") ? [] : ["dontuse" => true]
+    ],
     // Database Prompt (Rechat)
     // Encourages natural multi-party conversation - NPCs can address each other directly
     "rechat"=>[ 
@@ -275,8 +291,8 @@ $PROMPTS=array(
     // Database Prompt (Vision)
     "vision"=>[ 
         "cue"=>["{$dialecticVisionPrompt} "],
-        "player_request"=>["The Narrator: {$GLOBALS["DIALECTIC_NAME"]} reviews the current scene context: '{$gameRequest[3]}'"],
-        "extra"=>["force_tokens_max"=>512]
+        "player_request"=>["The Narrator: {$GLOBALS["DIALECTIC_NAME"]} considers what stands out in the current scene: '{$gameRequest[3]}'"],
+        "extra"=>["force_tokens_max"=>256]
     ],
     "im_alive"=> [
         "cue"=> ["{$GLOBALS["DIALECTIC_NAME"]} talks about they are feeling more real. Write {$GLOBALS["DIALECTIC_NAME"]} dialogue. {$GLOBALS["TEMPLATE_DIALOG"]}"],

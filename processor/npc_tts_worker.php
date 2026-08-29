@@ -21,9 +21,10 @@ $lockPath = trim(strval($job["lock_path"] ?? ""));
 $speaker = trim(strval($job["speaker"] ?? ""));
 $text = trim(strval($job["text"] ?? ""));
 $mood = trim(strval($job["mood"] ?? "default"));
+$cacheSeed = trim(strval($job["cache_seed"] ?? ($job["cache_key"] ?? "")));
 $cacheKey = trim(strval($job["cache_key"] ?? ""));
 
-if ($speaker === "" || $text === "" || $cacheKey === "") {
+if ($speaker === "" || $text === "" || $cacheSeed === "") {
     if ($lockPath !== "") {
         @unlink($lockPath);
     }
@@ -50,10 +51,15 @@ require_once($path . "lib" . DIRECTORY_SEPARATOR . "response.php");
 require_once($path . "lib" . DIRECTORY_SEPARATOR . "auditing.php");
 require_once($path . "lib" . DIRECTORY_SEPARATOR . "logger.php");
 require_once($path . "lib" . DIRECTORY_SEPARATOR . "dialectic_tts.php");
+require_once($path . "lib" . DIRECTORY_SEPARATOR . "npc_tts_status.php");
 require_once($path . "lib" . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPARATOR . "npc_master.class.php");
 require_once($path . "lib" . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPARATOR . "llm_connector.class.php");
 require_once($path . "lib" . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPARATOR . "core_profiles.class.php");
 require_once($path . "lib" . DIRECTORY_SEPARATOR . "chat_helper_functions.php");
+
+if (dialectic_npc_tts_status_key($cacheKey) === "") {
+    $cacheKey = md5($cacheSeed);
+}
 
 try {
     if (class_exists("Logger")) {
@@ -97,6 +103,9 @@ try {
 
     $cachePath = $path . "soundcache" . DIRECTORY_SEPARATOR . $cacheKey . ".wav";
     if (is_file($cachePath) && filesize($cachePath) > 44) {
+        dialectic_write_npc_tts_status($cacheKey, "ready", [
+            "speaker" => $GLOBALS["DIALECTIC_NAME"] ?? $speaker,
+        ], $root);
         Logger::debug("[TTS] NPC deferred worker found existing cache" . Logger::formatContext([
             "speaker" => $GLOBALS["DIALECTIC_NAME"] ?? $speaker,
             "cache_key" => $cacheKey,
@@ -110,18 +119,27 @@ try {
             "chars" => strlen($text),
         ]);
 
-        $ttsOutput = callNpcTtsWithFallback($text, $mood !== "" ? $mood : "default", $cacheKey);
+        $ttsOutput = callNpcTtsWithFallback($text, $mood !== "" ? $mood : "default", $cacheSeed);
         if (!$ttsOutput && isset($GLOBALS["TTS_FALLBACK_FNCT"])) {
-            $ttsOutput = $GLOBALS["TTS_FALLBACK_FNCT"]($text, $mood !== "" ? $mood : "default", $cacheKey);
+            $ttsOutput = $GLOBALS["TTS_FALLBACK_FNCT"]($text, $mood !== "" ? $mood : "default", $cacheSeed);
         }
 
-        if ($ttsOutput) {
+        $cacheReady = is_file($cachePath) && @filesize($cachePath) > 44;
+        if ($ttsOutput && $cacheReady) {
+            dialectic_write_npc_tts_status($cacheKey, "ready", [
+                "speaker" => $GLOBALS["DIALECTIC_NAME"] ?? $speaker,
+                "output" => $ttsOutput,
+            ], $root);
             Logger::phaseEnd($phaseName, [
                 "status" => "ok",
                 "speaker" => $GLOBALS["DIALECTIC_NAME"] ?? $speaker,
                 "output" => $ttsOutput,
             ], "info");
         } else {
+            dialectic_write_npc_tts_status($cacheKey, "failed", [
+                "speaker" => $GLOBALS["DIALECTIC_NAME"] ?? $speaker,
+                "reason" => $ttsOutput ? "expected_wav_missing" : "generation_failed",
+            ], $root);
             Logger::phaseEnd($phaseName, [
                 "status" => "failed",
                 "speaker" => $GLOBALS["DIALECTIC_NAME"] ?? $speaker,
@@ -130,6 +148,13 @@ try {
         }
     }
 } catch (Throwable $e) {
+    if (function_exists("dialectic_write_npc_tts_status") && $cacheKey !== "") {
+        dialectic_write_npc_tts_status($cacheKey, "failed", [
+            "speaker" => $speaker,
+            "reason" => "worker_exception",
+            "error" => $e->getMessage(),
+        ], $root);
+    }
     if (class_exists("Logger")) {
         Logger::error("[TTS] NPC deferred worker failed: " . $e->getMessage());
     }

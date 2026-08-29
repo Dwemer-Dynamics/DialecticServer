@@ -485,9 +485,6 @@ if ($gameRequest[0] == "wipe") { // Reset reponses if init sent (Think about thi
         $isNpcReplyToPlayer = (!$isPlayerSpeech && $normalizedPlayerName !== "" &&
                                $normalizedSpeechListener === $normalizedPlayerName);
         $speechGamets = intval($gameRequest[2]);
-        $dialecticModeRow = $db->fetchOne("SELECT value FROM conf_opts WHERE id='dialectic_mode'");
-        $dialecticMode = isset($dialecticModeRow["value"]) ? strtoupper(trim((string)$dialecticModeRow["value"])) : "STANDARD";
-        $isWhisperMode = ($dialecticMode === "WHISPER");
         $payloadCompanionCount = (isset($speech["companions"]) && is_array($speech["companions"])) ? count($speech["companions"]) : 0;
         $hasSpatialReason = isset($speech["spatial_reason"]) && trim((string)$speech["spatial_reason"]) !== "";
         $hasSpatialVolume = array_key_exists("spatial_volume", $speech);
@@ -501,33 +498,6 @@ if ($gameRequest[0] == "wipe") { // Reset reponses if init sent (Think about thi
         }
 
         if ($audiblePeoplePipe !== "") {
-            if ($isWhisperMode && $isPlayerSpeech) {
-                $db->upsertRow(
-                    'conf_opts',
-                    array(
-                        'id' => 'dialectic_whisper_people',
-                        'value' => $audiblePeoplePipe
-                    ),
-                    "id='dialectic_whisper_people'"
-                );
-                $db->upsertRow(
-                    'conf_opts',
-                    array(
-                        'id' => 'dialectic_whisper_target',
-                        'value' => $speechListener
-                    ),
-                    "id='dialectic_whisper_target'"
-                );
-                $db->upsertRow(
-                    'conf_opts',
-                    array(
-                        'id' => 'dialectic_whisper_updated',
-                        'value' => (string)time()
-                    ),
-                    "id='dialectic_whisper_updated'"
-                );
-            }
-
             // _speech no longer mutates eventlog.people. It only marks matching rows as spoken.
             if (!$isPlayerSpeech && $speechSpeaker !== "") {
                 $chatRowId = 0;
@@ -929,6 +899,7 @@ if ($gameRequest[0] == "wipe") { // Reset reponses if init sent (Think about thi
         $modeLabels = [
             "STANDARD" => "Standard",
             "WHISPER" => "Whisper",
+            "CLOSE" => "Close",
             "SHOUT" => "Shout",
             "NARRATOR" => "Narrator",
             "DIRECTOR" => "Director",
@@ -1100,92 +1071,24 @@ if ($gameRequest[0] == "wipe") { // Reset reponses if init sent (Think about thi
     
     $enabledCount = count($enabledNPCs);
     
-    // Send immediate ACK message back to plugin with count - ONLY notification we send
+    // Persist work before acknowledging it; the service manager drains the queue.
     if ($enabledCount > 0) {
-        dialectic_buffer_command_response_line("The Narrator", "DebugNotification", [
-            "message" => "Updating $enabledCount dynamic profile" . ($enabledCount == 1 ? "" : "s") . "...",
-        ]);
-        Logger::info("updateprofiles_batch_async: Will update $enabledCount profiles in background: " . implode(', ', $enabledNPCs));
+        try {
+            $queueId = queueDynamicProfileBatch($enabledNPCs, $gameRequest);
+            dialectic_buffer_command_response_line("The Narrator", "DebugNotification", [
+                "message" => "Updating $enabledCount dynamic profile" . ($enabledCount == 1 ? "" : "s") . "...",
+            ]);
+            Logger::info("updateprofiles_batch_async: Queued $enabledCount profiles as $queueId: " . implode(', ', $enabledNPCs));
+        } catch (Throwable $e) {
+            Logger::error("updateprofiles_batch_async: Failed to queue profiles: " . $e->getMessage());
+            dialectic_buffer_command_response_line("The Narrator", "DebugNotification", [
+                "message" => "Unable to queue dynamic profile updates.",
+            ]);
+        }
     } else {
         Logger::info("updateprofiles_batch_async: No profiles to update - none had DYNAMIC_PROFILE enabled");
     }
-    
-    if (ob_get_level() > 0) {
-        @ob_flush();
-    }
-    @flush();
-    
-    // Process in background if we have enabled NPCs
-    if ($enabledCount > 0) {
-        // Try to fork process for background processing
-        if (function_exists('pcntl_fork')) {
-            $pid = pcntl_fork();
-            if ($pid == 0) {
-                // Child process - do the background work
-                Logger::info("updateprofiles_batch_async: Child process started for background processing");
-                
-                $successCount = 0;
-                foreach ($enabledNPCs as $npcName) {
-                    try {
-                        if (processSingleDynamicProfile($npcName, $gameRequest)) {
-                            $successCount++;
-                        }
-                    } catch (Exception $e) {
-                        Logger::error("updateprofiles_batch_async: Error processing profile for $npcName: " . $e->getMessage());
-                    }
-                }
-                
-                Logger::info("updateprofiles_batch_async: Background processing completed. Updated $successCount of $enabledCount profiles");
-                exit(0);
-            } elseif ($pid > 0) {
-                // Parent process - continue normally
-                Logger::info("updateprofiles_batch_async: Forked background process with PID $pid");
-            } else {
-                // Fork failed - fall back to database queue method
-                Logger::warn("updateprofiles_batch_async: Fork failed, using database queue fallback");
-                $queueData = [
-                    'timestamp' => time(),
-                    'npcs' => $enabledNPCs,
-                    'gameRequest' => $gameRequest
-                ];
-                $queueId = 'dynamic_profiles_queue_' . time() . '_' . uniqid();
-                
-                try {
-                    $db->upsertRowOnConflict('conf_opts', array(
-                        'id' => $queueId,
-                        'value' => json_encode($queueData)
-                    ), 'id');
-                    Logger::info("updateprofiles_batch_async: Queued $enabledCount profiles for background processing in database");
-                } catch (Exception $e) {
-                    Logger::error("updateprofiles_batch_async: Failed to write to database queue: " . $e->getMessage());
-                }
-            }
-        } else {
-            // No fork available - use database queue method
-            Logger::info("updateprofiles_batch_async: pcntl_fork not available, using database queue method");
-            $queueData = [
-                'timestamp' => time(),
-                'npcs' => $enabledNPCs,
-                'gameRequest' => $gameRequest
-            ];
-            $queueId = 'dynamic_profiles_queue_' . time() . '_' . uniqid();
-            
-            try {
-                $db->upsertRowOnConflict('conf_opts', array(
-                    'id' => $queueId,
-                    'value' => json_encode($queueData)
-                ), 'id');
-                Logger::info("updateprofiles_batch_async: Queued $enabledCount profiles for background processing in database");
-            } catch (Exception $e) {
-                Logger::error("updateprofiles_batch_async: Failed to write to database queue: " . $e->getMessage());
-            }
-        }
-        
-        // Trigger immediate background processing
-        close();
-        triggerImmediateProfileProcessing();
-    }
-    
+
     terminate();
     
 } elseif (strpos($gameRequest[0], "waitstart")===0) {
