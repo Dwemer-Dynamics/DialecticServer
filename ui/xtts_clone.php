@@ -15,6 +15,8 @@ require_once($enginePath . "conf" . DIRECTORY_SEPARATOR . "conf_loader.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPARATOR . "tts_connector.class.php");
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPARATOR . "tts_studio_provider_detection.php");
 
+require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "tts_pronunciation.php");
+
 require_once(__DIR__.DIRECTORY_SEPARATOR."profile_loader.php");
 
 // Normalize endpoint URL - defined early as it's used in multiple places
@@ -59,6 +61,15 @@ if (!function_exists('dialecticTtsStudioSanitizeLanguage')) {
     function dialecticTtsStudioSanitizeLanguage($language): string
     {
         return preg_replace('/[^a-z\-]/i', '', strtolower(trim(strval($language ?? ''))));
+    }
+}
+
+if (!function_exists('dialecticTtsStudioSanitizeOghmaTag')) {
+    // Oghma knowledge tags are lowercase slugs, so drop anything a tag can never contain.
+    function dialecticTtsStudioSanitizeOghmaTag($tag): string
+    {
+        $tag = preg_replace('/[^a-z0-9_\-]/', '', strtolower(trim(strval($tag ?? ''))));
+        return substr(strval($tag), 0, 64);
     }
 }
 
@@ -1437,7 +1448,7 @@ error_reporting(E_ALL);
 
 // Tab state from URL parameter
 $activeTab = $_GET['tab'] ?? 'xtts';
-$validTabs = ['xtts', 'chatterbox', 'pockettts', 'omnivoice', 'cartesia', 'inworld'];
+$validTabs = ['xtts', 'chatterbox', 'pockettts', 'omnivoice', 'cartesia', 'inworld', 'pronunciations'];
 if (!in_array($activeTab, $validTabs, true)) {
     $activeTab = 'xtts';
 }
@@ -1449,6 +1460,9 @@ if (!isset($GLOBALS["db"]) || !$GLOBALS["db"]) {
 if (!isset($GLOBALS["db"]) || !$GLOBALS["db"]) {
     $GLOBALS["db"] = new sql();
 }
+
+// The pronunciation dictionary manager needs the database connection resolved above.
+$ttsPronunciationManager = new DialecticTtsPronunciationDictionary();
 
 // Auto-refresh speakers list on page load if the active provider tab is empty/stale
 $activeOmniVoiceLanguage = dialecticTtsStudioResolveOmniVoiceLanguage(
@@ -2724,7 +2738,92 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             : ($uploadAllDriver === 'omnivoice' ? 'have been imported' : 'have been synced');
         $message .= "<p><h3 style='color:rgb(247, 231, 16);'>$numUploaded out of $numFiles voice files {$verb}.</h3></p>";
     }
+
+    // Pronunciation dictionary handlers. Post/redirect/get keeps a refresh from replaying an action.
+    $ttsPronunciationActions = ['save_tts_pronunciation', 'toggle_tts_pronunciation', 'delete_tts_pronunciation'];
+    if (isset($_POST['action']) && in_array($_POST['action'], $ttsPronunciationActions, true)) {
+        $ttsPronunciationPostedFilter = dialecticTtsStudioSanitizeOghmaTag($_POST['oghma_tag'] ?? '');
+        $ttsPronunciationResult = 'unavailable';
+
+        if ($ttsPronunciationManager->isAvailable()) {
+            if ($_POST['action'] === 'save_tts_pronunciation') {
+                $ttsPronunciationPostedId = intval($_POST['id'] ?? 0);
+                $ttsPronunciationSaved = $ttsPronunciationManager->saveCustom(
+                    $ttsPronunciationPostedId > 0 ? $ttsPronunciationPostedId : null,
+                    strval($_POST['source_text'] ?? ''),
+                    strval($_POST['spoken_text'] ?? ''),
+                    strval($_POST['oghma_tags'] ?? ''),
+                    !empty($_POST['enabled'])
+                );
+                $ttsPronunciationResult = $ttsPronunciationSaved
+                    ? ($ttsPronunciationPostedId > 0 ? 'updated' : 'saved')
+                    : 'invalid';
+            } elseif ($_POST['action'] === 'toggle_tts_pronunciation') {
+                $ttsPronunciationEnable = strval($_POST['enabled'] ?? '') === '1';
+                $ttsPronunciationResult = $ttsPronunciationManager->setEnabled(
+                    intval($_POST['id'] ?? 0),
+                    $ttsPronunciationEnable
+                ) ? ($ttsPronunciationEnable ? 'enabled' : 'disabled') : 'failed';
+            } else {
+                $ttsPronunciationResult = $ttsPronunciationManager->deleteCustom(intval($_POST['id'] ?? 0))
+                    ? 'deleted'
+                    : 'failed';
+            }
+        }
+
+        $ttsPronunciationRedirect = $webRoot . '/ui/xtts_clone.php?tab=pronunciations&pron='
+            . rawurlencode($ttsPronunciationResult);
+        if ($ttsPronunciationPostedFilter !== '') {
+            $ttsPronunciationRedirect .= '&oghma_tag=' . rawurlencode($ttsPronunciationPostedFilter);
+        }
+        if ($isEmbed) {
+            $ttsPronunciationRedirect .= '&embed=1';
+        }
+        header('Location: ' . $ttsPronunciationRedirect);
+        exit;
+    }
 }
+
+$ttsPronunciationAvailable = false;
+$ttsPronunciationTags = [];
+$ttsPronunciationFilter = '';
+$ttsPronunciationRows = [];
+$ttsPronunciationEditRow = null;
+
+// Load dictionary rows only while rendering their tab; provider tabs should not query this table.
+if ($activeTab === 'pronunciations') {
+    $ttsPronunciationAvailable = $ttsPronunciationManager->isAvailable();
+    $ttsPronunciationTags = $ttsPronunciationManager->getAvailableTags();
+    $ttsPronunciationFilter = dialecticTtsStudioSanitizeOghmaTag($_GET['oghma_tag'] ?? '');
+    if ($ttsPronunciationFilter !== '' && !in_array($ttsPronunciationFilter, $ttsPronunciationTags, true)) {
+        $ttsPronunciationFilter = '';
+    }
+    $ttsPronunciationRows = $ttsPronunciationManager->getRows($ttsPronunciationFilter);
+
+    // Built-in rows cannot be edited, so ignore an edit request that does not point at a custom row.
+    $ttsPronunciationEditId = intval($_GET['edit'] ?? 0);
+    if ($ttsPronunciationEditId > 0) {
+        foreach ($ttsPronunciationRows as $ttsPronunciationCandidate) {
+            if (intval($ttsPronunciationCandidate['id'] ?? 0) === $ttsPronunciationEditId
+                && !dialecticTtsPronunciationBoolean($ttsPronunciationCandidate['is_builtin'] ?? false)) {
+                $ttsPronunciationEditRow = $ttsPronunciationCandidate;
+                break;
+            }
+        }
+    }
+}
+
+$ttsPronunciationNotices = [
+    'saved' => ['tone' => 'success', 'text' => 'Pronunciation added.'],
+    'updated' => ['tone' => 'success', 'text' => 'Pronunciation updated.'],
+    'deleted' => ['tone' => 'success', 'text' => 'Pronunciation deleted.'],
+    'enabled' => ['tone' => 'success', 'text' => 'Pronunciation enabled.'],
+    'disabled' => ['tone' => 'success', 'text' => 'Pronunciation disabled.'],
+    'invalid' => ['tone' => 'error', 'text' => 'Enter a written form (up to 120 characters) and a spoken form (up to 240 characters).'],
+    'failed' => ['tone' => 'error', 'text' => 'That change could not be saved. Please try again.'],
+    'unavailable' => ['tone' => 'error', 'text' => 'The pronunciation table is not available yet, so nothing was changed.'],
+];
+$ttsPronunciationNotice = $ttsPronunciationNotices[strval($_GET['pron'] ?? '')] ?? null;
 
 
 // Add the JavaScript functions
@@ -2735,10 +2834,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Clean up URL after showing success message
     window.addEventListener('DOMContentLoaded', function() {
         const url = new URL(window.location);
-        if (url.searchParams.has('synced') || url.searchParams.has('deleted')) {
+        if (url.searchParams.has('synced') || url.searchParams.has('deleted') || url.searchParams.has('pron')) {
             // Remove one-time result parameters from the URL without refreshing.
             url.searchParams.delete('synced');
             url.searchParams.delete('deleted');
+            url.searchParams.delete('pron');
             window.history.replaceState({}, '', url);
         }
     });
@@ -3213,6 +3313,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 ?>
 <link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css">
+<link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/tts-pronunciations.css">
 <style>
     /* Font Face Declaration */
     @font-face {
@@ -3792,7 +3893,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="page-header">
         <h1>Voice Management
         </h1>
-        <p class="page-subtitle">Manage voice samples across multiple TTS providers: XTTS, Chatterbox, PocketTTS, OmniVoice, Cartesia, and Inworld</p>
+        <p class="page-subtitle">Manage voice samples and pronunciations across XTTS, Chatterbox, PocketTTS, OmniVoice, Cartesia, and Inworld.</p>
         <p class="page-note"><strong>Note:</strong> XTTS, Chatterbox, and PocketTTS share a simple voice sample flow. OmniVoice imports voices into the selected language library.</p>
     </div>
 
@@ -3816,6 +3917,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <button class="tab-btn <?php echo $activeTab === 'inworld' ? 'active' : ''; ?>"
                 title="<?php echo htmlspecialchars($ttsStudioProviderStatuses['inworld']['title']); ?>"
                 onclick="switchTab('inworld')"><span class="tab-label">Inworld</span><span class="tab-status <?php echo htmlspecialchars($ttsStudioProviderStatuses['inworld']['class']); ?>"><?php echo htmlspecialchars($ttsStudioProviderStatuses['inworld']['label']); ?></span></button>
+        <button class="tab-btn <?php echo $activeTab === 'pronunciations' ? 'active' : ''; ?>"
+                title="Rewrite how words are spoken by TTS. Subtitles and saved dialogue keep the original spelling."
+                onclick="switchTab('pronunciations')"><span class="tab-label">Pronunciations</span><span class="tab-status configured">Global</span></button>
     </div>
 
     <?php if (!empty($message)): ?>
@@ -4756,6 +4860,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <p style="color: #4caf50;">✓ All local voices have been generated for Inworld.</p>
             <?php endif; ?>
         </div>
+    </div>
+
+    <!-- Pronunciations Tab Content -->
+    <div class="tab-content <?php echo $activeTab === 'pronunciations' ? 'active' : ''; ?>">
+        <?php include(__DIR__.DIRECTORY_SEPARATOR."tmpl/tts_pronunciations.php"); ?>
     </div>
 </main>
 

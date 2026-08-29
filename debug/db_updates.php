@@ -3,6 +3,7 @@
 require_once(dirname(__DIR__).DIRECTORY_SEPARATOR."lib/logger.php");
 require_once(dirname(__DIR__).DIRECTORY_SEPARATOR."lib/settings.php");
 require_once(dirname(__DIR__).DIRECTORY_SEPARATOR."lib/dialectic_runtime.php");
+require_once(dirname(__DIR__).DIRECTORY_SEPARATOR."lib/tts_pronunciation.php");
 
 $checkVersion = function($tablename) {
     global $db;
@@ -121,6 +122,10 @@ try {
     }
     if ($checkTableExists("core_tts_connector") == -1) {
         $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/core_tts_connector.sql"));
+        $db->execQuery("SET search_path TO public");
+    }
+    if ($checkTableExists("core_tts_pronunciation") == -1) {
+        dialecticEnsureTtsPronunciationDictionary();
         $db->execQuery("SET search_path TO public");
     }
     if ($checkTableExists("core_llm_connector") == -1) {
@@ -5070,6 +5075,18 @@ if ($checkVersion('itt_connector_defaults') < 20260731002) {
     if ($migrationOk) {
         $updateVersion('itt_connector_defaults', 20260731002);
         Logger::info('Applied patch itt_connector_defaults 20260731002');
+    }
+}
+
+if ($checkVersion('core_tts_pronunciation') < 20260829001) {
+    Logger::debug('Applying core_tts_pronunciation 20260829001 - add tagged TTS pronunciations');
+    $migrationOk = dialecticEnsureTtsPronunciationDictionary();
+
+    if ($migrationOk) {
+        $updateVersion('core_tts_pronunciation', 20260829001);
+        Logger::info('Applied patch core_tts_pronunciation 20260829001');
+    } else {
+        Logger::error('Failed to apply patch core_tts_pronunciation 20260829001');
     }
 }
 

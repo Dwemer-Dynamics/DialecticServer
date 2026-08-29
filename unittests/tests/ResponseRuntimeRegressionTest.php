@@ -125,4 +125,31 @@ final class ResponseRuntimeRegressionTest extends TestCase
             dialecticApplyLegionTtsPronunciation('The Courier opposes Caesar.', [])
         );
     }
+
+    public function testTtsDictionaryUsesWholeTermsOghmaTagsAndCustomPriority(): void
+    {
+        $rows = [
+            ['source_text' => 'Mojave', 'spoken_text' => 'Mo-hah-vee', 'is_builtin' => true, 'enabled' => true],
+            ['source_text' => 'Mojave', 'spoken_text' => 'The Wasteland', 'oghma_tags' => 'ncr', 'enabled' => true],
+            ['source_text' => 'NCR ranger', 'spoken_text' => 'desert ranger', 'enabled' => true],
+            ['source_text' => 'ranger', 'spoken_text' => 'scout', 'enabled' => true],
+        ];
+
+        $this->assertSame(
+            'The Wasteland has a desert ranger; Mojaves and scout remain separate.',
+            dialecticApplyTtsPronunciationDictionary(
+                'Mojave has a NCR ranger; Mojaves and ranger remain separate.',
+                $rows,
+                ['ncr']
+            )
+        );
+        $this->assertSame(
+            'Mo-hah-vee has a desert ranger.',
+            dialecticApplyTtsPronunciationDictionary('Mojave has a NCR ranger.', $rows, ['followers'])
+        );
+        $this->assertSame(
+            'The Wasteland.',
+            dialecticApplyTtsPronunciationDictionary('Mojave.', $rows, ['knowall'])
+        );
+    }
 }

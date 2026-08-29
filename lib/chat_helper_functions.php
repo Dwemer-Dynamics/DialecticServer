@@ -9,6 +9,7 @@ define("_MAX_SUBTITLE_LENGTH", 1000);
 require_once(__DIR__."/utils_game_timestamp.php");
 require_once(__DIR__."/emote_moods.php");
 require_once(__DIR__."/npc_tts_status.php");
+require_once(__DIR__."/tts_pronunciation.php");
 
 function dialecticBuildLatestDiaryContextBlock(string $npcName, array $profileData): string
 {
@@ -91,41 +92,54 @@ function dialecticTtsCacheKeyForLine(string $speaker, string $text): string
     return $text;
 }
 
-// Apply Fallout faction-specific pronunciation without changing subtitles or stored dialogue.
-function dialecticApplyLegionTtsPronunciation(string $text, ?array $npcData = null): string
+// Resolve the current speaker's Oghma tags and preserve the existing Legion faction fallback.
+function dialecticTtsPronunciationCurrentSpeakerTags(string $text, ?array $npcData = null): array
 {
-    if (stripos($text, 'Caesar') === false) {
-        return $text;
-    }
-
     $npcData = $npcData ?? ($GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA'] ?? null);
     $speaker = trim(strval($GLOBALS['DIALECTIC_NAME'] ?? ''));
     $npcName = is_array($npcData) ? trim(strval($npcData['npc_name'] ?? '')) : '';
     if (!is_array($npcData) || $speaker === '' || $npcName === '' || strcasecmp($speaker, $npcName) !== 0) {
-        return $text;
+        return [];
     }
 
-    if (!class_exists('NpcMaster')) {
-        require_once(__DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'npc_master.class.php');
-    }
-
-    $npcMaster = new NpcMaster();
-    $caesarsLegionFaction = '0x000EE68A';
     $knowledgeTags = preg_split(
         '/[,|\s]+/u',
         strtolower(strval($npcData['worldknowledge_tags'] ?? '')),
         -1,
         PREG_SPLIT_NO_EMPTY
     );
-    $isLegionNpc = $npcMaster->isNpcInFaction($npcData, $caesarsLegionFaction)
-        || $npcMaster->isNpcInFaction($npcData, substr($caesarsLegionFaction, 2))
-        || in_array('caesars_legion', is_array($knowledgeTags) ? $knowledgeTags : [], true);
-    if (!$isLegionNpc) {
-        return $text;
+    $knowledgeTags = is_array($knowledgeTags) ? $knowledgeTags : [];
+
+    if (stripos($text, 'Caesar') !== false && !in_array('caesars_legion', $knowledgeTags, true)) {
+        if (!class_exists('NpcMaster')) {
+            require_once(__DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'npc_master.class.php');
+        }
+
+        $npcMaster = new NpcMaster();
+        $caesarsLegionFaction = '0x000EE68A';
+        if ($npcMaster->isNpcInFaction($npcData, $caesarsLegionFaction)
+            || $npcMaster->isNpcInFaction($npcData, substr($caesarsLegionFaction, 2))) {
+            $knowledgeTags[] = 'caesars_legion';
+        }
     }
 
-    $pronounced = preg_replace('/\bCaesar\b/iu', 'Kaiser', $text);
-    return is_string($pronounced) ? $pronounced : $text;
+    return array_values(array_unique($knowledgeTags));
+}
+
+// Preserve the public Legion pronunciation seam used by response regression checks.
+function dialecticApplyLegionTtsPronunciation(string $text, ?array $npcData = null): string
+{
+    return dialecticApplyTtsPronunciationDictionary(
+        $text,
+        [[
+            'source_text' => 'Caesar',
+            'spoken_text' => 'Kaiser',
+            'oghma_tags' => 'caesars_legion',
+            'is_builtin' => true,
+            'enabled' => true,
+        ]],
+        dialecticTtsPronunciationCurrentSpeakerTags($text, $npcData)
+    );
 }
 
 function canRetryNpcTtsWithFallback(): bool
@@ -1653,8 +1667,11 @@ function returnLines($lines,$writeOutput=true)
                             Logger::info("[INLINE_NARRATION] Switched to Narrator, voice settings loaded");
 
                             // Prepare narration for TTS (with asterisks for subtitle display)
-                            $narrationForTTS = $narrationText;
+                            $narrationForTTS = dialecticApplyTtsPronunciationDictionary($narrationText, null, []);
                             $narrationForSubtitles = formatNarrationSubtitleText($narrationText);
+                            $narrationCacheText = $narrationForTTS !== $narrationText
+                                ? $narrationForTTS
+                                : $narrationForSubtitles;
 
                             Logger::info("[INLINE_NARRATION] Generating TTS with function: " . $GLOBALS["TTSFUNCTION"]);
 
@@ -1662,7 +1679,7 @@ function returnLines($lines,$writeOutput=true)
                             $narratorTtsOutput = callConfiguredTts(
                                 $narrationForTTS,
                                 "default",
-                                dialecticTtsCacheKeyForLine("The Narrator", $narrationForSubtitles)
+                                dialecticTtsCacheKeyForLine("The Narrator", $narrationCacheText)
                             );
 
                             // Track narrator TTS output
@@ -1683,7 +1700,7 @@ function returnLines($lines,$writeOutput=true)
                                         $narratorExpression,
                                         $narratorListener,
                                         $narratorAnimation,
-                                        $narrationText
+                                        $narrationForTTS
                                     );
                                     Logger::info("[INLINE_NARRATION] Narrator speech sent to game: " . $narrationForSubtitles);
                                 }
@@ -1721,7 +1738,11 @@ function returnLines($lines,$writeOutput=true)
             }
 
             if ($shouldEmitNpcLine && trim((string)$responseForTTS) !== "") {
-                $pendingNpcTtsText = dialecticApplyLegionTtsPronunciation((string)$responseForTTS);
+                $pendingNpcTtsText = dialecticApplyTtsPronunciationDictionary(
+                    (string)$responseForTTS,
+                    null,
+                    dialecticTtsPronunciationCurrentSpeakerTags((string)$responseForTTS)
+                );
                 $pendingNpcTtsMood = $mood;
                 $pendingNpcTtsPronunciationApplied = $pendingNpcTtsText !== $responseForTTS;
                 $ttsCacheText = $pendingNpcTtsPronunciationApplied ? $pendingNpcTtsText : $responseForSubtitles;
