@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dialectic.external_request.v1",
+  "title": "Dialectic External Speech Request",
+  "type": "object",
+  "required": ["schema", "request", "npc", "npc_id", "game"],
+  "properties": {
+    "schema": { "const": "dialectic.external_request.v1" },
+    "request": { "enum": ["comment", "reaction"] },
+    "npc": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "npc_id": { "type": "string", "pattern": "^0x[0-9A-Fa-f]{8}$" },
+    "player": { "type": "string" },
+    "instruction": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "location": { "type": "string" },
+    "audience_snapshot": { "type": "object" },
+    "game": { "const": "fnv" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "request": { "const": "reaction" } } },
+      "then": { "required": ["instruction"] }
+    }
+  ],
+  "additionalProperties": true
+}
