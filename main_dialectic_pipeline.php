@@ -232,6 +232,29 @@ $GLOBALS["DIALECTIC_TURN_START_TIME"] = $startTime;
 $GLOBALS["AUDIT_RUNID_REQUEST"]=$gameRequest[0];
 
 $gameRequest[0] = strtolower($gameRequest[0]); // Who put 'diary' uppercase?
+if (in_array($gameRequest[0], ["external_comment", "external_reaction"], true)) {
+    $externalMode = $gameRequest[0] === "external_reaction" ? "reaction" : "comment";
+    $externalRequest = dialectic_decode_external_actor_request(
+        (string)($gameRequest[3] ?? ""),
+        "dialectic.external_request.v1",
+        $externalMode
+    );
+    if (empty($externalRequest["ok"])) {
+        Logger::warn("[xNVSE event API] Rejected {$gameRequest[0]} request" . Logger::formatContext([
+            "error" => $externalRequest["error"] ?? "Invalid request",
+        ]));
+        if (PHP_SAPI !== "cli" && !headers_sent()) {
+            http_response_code(400);
+        }
+        dialectic_buffer_response_close();
+        dialectic_emit_buffered_json_response();
+        @flush();
+        exit;
+    }
+
+    $GLOBALS["DIALECTIC_EXTERNAL_REQUEST"] = $externalRequest;
+    $GLOBALS["DIALECTIC_RESPONSE_SPEAKER_FORMID"] = $externalRequest["npc_id"];
+}
 if (PHP_SAPI !== 'cli' && !getenv('PHPUNIT_TEST') && $gameRequest[0] !== 'request') {
     dialecticPlayer2HealthMarkGameActivity();
 }
@@ -465,7 +488,7 @@ if (in_array(($gameRequest[0] ?? ''), ['rpg_lvlup', 'combatend', 'combatendmight
 }
 
 $inputRequestType = $gameRequest[0] ?? '';
-if (in_array($inputRequestType, ["inputtext", "inputtext_s", "cheatmode", "vision"], true)) {
+if (in_array($inputRequestType, ["inputtext", "inputtext_s", "cheatmode", "vision", "external_comment", "external_reaction"], true)) {
     Logger::phaseStart("input_profile_bind", [
         "type" => $inputRequestType,
     ]);
@@ -498,6 +521,9 @@ if (in_array($inputRequestType, ["inputtext", "inputtext_s", "cheatmode", "visio
             $inputRefid = function_exists('dialectic_extract_npc_refid')
                 ? dialectic_extract_npc_refid((string)$GLOBALS["DIALECTIC_REQUEST_EVENT"]["payload"], $inputProfileFields)
                 : "";
+        }
+        if (in_array($inputRequestType, ["external_comment", "external_reaction"], true)) {
+            $inputRefid = (string)($GLOBALS["DIALECTIC_EXTERNAL_REQUEST"]["npc_id"] ?? "");
         }
         dialectic_ensure_npc($db, $inputTarget, $inputRefid, $inputProfileFields);
 
@@ -1911,8 +1937,9 @@ Logger::phaseStart("pre_llm_audience_scope", [
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
 ]);
 $playerInputEventTypes = ["inputtext", "inputtext_s", "narrator_inputtext", "cheatmode"];
-$authoritativeAudienceEventTypes = array_merge($playerInputEventTypes, ["player_consumed", "vision"]);
-$turnPeopleSnapshotEventTypes = array_merge($playerInputEventTypes, ["rechat", "vision"]);
+$externalSpeechEventTypes = ["external_comment", "external_reaction"];
+$authoritativeAudienceEventTypes = array_merge($playerInputEventTypes, $externalSpeechEventTypes, ["player_consumed", "vision"]);
+$turnPeopleSnapshotEventTypes = array_merge($playerInputEventTypes, $externalSpeechEventTypes, ["rechat", "vision"]);
 $requestAudienceSnapshot = dialecticDecodeAudienceSnapshotField($gameRequest[4] ?? "");
 $hasAuthoritativeRequestAudience = (
     in_array($gameRequest[0] ?? "", $authoritativeAudienceEventTypes, true) &&

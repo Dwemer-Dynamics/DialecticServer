@@ -210,6 +210,12 @@ function dialectic_buffer_speech_response_line(
         "tts_text" => trim($ttsText),
         "tts_cache_key" => trim($ttsCacheKey),
     ];
+    $speakerFormId = trim((string)($GLOBALS["DIALECTIC_RESPONSE_SPEAKER_FORMID"] ?? ""));
+    $activeSpeaker = trim((string)($GLOBALS["DIALECTIC_NAME"] ?? ""));
+    if ($speakerFormId !== "" && $activeSpeaker !== "" && strcasecmp($speaker, $activeSpeaker) === 0) {
+        $metadata["speaker_formid"] = $speakerFormId;
+        $metadata["speaker_refid"] = $speakerFormId;
+    }
     if (($GLOBALS["gameRequest"][0] ?? "") === "rechat") {
         $previousSpeakerFormId = trim((string)($GLOBALS["RECHAT_REQUEST_PAYLOAD"]["speaker_formid"] ?? ""));
         if ($previousSpeakerFormId !== "") {
