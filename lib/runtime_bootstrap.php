@@ -190,7 +190,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'core_tts_connector_metadata' => 20260626001,
             'core_tts_connector_omnivoice' => 20260708001,
             'core_tts_connector_removed_drivers' => 20260712001,
-            'core_tts_pronunciation' => 20260829001,
+            'core_tts_pronunciation' => 20260829002,
             'tts_gender_fallback_defaults' => 20260715001,
             'legacy_translation_tables_cleanup' => 20260628001,
             'legacy_currentmission_cleanup' => 20260713003,

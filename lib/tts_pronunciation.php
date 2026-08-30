@@ -32,8 +32,8 @@ function dialecticEnsureTtsPronunciationDictionary(): bool
         $tags = $GLOBALS['db']->escapeLiteral($entry['oghma_tags']);
         $inserted = $GLOBALS['db']->execQuery(
             "INSERT INTO public.core_tts_pronunciation
-                (source_text, spoken_text, oghma_tags, is_builtin, enabled, updated_at)
-             VALUES ({$source}, {$spoken}, {$tags}, TRUE, TRUE, CURRENT_TIMESTAMP)
+                (source_text, spoken_text, npc_names, races, oghma_tags, is_builtin, enabled, updated_at)
+             VALUES ({$source}, {$spoken}, '', '', {$tags}, TRUE, TRUE, CURRENT_TIMESTAMP)
              ON CONFLICT DO NOTHING"
         );
         if ($inserted === false) {
@@ -77,6 +77,8 @@ final class DialecticTtsPronunciationDictionary
             return array_map(static function (array $entry): array {
                 return $entry + [
                     'id' => 0,
+                    'npc_names' => '',
+                    'races' => '',
                     'is_builtin' => true,
                     'enabled' => true,
                 ];
@@ -84,7 +86,8 @@ final class DialecticTtsPronunciationDictionary
         }
 
         $rows = $GLOBALS['db']->fetchAll(
-            'SELECT id, source_text, spoken_text, oghma_tags, is_builtin, enabled, created_at, updated_at
+            'SELECT id, source_text, spoken_text, npc_names, races, oghma_tags,
+                    is_builtin, enabled, created_at, updated_at
              FROM public.' . self::TABLE . '
              ORDER BY is_builtin DESC, LOWER(source_text), id
              LIMIT 1024'
@@ -118,7 +121,15 @@ final class DialecticTtsPronunciationDictionary
         return array_values($tags);
     }
 
-    public function saveCustom(?int $id, string $source, string $spoken, string $oghmaTags, bool $enabled): bool
+    public function saveCustom(
+        ?int $id,
+        string $source,
+        string $spoken,
+        string $npcNames,
+        string $races,
+        string $oghmaTags,
+        bool $enabled
+    ): bool
     {
         if (!$this->isAvailable()) {
             return false;
@@ -130,16 +141,21 @@ final class DialecticTtsPronunciationDictionary
             return false;
         }
 
+        $normalizedNames = implode(', ', array_slice(dialecticTtsPronunciationNormalizeScopeValues($npcNames), 0, 32));
+        $normalizedRaces = implode(', ', array_slice(dialecticTtsPronunciationNormalizeScopeValues($races), 0, 32));
         $normalizedTags = implode(', ', array_slice(dialecticTtsPronunciationNormalizeTags($oghmaTags), 0, 32));
         $sourceValue = $GLOBALS['db']->escapeLiteral($source);
         $spokenValue = $GLOBALS['db']->escapeLiteral($spoken);
+        $namesValue = $GLOBALS['db']->escapeLiteral(substr($normalizedNames, 0, 512));
+        $racesValue = $GLOBALS['db']->escapeLiteral(substr($normalizedRaces, 0, 512));
         $tagsValue = $GLOBALS['db']->escapeLiteral(substr($normalizedTags, 0, 512));
         $enabledValue = $enabled ? 'TRUE' : 'FALSE';
 
         if ($id !== null && $id > 0) {
             return $GLOBALS['db']->execQuery(
                 "UPDATE public." . self::TABLE . "
-                 SET source_text = {$sourceValue}, spoken_text = {$spokenValue}, oghma_tags = {$tagsValue},
+                 SET source_text = {$sourceValue}, spoken_text = {$spokenValue},
+                     npc_names = {$namesValue}, races = {$racesValue}, oghma_tags = {$tagsValue},
                      enabled = {$enabledValue}, updated_at = CURRENT_TIMESTAMP
                  WHERE id = " . intval($id) . " AND is_builtin = FALSE"
             ) !== false;
@@ -147,8 +163,9 @@ final class DialecticTtsPronunciationDictionary
 
         return $GLOBALS['db']->execQuery(
             "INSERT INTO public." . self::TABLE . "
-                (source_text, spoken_text, oghma_tags, is_builtin, enabled, updated_at)
-             VALUES ({$sourceValue}, {$spokenValue}, {$tagsValue}, FALSE, {$enabledValue}, CURRENT_TIMESTAMP)"
+                (source_text, spoken_text, npc_names, races, oghma_tags, is_builtin, enabled, updated_at)
+             VALUES ({$sourceValue}, {$spokenValue}, {$namesValue}, {$racesValue}, {$tagsValue},
+                     FALSE, {$enabledValue}, CURRENT_TIMESTAMP)"
         ) !== false;
     }
 
@@ -199,9 +216,60 @@ function dialecticTtsPronunciationNormalizeTags($tags): array
     return array_values($normalized);
 }
 
-// Limit tagged custom entries to speakers whose active Oghma knowledge tags match.
-function dialecticTtsPronunciationEntryAllows(array $entry, ?array $knowledgeTags = null): bool
+function dialecticTtsPronunciationNormalizeScopeValues($values): array
 {
+    $normalized = [];
+    foreach (explode(',', strval($values)) as $value) {
+        $value = trim($value);
+        if ($value === '' || strlen($value) > 120) {
+            continue;
+        }
+        $key = function_exists('mb_strtolower')
+            ? mb_strtolower($value, 'UTF-8')
+            : strtolower($value);
+        $normalized[$key] = $value;
+    }
+    return array_values($normalized);
+}
+
+function dialecticTtsPronunciationValueMatches(string $value, array $allowedValues): bool
+{
+    $value = function_exists('mb_strtolower')
+        ? mb_strtolower(trim($value), 'UTF-8')
+        : strtolower(trim($value));
+    if ($value === '') {
+        return false;
+    }
+
+    foreach ($allowedValues as $allowedValue) {
+        $allowedValue = function_exists('mb_strtolower')
+            ? mb_strtolower(trim(strval($allowedValue)), 'UTF-8')
+            : strtolower(trim(strval($allowedValue)));
+        if ($value === $allowedValue) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Require every populated speaker filter while allowing alternatives within each filter.
+function dialecticTtsPronunciationEntryAllows(
+    array $entry,
+    ?array $knowledgeTags = null,
+    string $npcName = '',
+    string $race = ''
+): bool
+{
+    $entryNames = dialecticTtsPronunciationNormalizeScopeValues($entry['npc_names'] ?? '');
+    if (!empty($entryNames) && !dialecticTtsPronunciationValueMatches($npcName, $entryNames)) {
+        return false;
+    }
+
+    $entryRaces = dialecticTtsPronunciationNormalizeScopeValues($entry['races'] ?? '');
+    if (!empty($entryRaces) && !dialecticTtsPronunciationValueMatches($race, $entryRaces)) {
+        return false;
+    }
+
     $entryTags = dialecticTtsPronunciationNormalizeTags($entry['oghma_tags'] ?? '');
     if (empty($entryTags)) {
         return true;
@@ -217,7 +285,12 @@ function dialecticTtsPronunciationEntryAllows(array $entry, ?array $knowledgeTag
 }
 
 // Resolve active rows with custom scoped entries taking priority over global defaults.
-function dialecticTtsPronunciationEntries(?array $rows = null, ?array $knowledgeTags = null): array
+function dialecticTtsPronunciationEntries(
+    ?array $rows = null,
+    ?array $knowledgeTags = null,
+    string $npcName = '',
+    string $race = ''
+): array
 {
     if ($rows === null) {
         static $cachedRows = null;
@@ -230,7 +303,7 @@ function dialecticTtsPronunciationEntries(?array $rows = null, ?array $knowledge
     $resolved = [];
     foreach (array_slice($rows, 0, 1024) as $row) {
         if (!dialecticTtsPronunciationBoolean($row['enabled'] ?? true)
-            || !dialecticTtsPronunciationEntryAllows($row, $knowledgeTags)) {
+            || !dialecticTtsPronunciationEntryAllows($row, $knowledgeTags, $npcName, $race)) {
             continue;
         }
 
@@ -244,8 +317,11 @@ function dialecticTtsPronunciationEntries(?array $rows = null, ?array $knowledge
             ? mb_strtolower($source, 'UTF-8')
             : strtolower($source);
         $isBuiltin = dialecticTtsPronunciationBoolean($row['is_builtin'] ?? false);
-        $hasTags = !empty(dialecticTtsPronunciationNormalizeTags($row['oghma_tags'] ?? ''));
-        $priority = ($isBuiltin ? 0 : 10) + ($hasTags ? 1 : 0);
+        $specificity = 0;
+        $specificity += !empty(dialecticTtsPronunciationNormalizeScopeValues($row['npc_names'] ?? '')) ? 1 : 0;
+        $specificity += !empty(dialecticTtsPronunciationNormalizeScopeValues($row['races'] ?? '')) ? 1 : 0;
+        $specificity += !empty(dialecticTtsPronunciationNormalizeTags($row['oghma_tags'] ?? '')) ? 1 : 0;
+        $priority = ($isBuiltin ? 0 : 10) + $specificity;
         if (isset($resolved[$normalizedSource]) && $resolved[$normalizedSource]['priority'] > $priority) {
             continue;
         }
@@ -267,13 +343,15 @@ function dialecticTtsPronunciationEntries(?array $rows = null, ?array $knowledge
 function dialecticApplyTtsPronunciationDictionary(
     string $text,
     ?array $rows = null,
-    ?array $knowledgeTags = null
+    ?array $knowledgeTags = null,
+    string $npcName = '',
+    string $race = ''
 ): string {
     if ($text === '') {
         return $text;
     }
 
-    $entries = dialecticTtsPronunciationEntries($rows, $knowledgeTags);
+    $entries = dialecticTtsPronunciationEntries($rows, $knowledgeTags, $npcName, $race);
     if (empty($entries)) {
         return $text;
     }

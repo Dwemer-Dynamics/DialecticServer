@@ -2752,6 +2752,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $ttsPronunciationPostedId > 0 ? $ttsPronunciationPostedId : null,
                     strval($_POST['source_text'] ?? ''),
                     strval($_POST['spoken_text'] ?? ''),
+                    strval($_POST['npc_names'] ?? ''),
+                    strval($_POST['races'] ?? ''),
                     strval($_POST['oghma_tags'] ?? ''),
                     !empty($_POST['enabled'])
                 );

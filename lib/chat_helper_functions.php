@@ -92,14 +92,15 @@ function dialecticTtsCacheKeyForLine(string $speaker, string $text): string
     return $text;
 }
 
-// Resolve the current speaker's Oghma tags and preserve the existing Legion faction fallback.
-function dialecticTtsPronunciationCurrentSpeakerTags(string $text, ?array $npcData = null): array
+// Resolve the current speaker identity and preserve the existing Legion faction fallback.
+function dialecticTtsPronunciationCurrentSpeakerScope(string $text, ?array $npcData = null): array
 {
+    $emptyScope = ['knowledge_tags' => [], 'npc_name' => '', 'race' => ''];
     $npcData = $npcData ?? ($GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA'] ?? null);
     $speaker = trim(strval($GLOBALS['DIALECTIC_NAME'] ?? ''));
     $npcName = is_array($npcData) ? trim(strval($npcData['npc_name'] ?? '')) : '';
     if (!is_array($npcData) || $speaker === '' || $npcName === '' || strcasecmp($speaker, $npcName) !== 0) {
-        return [];
+        return $emptyScope;
     }
 
     $knowledgeTags = preg_split(
@@ -123,12 +124,23 @@ function dialecticTtsPronunciationCurrentSpeakerTags(string $text, ?array $npcDa
         }
     }
 
-    return array_values(array_unique($knowledgeTags));
+    return [
+        'knowledge_tags' => array_values(array_unique($knowledgeTags)),
+        'npc_name' => $npcName,
+        'race' => trim(strval($npcData['race'] ?? '')),
+    ];
+}
+
+function dialecticTtsPronunciationCurrentSpeakerTags(string $text, ?array $npcData = null): array
+{
+    $scope = dialecticTtsPronunciationCurrentSpeakerScope($text, $npcData);
+    return $scope['knowledge_tags'];
 }
 
 // Preserve the public Legion pronunciation seam used by response regression checks.
 function dialecticApplyLegionTtsPronunciation(string $text, ?array $npcData = null): string
 {
+    $scope = dialecticTtsPronunciationCurrentSpeakerScope($text, $npcData);
     return dialecticApplyTtsPronunciationDictionary(
         $text,
         [[
@@ -138,7 +150,9 @@ function dialecticApplyLegionTtsPronunciation(string $text, ?array $npcData = nu
             'is_builtin' => true,
             'enabled' => true,
         ]],
-        dialecticTtsPronunciationCurrentSpeakerTags($text, $npcData)
+        $scope['knowledge_tags'],
+        $scope['npc_name'],
+        $scope['race']
     );
 }
 
@@ -1738,10 +1752,13 @@ function returnLines($lines,$writeOutput=true)
             }
 
             if ($shouldEmitNpcLine && trim((string)$responseForTTS) !== "") {
+                $pronunciationScope = dialecticTtsPronunciationCurrentSpeakerScope((string)$responseForTTS);
                 $pendingNpcTtsText = dialecticApplyTtsPronunciationDictionary(
                     (string)$responseForTTS,
                     null,
-                    dialecticTtsPronunciationCurrentSpeakerTags((string)$responseForTTS)
+                    $pronunciationScope['knowledge_tags'],
+                    $pronunciationScope['npc_name'],
+                    $pronunciationScope['race']
                 );
                 $pendingNpcTtsMood = $mood;
                 $pendingNpcTtsPronunciationApplied = $pendingNpcTtsText !== $responseForTTS;

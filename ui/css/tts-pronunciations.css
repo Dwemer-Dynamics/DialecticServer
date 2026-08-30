@@ -23,6 +23,11 @@
 .tts-pron-hint { margin:0; color:#929dab; font-size:.75rem; line-height:1.4; overflow-wrap:anywhere; }
 .tts-pron-hint code { padding:1px 4px; border-radius:3px; background:rgba(242,124,17,.12); color:#f0c08a; font-size:.95em; }
 
+/* The three speaker filters are grouped so the AND rule has one place to live. */
+.tts-pron-access { min-width:0; margin:14px 0 0; padding:12px 0 0; border:0; border-top:1px solid #3a3a3a; }
+.tts-pron-access-legend { padding:0; color:rgb(242,124,17); font-size:.8rem; font-weight:700; letter-spacing:.02em; }
+.tts-pron-access-note { margin:6px 0 10px; }
+
 .tts-pron-form-actions { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:14px; }
 .tts-pron-form-actions .action-button { margin:0; }
 .tts-pron-check { display:inline-flex; align-items:center; gap:7px; margin-right:4px; color:#e8edf3; font-size:.86rem; cursor:pointer; }
@@ -54,6 +59,9 @@
 .tts-pron-badge.is-custom { border-color:rgba(242,124,17,.4); background:rgba(242,124,17,.14); color:#f0a866; }
 
 .tts-pron-scope-global { color:#929dab; font-style:italic; }
+.tts-pron-scope-line { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 6px; margin-bottom:4px; }
+.tts-pron-scope-label { color:#929dab; font-size:.7rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+.tts-pron-scope-and { display:block; margin-top:2px; color:#929dab; font-size:.72rem; font-style:italic; }
 .tts-pron-tags { display:flex; flex-wrap:wrap; gap:4px; }
 .tts-pron-tag { display:inline-block; padding:2px 8px; border:1px solid #6b572f; border-radius:999px; background:#39321f; color:#f4e8ca; font-size:.72rem; }
 
@@ -91,6 +99,7 @@
     .tts-pron-table tbody,
     .tts-pron-table tr,
     .tts-pron-table td { display:block; width:100%; }
+    .tts-pron-caption { display:block; width:100%; min-width:100%; box-sizing:border-box; }
     .tts-pron-table thead { position:absolute; width:1px; height:1px; margin:-1px; padding:0; border:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
     .tts-pron-table tr { margin-bottom:10px; border:1px solid #3f3f3f; border-radius:6px; background:#1d1d1d; }
     .tts-pron-table td { border-bottom:1px solid #2f2f2f; }

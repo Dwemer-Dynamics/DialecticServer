@@ -15,9 +15,29 @@ $pronListUrl = $pronBaseUrl . ($pronFilter !== '' ? '&oghma_tag=' . rawurlencode
 $pronEditId = $pronEditRow !== null ? intval($pronEditRow['id'] ?? 0) : 0;
 $pronSourceValue = $pronEditRow !== null ? strval($pronEditRow['source_text'] ?? '') : '';
 $pronSpokenValue = $pronEditRow !== null ? strval($pronEditRow['spoken_text'] ?? '') : '';
+$pronNamesValue = $pronEditRow !== null ? strval($pronEditRow['npc_names'] ?? '') : '';
+$pronRacesValue = $pronEditRow !== null ? strval($pronEditRow['races'] ?? '') : '';
 $pronTagsValue = $pronEditRow !== null ? strval($pronEditRow['oghma_tags'] ?? '') : '';
 $pronEnabledValue = $pronEditRow === null || dialecticTtsPronunciationBoolean($pronEditRow['enabled'] ?? true);
 $pronDisabledAttr = $pronAvailable ? '' : ' disabled';
+
+// Collect only the populated access dimensions so a row never claims a filter it does not use.
+$pronScopeGroups = static function (array $row): array {
+    $groups = [];
+    $names = dialecticTtsPronunciationNormalizeScopeValues($row['npc_names'] ?? '');
+    if (!empty($names)) {
+        $groups[] = ['label' => 'NPC', 'values' => $names];
+    }
+    $races = dialecticTtsPronunciationNormalizeScopeValues($row['races'] ?? '');
+    if (!empty($races)) {
+        $groups[] = ['label' => 'Race', 'values' => $races];
+    }
+    $tags = dialecticTtsPronunciationNormalizeTags($row['oghma_tags'] ?? '');
+    if (!empty($tags)) {
+        $groups[] = ['label' => 'Oghma tag', 'values' => $tags];
+    }
+    return $groups;
+};
 
 $pronCustomCount = 0;
 $pronBuiltinCount = 0;
@@ -36,8 +56,9 @@ foreach ($pronRows as $pronCountRow) {
         subtitles and saved dialogue keep the original spelling.
     </p>
     <ul class="tts-pron-notes">
-        <li>Leave <strong>Oghma tags</strong> blank and the entry applies to every speaker.</li>
-        <li>Add tags and the entry applies only to speakers with a matching active Oghma knowledge tag.</li>
+        <li>Leave <strong>NPC names</strong>, <strong>races</strong>, and <strong>Oghma tags</strong> blank and the entry applies to every speaker.</li>
+        <li>Commas inside one field are alternatives &mdash; <code>Human, Ghoul</code> matches either race.</li>
+        <li>Fill more than one field and the speaker must match <strong>all</strong> of them, so <code>Ghoul</code> plus <code>ncr</code> only fires for a ghoul carrying that tag.</li>
         <li>Built-in entries can be enabled or disabled, but not edited or deleted.</li>
     </ul>
 
@@ -78,14 +99,37 @@ foreach ($pronRows as $pronCountRow) {
                        value="<?php echo htmlspecialchars($pronSpokenValue); ?>"<?php echo $pronDisabledAttr; ?>>
                 <span class="tts-pron-hint" id="tts-pron-spoken-hint">What the voice should say, for example <code>Mo-hah-vee</code>.</span>
             </div>
-            <div class="tts-pron-field">
-                <label for="tts-pron-tags">Oghma tags <span class="tts-pron-optional">(optional)</span></label>
-                <input type="text" id="tts-pron-tags" name="oghma_tags" maxlength="512"
-                       placeholder="ncr, mojave" aria-describedby="tts-pron-tags-hint"
-                       value="<?php echo htmlspecialchars($pronTagsValue); ?>"<?php echo $pronDisabledAttr; ?>>
-                <span class="tts-pron-hint" id="tts-pron-tags-hint">Comma separated, for example <code>ncr, mojave</code>. Blank applies to everyone.</span>
-            </div>
         </div>
+
+        <fieldset class="tts-pron-access">
+            <legend class="tts-pron-access-legend">Who hears it <span class="tts-pron-optional">(all optional)</span></legend>
+            <p class="tts-pron-hint tts-pron-access-note" id="tts-pron-access-note">
+                A blank field adds no restriction. Fill two or three and the speaker must match every one of them.
+            </p>
+            <div class="tts-pron-form-grid">
+                <div class="tts-pron-field">
+                    <label for="tts-pron-names">NPC names</label>
+                    <input type="text" id="tts-pron-names" name="npc_names" maxlength="512"
+                           placeholder="Boone, Veronica" aria-describedby="tts-pron-names-hint tts-pron-access-note"
+                           value="<?php echo htmlspecialchars($pronNamesValue); ?>"<?php echo $pronDisabledAttr; ?>>
+                    <span class="tts-pron-hint" id="tts-pron-names-hint">Comma separated, for example <code>Boone, Veronica</code>.</span>
+                </div>
+                <div class="tts-pron-field">
+                    <label for="tts-pron-races">Races</label>
+                    <input type="text" id="tts-pron-races" name="races" maxlength="512"
+                           placeholder="Human, Ghoul" aria-describedby="tts-pron-races-hint tts-pron-access-note"
+                           value="<?php echo htmlspecialchars($pronRacesValue); ?>"<?php echo $pronDisabledAttr; ?>>
+                    <span class="tts-pron-hint" id="tts-pron-races-hint">Comma separated, for example <code>Human, Ghoul</code>.</span>
+                </div>
+                <div class="tts-pron-field">
+                    <label for="tts-pron-tags">Oghma tags</label>
+                    <input type="text" id="tts-pron-tags" name="oghma_tags" maxlength="512"
+                           placeholder="ncr, mojave" aria-describedby="tts-pron-tags-hint tts-pron-access-note"
+                           value="<?php echo htmlspecialchars($pronTagsValue); ?>"<?php echo $pronDisabledAttr; ?>>
+                    <span class="tts-pron-hint" id="tts-pron-tags-hint">Comma separated, for example <code>ncr, mojave</code>.</span>
+                </div>
+            </div>
+        </fieldset>
 
         <div class="tts-pron-form-actions">
             <label class="tts-pron-check" for="tts-pron-enabled">
@@ -146,7 +190,7 @@ foreach ($pronRows as $pronCountRow) {
                 <tr>
                     <th scope="col">Written form</th>
                     <th scope="col">Spoken form</th>
-                    <th scope="col">Oghma scope</th>
+                    <th scope="col">Applies to</th>
                     <th scope="col">Status</th>
                     <th scope="col">Actions</th>
                 </tr>
@@ -159,7 +203,7 @@ foreach ($pronRows as $pronCountRow) {
                     $pronRowEnabled = dialecticTtsPronunciationBoolean($pronRow['enabled'] ?? true);
                     $pronRowSource = strval($pronRow['source_text'] ?? '');
                     $pronRowSpoken = strval($pronRow['spoken_text'] ?? '');
-                    $pronRowTags = dialecticTtsPronunciationNormalizeTags($pronRow['oghma_tags'] ?? '');
+                    $pronRowGroups = $pronScopeGroups($pronRow);
                     $pronRowEditing = $pronRowId > 0 && $pronRowId === $pronEditId;
                     $pronRowActionable = $pronAvailable && $pronRowId > 0;
                     ?>
@@ -169,15 +213,23 @@ foreach ($pronRows as $pronCountRow) {
                             <span class="tts-pron-badge <?php echo $pronRowBuiltin ? 'is-builtin' : 'is-custom'; ?>"><?php echo $pronRowBuiltin ? 'Built-in' : 'Custom'; ?></span>
                         </td>
                         <td data-label="Spoken form"><?php echo htmlspecialchars($pronRowSpoken); ?></td>
-                        <td data-label="Oghma scope">
-                            <?php if (empty($pronRowTags)): ?>
-                                <span class="tts-pron-scope-global">All speakers</span>
+                        <td data-label="Applies to">
+                            <?php if (empty($pronRowGroups)): ?>
+                                <span class="tts-pron-scope-global">Every speaker</span>
                             <?php else: ?>
-                                <span class="tts-pron-tags">
-                                    <?php foreach ($pronRowTags as $pronRowTag): ?>
-                                        <span class="tts-pron-tag"><?php echo htmlspecialchars($pronRowTag); ?></span>
-                                    <?php endforeach; ?>
-                                </span>
+                                <?php foreach ($pronRowGroups as $pronRowGroup): ?>
+                                    <div class="tts-pron-scope-line">
+                                        <span class="tts-pron-scope-label"><?php echo htmlspecialchars($pronRowGroup['label']); ?></span>
+                                        <span class="tts-pron-tags">
+                                            <?php foreach ($pronRowGroup['values'] as $pronRowValue): ?>
+                                                <span class="tts-pron-tag"><?php echo htmlspecialchars($pronRowValue); ?></span>
+                                            <?php endforeach; ?>
+                                        </span>
+                                    </div>
+                                <?php endforeach; ?>
+                                <?php if (count($pronRowGroups) > 1): ?>
+                                    <span class="tts-pron-scope-and">All of these must match.</span>
+                                <?php endif; ?>
                             <?php endif; ?>
                         </td>
                         <td data-label="Status">

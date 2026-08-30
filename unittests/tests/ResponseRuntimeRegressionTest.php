@@ -126,11 +126,28 @@ final class ResponseRuntimeRegressionTest extends TestCase
         );
     }
 
-    public function testTtsDictionaryUsesWholeTermsOghmaTagsAndCustomPriority(): void
+    public function testTtsDictionaryUsesWholeTermsSpeakerFiltersAndCustomPriority(): void
     {
+        $GLOBALS['DIALECTIC_NAME'] = 'Ranger Ghost';
+        $scope = dialecticTtsPronunciationCurrentSpeakerScope('', [
+            'npc_name' => 'Ranger Ghost',
+            'race' => 'Ghoul',
+            'worldknowledge_tags' => 'ncr, mojave',
+        ]);
+        $this->assertSame(['ncr', 'mojave'], $scope['knowledge_tags']);
+        $this->assertSame('Ranger Ghost', $scope['npc_name']);
+        $this->assertSame('Ghoul', $scope['race']);
+
         $rows = [
             ['source_text' => 'Mojave', 'spoken_text' => 'Mo-hah-vee', 'is_builtin' => true, 'enabled' => true],
-            ['source_text' => 'Mojave', 'spoken_text' => 'The Wasteland', 'oghma_tags' => 'ncr', 'enabled' => true],
+            [
+                'source_text' => 'Mojave',
+                'spoken_text' => 'The Wasteland',
+                'npc_names' => 'Ranger Ghost, Raul Tejada',
+                'races' => 'Ghoul',
+                'oghma_tags' => 'ncr',
+                'enabled' => true,
+            ],
             ['source_text' => 'NCR ranger', 'spoken_text' => 'desert ranger', 'enabled' => true],
             ['source_text' => 'ranger', 'spoken_text' => 'scout', 'enabled' => true],
         ];
@@ -140,7 +157,9 @@ final class ResponseRuntimeRegressionTest extends TestCase
             dialecticApplyTtsPronunciationDictionary(
                 'Mojave has a NCR ranger; Mojaves and ranger remain separate.',
                 $rows,
-                ['ncr']
+                ['ncr'],
+                'Ranger Ghost',
+                'Ghoul'
             )
         );
         $this->assertSame(
@@ -148,8 +167,16 @@ final class ResponseRuntimeRegressionTest extends TestCase
             dialecticApplyTtsPronunciationDictionary('Mojave has a NCR ranger.', $rows, ['followers'])
         );
         $this->assertSame(
+            'Mo-hah-vee.',
+            dialecticApplyTtsPronunciationDictionary('Mojave.', $rows, ['ncr'], 'Arcade Gannon', 'Ghoul')
+        );
+        $this->assertSame(
+            'Mo-hah-vee.',
+            dialecticApplyTtsPronunciationDictionary('Mojave.', $rows, ['ncr'], 'Ranger Ghost', 'Human')
+        );
+        $this->assertSame(
             'The Wasteland.',
-            dialecticApplyTtsPronunciationDictionary('Mojave.', $rows, ['knowall'])
+            dialecticApplyTtsPronunciationDictionary('Mojave.', $rows, ['knowall'], 'Ranger Ghost', 'Ghoul')
         );
     }
 }
