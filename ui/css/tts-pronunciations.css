@@ -34,7 +34,7 @@
 .tts-pron-value-row { display:flex; align-items:center; gap:6px; min-width:0; }
 .tts-pron-input-row input[type="text"],
 .tts-pron-value-row > :first-child { flex:1 1 auto; min-width:0; }
-.tts-pron-play { display:grid; place-items:center; flex:0 0 auto; width:30px; height:30px; min-height:30px; margin:0; padding:0; border:1px solid #4d4d4d; border-radius:5px; background:#2f2f2f; cursor:pointer; }
+.tts-pron-play { display:grid; place-items:center; flex:0 0 auto; width:30px; height:30px !important; min-height:30px !important; margin:0 !important; padding:0 !important; border:1px solid #4d4d4d; border-radius:5px; background:#2f2f2f; cursor:pointer; }
 .tts-pron-play:hover:not(:disabled) { border-color:rgba(242,124,17,.6); background:#383838; }
 .tts-pron-play-icon { display:block; width:0; height:0; margin-left:2px; border-style:solid; border-width:5px 0 5px 8px; border-color:transparent transparent transparent rgb(242,124,17); }
 .tts-pron-play.is-busy:disabled { opacity:1; filter:none; }
