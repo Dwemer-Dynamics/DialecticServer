@@ -152,6 +152,10 @@ final class ResponseRuntimeRegressionTest extends TestCase
             ['source_text' => 'ranger', 'spoken_text' => 'scout', 'enabled' => true],
         ];
 
+        $GLOBALS['DIALECTIC_TTS_PRONUNCIATION_BYPASS'] = true;
+        $this->assertSame('Mojave.', dialecticApplyTtsPronunciationDictionary('Mojave.', $rows));
+        unset($GLOBALS['DIALECTIC_TTS_PRONUNCIATION_BYPASS']);
+
         $this->assertSame(
             'The Wasteland has a desert ranger; Mojaves and scout remain separate.',
             dialecticApplyTtsPronunciationDictionary(

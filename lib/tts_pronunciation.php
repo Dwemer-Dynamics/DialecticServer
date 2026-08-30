@@ -347,7 +347,7 @@ function dialecticApplyTtsPronunciationDictionary(
     string $npcName = '',
     string $race = ''
 ): string {
-    if ($text === '') {
+    if ($text === '' || !empty($GLOBALS['DIALECTIC_TTS_PRONUNCIATION_BYPASS'])) {
         return $text;
     }
 

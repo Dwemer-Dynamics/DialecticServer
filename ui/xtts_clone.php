@@ -16,6 +16,7 @@ require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPA
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPARATOR . "tts_studio_provider_detection.php");
 
 require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "tts_pronunciation.php");
+require_once($enginePath . "lib" . DIRECTORY_SEPARATOR . "tts_pronunciation_preview.php");
 
 require_once(__DIR__.DIRECTORY_SEPARATOR."profile_loader.php");
 
@@ -2801,6 +2802,12 @@ if ($activeTab === 'pronunciations') {
         $ttsPronunciationFilter = '';
     }
     $ttsPronunciationRows = $ttsPronunciationManager->getRows($ttsPronunciationFilter);
+    $ttsPronunciationPreviewOptions = dialecticTtsPronunciationPreviewOptions($enginePath);
+    $ttsPronunciationPreviewConnectors = $ttsPronunciationPreviewOptions['connectors'];
+    $ttsPronunciationPreviewVoices = $ttsPronunciationPreviewOptions['voices'];
+    $ttsPronunciationPreviewDefaultConnectorId = $ttsPronunciationPreviewOptions['default_connector_id'];
+    $ttsPronunciationPreviewDefaultVoice = $ttsPronunciationPreviewOptions['default_voice'];
+    $ttsPronunciationPreviewEndpoint = $webRoot . '/ui/api/tts_pronunciation_preview.php';
 
     // Built-in rows cannot be edited, so ignore an edit request that does not point at a custom row.
     $ttsPronunciationEditId = intval($_GET['edit'] ?? 0);
