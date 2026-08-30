@@ -128,6 +128,11 @@ final class ResponseRuntimeRegressionTest extends TestCase
 
     public function testTtsDictionaryUsesWholeTermsSpeakerFiltersAndCustomPriority(): void
     {
+        $this->assertSame(
+            ['Caesar'],
+            array_column(dialecticDefaultTtsPronunciationEntries(), 'source_text')
+        );
+
         $GLOBALS['DIALECTIC_NAME'] = 'Ranger Ghost';
         $scope = dialecticTtsPronunciationCurrentSpeakerScope('', [
             'npc_name' => 'Ranger Ghost',

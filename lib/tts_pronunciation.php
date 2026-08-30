@@ -5,11 +5,6 @@ function dialecticDefaultTtsPronunciationEntries(): array
 {
     return [
         ['source_text' => 'Caesar', 'spoken_text' => 'Kaiser', 'oghma_tags' => 'caesars_legion'],
-        ['source_text' => 'Mojave', 'spoken_text' => 'Mo-hah-vee', 'oghma_tags' => ''],
-        ['source_text' => 'Novac', 'spoken_text' => 'No-vack', 'oghma_tags' => ''],
-        ['source_text' => 'NCR', 'spoken_text' => 'N C R', 'oghma_tags' => ''],
-        ['source_text' => 'ED-E', 'spoken_text' => 'Eddie', 'oghma_tags' => ''],
-        ['source_text' => 'Mr. House', 'spoken_text' => 'Mister House', 'oghma_tags' => ''],
     ];
 }
 

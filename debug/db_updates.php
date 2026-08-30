@@ -5090,4 +5090,23 @@ if ($checkVersion('core_tts_pronunciation') < 20260829002) {
     }
 }
 
+if ($checkVersion('core_tts_pronunciation') < 20260829003) {
+    Logger::debug('Applying core_tts_pronunciation 20260829003 - retain only the Caesar default');
+    $migrationOk = dialecticEnsureTtsPronunciationDictionary();
+    if ($migrationOk) {
+        $migrationOk = $GLOBALS['db']->execQuery(
+            "DELETE FROM public.core_tts_pronunciation
+             WHERE is_builtin = TRUE
+               AND LOWER(BTRIM(source_text)) <> 'caesar'"
+        ) !== false;
+    }
+
+    if ($migrationOk) {
+        $updateVersion('core_tts_pronunciation', 20260829003);
+        Logger::info('Applied patch core_tts_pronunciation 20260829003');
+    } else {
+        Logger::error('Failed to apply patch core_tts_pronunciation 20260829003');
+    }
+}
+
 Logger::info(__FILE__." update file processed. This file has ".__LINE__." lines.");
