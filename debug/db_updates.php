@@ -5109,4 +5109,19 @@ if ($checkVersion('core_tts_pronunciation') < 20260829003) {
     }
 }
 
+if ($checkVersion('core_tts_pronunciation') < 20260901001) {
+    Logger::debug('Applying core_tts_pronunciation 20260901001 - edit and preserve deleted built-ins');
+    $migrationOk = dialecticEnsureTtsPronunciationDictionary();
+    if ($migrationOk) {
+        $migrationOk = dialecticUnhyphenateBuiltinTtsPronunciations();
+    }
+
+    if ($migrationOk) {
+        $updateVersion('core_tts_pronunciation', 20260901001);
+        Logger::info('Applied patch core_tts_pronunciation 20260901001');
+    } else {
+        Logger::error('Failed to apply patch core_tts_pronunciation 20260901001');
+    }
+}
+
 Logger::info(__FILE__." update file processed. This file has ".__LINE__." lines.");

@@ -132,6 +132,13 @@ final class ResponseRuntimeRegressionTest extends TestCase
             ['Caesar'],
             array_column(dialecticDefaultTtsPronunciationEntries(), 'source_text')
         );
+        $this->assertSame(
+            ['Kaiser'],
+            array_column(dialecticDefaultTtsPronunciationEntries(), 'spoken_text')
+        );
+        foreach (dialecticDefaultTtsPronunciationEntries() as $defaultEntry) {
+            $this->assertStringNotContainsString('-', strval($defaultEntry['spoken_text'] ?? ''));
+        }
 
         $GLOBALS['DIALECTIC_NAME'] = 'Ranger Ghost';
         $scope = dialecticTtsPronunciationCurrentSpeakerScope('', [
@@ -187,5 +194,52 @@ final class ResponseRuntimeRegressionTest extends TestCase
             'The Wasteland.',
             dialecticApplyTtsPronunciationDictionary('Mojave.', $rows, ['knowall'], 'Ranger Ghost', 'Ghoul')
         );
+    }
+
+    public function testBuiltInPronunciationEditsAndDeletesStayScoped(): void
+    {
+        $db = new class {
+            public bool $builtin = true;
+            public array $queries = [];
+
+            public function escapeLiteral($value): string
+            {
+                return "'" . str_replace("'", "''", strval($value)) . "'";
+            }
+
+            public function fetchOne(string $query): array
+            {
+                if (str_contains($query, 'information_schema.tables')) {
+                    return ['present' => 1];
+                }
+                return ['is_builtin' => $this->builtin];
+            }
+
+            public function execQuery(string $query): bool
+            {
+                $this->queries[] = $query;
+                return true;
+            }
+        };
+        $GLOBALS['db'] = $db;
+        $dictionary = new DialecticTtsPronunciationDictionary();
+
+        $this->assertTrue(dialecticUnhyphenateBuiltinTtsPronunciations());
+        $this->assertStringContainsString('WHERE is_builtin = TRUE', strval(end($db->queries)));
+        $this->assertTrue($dictionary->saveBuiltin(42, 'New Kaiser', false));
+        $saveQuery = strval(end($db->queries));
+        $this->assertStringContainsString("spoken_text = 'New Kaiser'", $saveQuery);
+        $this->assertStringContainsString('is_builtin = TRUE AND deleted = FALSE', $saveQuery);
+        $this->assertStringNotContainsString('source_text =', $saveQuery);
+
+        $this->assertTrue($dictionary->deleteEntry(42));
+        $builtinDeleteQuery = strval(end($db->queries));
+        $this->assertStringContainsString('SET deleted = TRUE, enabled = FALSE', $builtinDeleteQuery);
+
+        $db->builtin = false;
+        $this->assertTrue($dictionary->deleteEntry(43));
+        $customDeleteQuery = strval(end($db->queries));
+        $this->assertStringContainsString('DELETE FROM public.core_tts_pronunciation', $customDeleteQuery);
+        $this->assertStringContainsString('is_builtin = FALSE AND deleted = FALSE', $customDeleteQuery);
     }
 }

@@ -39,6 +39,20 @@ function dialecticEnsureTtsPronunciationDictionary(): bool
     return true;
 }
 
+// Strip hyphens from shipped spoken values so built-ins read as whole words.
+function dialecticUnhyphenateBuiltinTtsPronunciations(): bool
+{
+    if (!isset($GLOBALS['db']) || !$GLOBALS['db']) {
+        return false;
+    }
+
+    return $GLOBALS['db']->execQuery(
+        "UPDATE public.core_tts_pronunciation
+         SET spoken_text = REPLACE(spoken_text, '-', ''), updated_at = CURRENT_TIMESTAMP
+         WHERE is_builtin = TRUE AND spoken_text LIKE '%-%'"
+    ) !== false;
+}
+
 final class DialecticTtsPronunciationDictionary
 {
     private const TABLE = 'core_tts_pronunciation';
@@ -76,14 +90,16 @@ final class DialecticTtsPronunciationDictionary
                     'races' => '',
                     'is_builtin' => true,
                     'enabled' => true,
+                    'deleted' => false,
                 ];
             }, dialecticDefaultTtsPronunciationEntries());
         }
 
         $rows = $GLOBALS['db']->fetchAll(
             'SELECT id, source_text, spoken_text, npc_names, races, oghma_tags,
-                    is_builtin, enabled, created_at, updated_at
+                    is_builtin, enabled, deleted, created_at, updated_at
              FROM public.' . self::TABLE . '
+             WHERE deleted = FALSE
              ORDER BY is_builtin DESC, LOWER(source_text), id
              LIMIT 1024'
         );
@@ -152,7 +168,7 @@ final class DialecticTtsPronunciationDictionary
                  SET source_text = {$sourceValue}, spoken_text = {$spokenValue},
                      npc_names = {$namesValue}, races = {$racesValue}, oghma_tags = {$tagsValue},
                      enabled = {$enabledValue}, updated_at = CURRENT_TIMESTAMP
-                 WHERE id = " . intval($id) . " AND is_builtin = FALSE"
+                 WHERE id = " . intval($id) . " AND is_builtin = FALSE AND deleted = FALSE"
             ) !== false;
         }
 
@@ -161,6 +177,30 @@ final class DialecticTtsPronunciationDictionary
                 (source_text, spoken_text, npc_names, races, oghma_tags, is_builtin, enabled, updated_at)
              VALUES ({$sourceValue}, {$spokenValue}, {$namesValue}, {$racesValue}, {$tagsValue},
                      FALSE, {$enabledValue}, CURRENT_TIMESTAMP)"
+        ) !== false;
+    }
+
+    // Preserve the built-in source and scope; only the spoken value and enabled
+    // state are editable, and custom or deleted rows cannot cross this boundary.
+    public function saveBuiltin(int $id, string $spoken, bool $enabled): bool
+    {
+        if ($id <= 0 || !$this->isAvailable()) {
+            return false;
+        }
+
+        $spoken = trim($spoken);
+        if ($spoken === '' || strlen($spoken) > 240) {
+            return false;
+        }
+
+        $spokenValue = $GLOBALS['db']->escapeLiteral($spoken);
+        $enabledValue = $enabled ? 'TRUE' : 'FALSE';
+
+        return $GLOBALS['db']->execQuery(
+            "UPDATE public." . self::TABLE . "
+             SET spoken_text = {$spokenValue}, enabled = {$enabledValue},
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = " . intval($id) . " AND is_builtin = TRUE AND deleted = FALSE"
         ) !== false;
     }
 
@@ -173,19 +213,39 @@ final class DialecticTtsPronunciationDictionary
         return $GLOBALS['db']->execQuery(
             'UPDATE public.' . self::TABLE . '
              SET enabled = ' . ($enabled ? 'TRUE' : 'FALSE') . ', updated_at = CURRENT_TIMESTAMP
-             WHERE id = ' . intval($id)
+             WHERE id = ' . intval($id) . ' AND deleted = FALSE'
         ) !== false;
     }
 
-    public function deleteCustom(int $id): bool
+    // Custom rows are removed. Built-ins retain a hidden tombstone so startup
+    // seeding cannot recreate a pronunciation the user chose to delete.
+    public function deleteEntry(int $id): bool
     {
         if ($id <= 0 || !$this->isAvailable()) {
             return false;
         }
 
+        $row = $GLOBALS['db']->fetchOne(
+            'SELECT is_builtin
+             FROM public.' . self::TABLE . '
+             WHERE id = ' . intval($id) . ' AND deleted = FALSE
+             LIMIT 1'
+        );
+        if (!is_array($row)) {
+            return false;
+        }
+
+        if (dialecticTtsPronunciationBoolean($row['is_builtin'] ?? false)) {
+            return $GLOBALS['db']->execQuery(
+                'UPDATE public.' . self::TABLE . '
+                 SET deleted = TRUE, enabled = FALSE, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ' . intval($id) . ' AND is_builtin = TRUE AND deleted = FALSE'
+            ) !== false;
+        }
+
         return $GLOBALS['db']->execQuery(
             'DELETE FROM public.' . self::TABLE . '
-             WHERE id = ' . intval($id) . ' AND is_builtin = FALSE'
+             WHERE id = ' . intval($id) . ' AND is_builtin = FALSE AND deleted = FALSE'
         ) !== false;
     }
 }
