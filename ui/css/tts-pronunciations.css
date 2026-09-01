@@ -75,6 +75,9 @@
 .tts-pron-table tbody tr.is-editing td { background:rgba(242,124,17,.12); box-shadow:inset 3px 0 0 rgb(242,124,17); }
 .tts-pron-source { font-weight:700; }
 .tts-pron-empty { padding:16px 10px; color:#888; text-align:center; }
+.tts-pron-builtin-editor[hidden],
+.tts-pron-value-row[hidden] { display:none !important; }
+.tts-pron-builtin-editor input[type="text"] { width:100%; min-width:130px; padding:6px 8px; border:1px solid #657182; border-radius:5px; background:#171717; color:#eee; font:inherit; }
 
 .tts-pron-badge { display:inline-block; margin-left:6px; padding:1px 7px; border:1px solid transparent; border-radius:999px; font-size:.65rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; }
 .tts-pron-badge.is-builtin { border-color:rgba(74,138,182,.4); background:rgba(74,138,182,.16); color:#93c5fd; }
@@ -93,14 +96,13 @@
 
 /* Row actions */
 .tts-pron-row-actions { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
-.tts-pron-row-actions form { margin:0; }
+.tts-pron-row-actions form { display:flex; align-items:center; gap:6px; margin:0; }
+.tts-pron-row-check { margin:0; white-space:nowrap; }
 .tts-pron-btn { display:inline-flex; align-items:center; justify-content:center; padding:5px 10px; border:1px solid #55606f; border-radius:5px; background:#2b2b2b; color:#e8edf3; font-size:.76rem; font-weight:600; line-height:1.2; text-decoration:none; white-space:nowrap; cursor:pointer; transition:border-color .15s ease, background-color .15s ease, color .15s ease; }
 .tts-pron-btn:hover { border-color:rgb(242,124,17); background:#333; color:rgb(242,124,17); text-decoration:none; }
 /* Destructive action stays visually distinct from the neutral row actions. */
 .tts-pron-btn-danger { border-color:#74424a; background:#442a2e; color:#f5c3c7; }
 .tts-pron-btn-danger:hover { border-color:#bd5d68; background:#543136; color:#ffd9dc; }
-.tts-pron-locked { color:#7f8a99; font-size:.74rem; font-style:italic; }
-
 /* Keyboard focus must stay obvious on the dark surfaces. */
 .tts-pron-section :is(a, button, input, select):focus-visible { outline:2px solid rgb(242,124,17); outline-offset:2px; }
 

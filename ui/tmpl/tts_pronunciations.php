@@ -94,7 +94,7 @@ foreach ($pronRows as $pronCountRow) {
         <li>Leave <strong>NPC names</strong>, <strong>races</strong>, and <strong>Oghma tags</strong> blank and the entry applies to every speaker.</li>
         <li>Commas inside one field are alternatives &mdash; <code>Human, Ghoul</code> matches either race.</li>
         <li>Fill more than one field and the speaker must match <strong>all</strong> of them, so <code>Ghoul</code> plus <code>ncr</code> only fires for a ghoul carrying that tag.</li>
-        <li>Built-in entries can be enabled or disabled, but not edited or deleted.</li>
+        <li>Built-in entries keep their written form, but their spoken form can be edited, disabled, or deleted.</li>
     </ul>
 
     <?php if ($pronNotice !== null): ?>
@@ -106,8 +106,7 @@ foreach ($pronRows as $pronCountRow) {
 
     <?php if (!$pronAvailable): ?>
         <p class="tts-pron-notice tts-pron-notice-error" role="alert">
-            The pronunciation table has not been created yet. Built-in entries are listed read-only until the
-            database update runs.
+            The pronunciation table has not been created yet. Built-in entries are listed until the database update runs.
         </p>
     <?php endif; ?>
 
@@ -301,6 +300,8 @@ foreach ($pronRows as $pronCountRow) {
                     $pronRowGroups = $pronScopeGroups($pronRow);
                     $pronRowEditing = $pronRowId > 0 && $pronRowId === $pronEditId;
                     $pronRowActionable = $pronAvailable && $pronRowId > 0;
+                    $pronBuiltinFormId = 'tts-pron-builtin-form-' . $pronRowId;
+                    $pronBuiltinEditorId = 'tts-pron-builtin-editor-' . $pronRowId;
                     ?>
                     <tr class="<?php echo $pronRowEditing ? 'is-editing' : ''; ?>"<?php echo $pronRowEditing ? ' aria-current="true"' : ''; ?>>
                         <td data-label="Written form">
@@ -311,10 +312,20 @@ foreach ($pronRows as $pronCountRow) {
                             <span class="tts-pron-badge <?php echo $pronRowBuiltin ? 'is-builtin' : 'is-custom'; ?>"><?php echo $pronRowBuiltin ? 'Built-in' : 'Custom'; ?></span>
                         </td>
                         <td data-label="Spoken form">
-                            <div class="tts-pron-value-row">
+                            <div class="tts-pron-value-row"<?php echo $pronRowBuiltin ? ' data-tts-pron-builtin-display' : ''; ?>>
                                 <span><?php echo htmlspecialchars($pronRowSpoken); ?></span>
                                 <?php echo $pronPlayButton('spoken form', null, $pronRowSpoken, $pronRowSource); ?>
                             </div>
+                            <?php if ($pronRowBuiltin && $pronRowActionable): ?>
+                                <div class="tts-pron-value-row tts-pron-builtin-editor" id="<?php echo $pronBuiltinEditorId; ?>" data-tts-pron-builtin-editor hidden>
+                                    <input type="text" id="<?php echo $pronBuiltinEditorId; ?>-input" name="spoken_text" maxlength="240" required
+                                           form="<?php echo $pronBuiltinFormId; ?>"
+                                           value="<?php echo htmlspecialchars($pronRowSpoken); ?>"
+                                           data-tts-pron-builtin-input
+                                           aria-label="Spoken form for <?php echo htmlspecialchars($pronRowSource); ?>">
+                                    <?php echo $pronPlayButton('spoken form', $pronBuiltinEditorId . '-input', null, $pronRowSource); ?>
+                                </div>
+                            <?php endif; ?>
                         </td>
                         <td data-label="Applies to">
                             <?php if (empty($pronRowGroups)): ?>
@@ -336,11 +347,35 @@ foreach ($pronRows as $pronCountRow) {
                             <?php endif; ?>
                         </td>
                         <td data-label="Status">
-                            <span class="tts-pron-status <?php echo $pronRowEnabled ? 'is-on' : 'is-off'; ?>"><?php echo $pronRowEnabled ? 'Enabled' : 'Disabled'; ?></span>
+                            <?php if ($pronRowBuiltin && $pronRowActionable): ?>
+                                <label class="tts-pron-check tts-pron-row-check">
+                                    <input type="checkbox" name="enabled" value="1" form="<?php echo $pronBuiltinFormId; ?>"
+                                           <?php echo $pronRowEnabled ? 'checked' : ''; ?>>
+                                    <span>Enabled</span>
+                                </label>
+                            <?php else: ?>
+                                <span class="tts-pron-status <?php echo $pronRowEnabled ? 'is-on' : 'is-off'; ?>"><?php echo $pronRowEnabled ? 'Enabled' : 'Disabled'; ?></span>
+                            <?php endif; ?>
                         </td>
                         <td data-label="Actions">
                             <div class="tts-pron-row-actions">
-                                <?php if ($pronRowActionable): ?>
+                                <?php if ($pronRowBuiltin && $pronRowActionable): ?>
+                                    <form id="<?php echo $pronBuiltinFormId; ?>" method="post" action="<?php echo htmlspecialchars($pronListUrl); ?>" data-tts-pron-builtin-form>
+                                        <input type="hidden" name="action" value="toggle_tts_pronunciation" data-tts-pron-builtin-action>
+                                        <input type="hidden" name="id" value="<?php echo $pronRowId; ?>">
+                                        <input type="hidden" name="oghma_tag" value="<?php echo htmlspecialchars($pronFilter); ?>">
+                                        <button type="submit" class="tts-pron-btn" data-tts-pron-apply>Apply</button>
+                                        <button type="button" class="tts-pron-btn" data-tts-pron-edit
+                                                aria-expanded="false" aria-controls="<?php echo $pronBuiltinEditorId; ?>">Edit</button>
+                                    </form>
+                                    <form method="post" action="<?php echo htmlspecialchars($pronListUrl); ?>">
+                                        <input type="hidden" name="action" value="delete_tts_pronunciation">
+                                        <input type="hidden" name="id" value="<?php echo $pronRowId; ?>">
+                                        <input type="hidden" name="oghma_tag" value="<?php echo htmlspecialchars($pronFilter); ?>">
+                                        <button type="submit" class="tts-pron-btn tts-pron-btn-danger"
+                                                aria-label="Delete pronunciation for <?php echo htmlspecialchars($pronRowSource); ?>">Delete</button>
+                                    </form>
+                                <?php elseif ($pronRowActionable): ?>
                                     <form method="post" action="<?php echo htmlspecialchars($pronListUrl); ?>">
                                         <input type="hidden" name="action" value="toggle_tts_pronunciation">
                                         <input type="hidden" name="id" value="<?php echo $pronRowId; ?>">
@@ -362,8 +397,6 @@ foreach ($pronRows as $pronCountRow) {
                                         <button type="submit" class="tts-pron-btn tts-pron-btn-danger"
                                                 aria-label="Delete pronunciation for <?php echo htmlspecialchars($pronRowSource); ?>">Delete</button>
                                     </form>
-                                <?php elseif ($pronRowBuiltin): ?>
-                                    <span class="tts-pron-locked">Cannot edit or delete</span>
                                 <?php endif; ?>
                             </div>
                         </td>
@@ -517,6 +550,56 @@ foreach ($pronRows as $pronCountRow) {
             event.preventDefault();
             event.stopPropagation();
             requestPreview(button);
+        });
+    });
+
+    // Built-ins edit in place so the written term and scope never become editable.
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tts-pron-builtin-form]'), function (form) {
+        var row = form.closest('tr');
+        var editButton = form.querySelector('[data-tts-pron-edit]');
+        var applyButton = form.querySelector('[data-tts-pron-apply]');
+        var action = form.querySelector('[data-tts-pron-builtin-action]');
+        var editor = row ? row.querySelector('[data-tts-pron-builtin-editor]') : null;
+        var display = row ? row.querySelector('[data-tts-pron-builtin-display]') : null;
+        var input = editor ? editor.querySelector('[data-tts-pron-builtin-input]') : null;
+        if (!editButton || !applyButton || !action || !editor || !display || !input) {
+            return;
+        }
+        var originalValue = input.value;
+
+        function setEditing(editing) {
+            if (editing) {
+                originalValue = input.value;
+                display.hidden = true;
+                editor.hidden = false;
+                row.classList.add('is-editing');
+                action.value = 'save_builtin_tts_pronunciation';
+                applyButton.textContent = 'Save';
+                editButton.textContent = 'Cancel';
+                editButton.setAttribute('aria-expanded', 'true');
+                input.focus();
+                input.select();
+                return;
+            }
+            input.value = originalValue;
+            display.hidden = false;
+            editor.hidden = true;
+            row.classList.remove('is-editing');
+            action.value = 'toggle_tts_pronunciation';
+            applyButton.textContent = 'Apply';
+            editButton.textContent = 'Edit';
+            editButton.setAttribute('aria-expanded', 'false');
+        }
+
+        editButton.addEventListener('click', function () {
+            setEditing(editor.hidden);
+        });
+        input.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                setEditing(false);
+                editButton.focus();
+            }
         });
     });
 })();

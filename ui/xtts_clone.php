@@ -2741,7 +2741,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // Pronunciation dictionary handlers. Post/redirect/get keeps a refresh from replaying an action.
-    $ttsPronunciationActions = ['save_tts_pronunciation', 'toggle_tts_pronunciation', 'delete_tts_pronunciation'];
+    $ttsPronunciationActions = ['save_tts_pronunciation', 'save_builtin_tts_pronunciation', 'toggle_tts_pronunciation', 'delete_tts_pronunciation'];
     if (isset($_POST['action']) && in_array($_POST['action'], $ttsPronunciationActions, true)) {
         $ttsPronunciationPostedFilter = dialecticTtsStudioSanitizeOghmaTag($_POST['oghma_tag'] ?? '');
         $ttsPronunciationResult = 'unavailable';
@@ -2761,6 +2761,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $ttsPronunciationResult = $ttsPronunciationSaved
                     ? ($ttsPronunciationPostedId > 0 ? 'updated' : 'saved')
                     : 'invalid';
+            } elseif ($_POST['action'] === 'save_builtin_tts_pronunciation') {
+                $ttsPronunciationSaved = $ttsPronunciationManager->saveBuiltin(
+                    intval($_POST['id'] ?? 0),
+                    strval($_POST['spoken_text'] ?? ''),
+                    !empty($_POST['enabled'])
+                );
+                $ttsPronunciationResult = $ttsPronunciationSaved ? 'updated' : 'invalid';
             } elseif ($_POST['action'] === 'toggle_tts_pronunciation') {
                 $ttsPronunciationEnable = strval($_POST['enabled'] ?? '') === '1';
                 $ttsPronunciationResult = $ttsPronunciationManager->setEnabled(
@@ -2768,7 +2775,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $ttsPronunciationEnable
                 ) ? ($ttsPronunciationEnable ? 'enabled' : 'disabled') : 'failed';
             } else {
-                $ttsPronunciationResult = $ttsPronunciationManager->deleteCustom(intval($_POST['id'] ?? 0))
+                $ttsPronunciationResult = $ttsPronunciationManager->deleteEntry(intval($_POST['id'] ?? 0))
                     ? 'deleted'
                     : 'failed';
             }
@@ -2809,7 +2816,7 @@ if ($activeTab === 'pronunciations') {
     $ttsPronunciationPreviewDefaultVoice = $ttsPronunciationPreviewOptions['default_voice'];
     $ttsPronunciationPreviewEndpoint = $webRoot . '/ui/api/tts_pronunciation_preview.php';
 
-    // Built-in rows cannot be edited, so ignore an edit request that does not point at a custom row.
+    // The full-page editor remains custom-only; built-ins use their compact inline editor.
     $ttsPronunciationEditId = intval($_GET['edit'] ?? 0);
     if ($ttsPronunciationEditId > 0) {
         foreach ($ttsPronunciationRows as $ttsPronunciationCandidate) {
