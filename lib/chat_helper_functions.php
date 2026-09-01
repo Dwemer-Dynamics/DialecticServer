@@ -397,10 +397,24 @@ function cleanResponse($rawResponse)
     return $sentenceXX;
 }
 
+// Keep radio-style speakers in one uninterrupted TTS and subtitle line.
+function shouldPreserveWholeDialogueLineForCurrentSpeaker(): bool
+{
+    $speaker = trim((string)($GLOBALS['DIALECTIC_NAME'] ?? ''));
+    $speaker = preg_replace('/\s*\[[^\]]*\]\s*$/u', '', $speaker);
+    $speaker = strtolower(trim((string)preg_replace('/[^a-z0-9]+/i', ' ', $speaker)));
+
+    return in_array($speaker, ['mr house', 'mister house', 'mr new vegas', 'mister new vegas'], true);
+}
+
 // replace findDotPosition with first EOS split detection - same logic as split_at_end_of_sentence
     // This sentence will never be split: "It is, Courier. The desert air here beats the smoke in town. I've been checking my rifle since dawn."
 
 function findFastSentencePosition($s_string,$min_sentence_size=0) {
+    if (shouldPreserveWholeDialogueLineForCurrentSpeaker()) {
+        return false;
+    }
+
     // Find the position of the first sentence-ending punctuation followed by a space
     // This preserves ellipsis (...) because we require a space after the punctuation
     $eosPunc = preg_quote(getEndOfSentencePunctuation(), '/'); // .?! plus Japanese sentence punctuation
@@ -530,6 +544,10 @@ function split_sentences($paragraph)
 
 function split_sentences_stream($paragraph)
 {
+    if (shouldPreserveWholeDialogueLineForCurrentSpeaker()) {
+        return [$paragraph];
+    }
+
     if (strlen($paragraph) <= MAXIMUM_SENTENCE_SIZE) {
         return [$paragraph];
     }
