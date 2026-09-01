@@ -47,6 +47,24 @@ final class AsteriskParsingTest extends TestCase
         );
     }
 
+    public function testMrHouseDialogueRemainsOneStreamingLine(): void
+    {
+        $GLOBALS['DIALECTIC_NAME'] = 'Mr. House';
+        $reply = 'The Strip is an achievement of calculation, Courier. Every system operates according to my design. You would be wise not to interfere with it.';
+
+        $this->assertFalse(findFastSentencePosition($reply, 75));
+        $this->assertSame([$reply], split_sentences_stream($reply));
+    }
+
+    public function testMrNewVegasDialogueRemainsOneStreamingLine(): void
+    {
+        $GLOBALS['DIALECTIC_NAME'] = 'Mr. New Vegas';
+        $reply = 'You are listening to Radio New Vegas, your source for news across the Mojave. Stay tuned, because I have another song coming right up.';
+
+        $this->assertFalse(findFastSentencePosition($reply, 75));
+        $this->assertSame([$reply], split_sentences_stream($reply));
+    }
+
     public function testFullWrappedMixedReplySplitsNarrationFromDialogueWhenSpeechCueAppears(): void
     {
         $wrappedReply = "*A satisfied sigh escapes her lips as she surveys the fallen undead. Indeed, my Lord. A rather efficient clearing, if I do say so myself*";

@@ -2455,13 +2455,16 @@ Logger::phaseStart("prompt_dynamic_context_build", [
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
 ]);
 $dynamicBiography = buildDynamicBiography($GLOBALS);
-$worldPrompt = buildWorldPrompt($gameRequest[2] ?? 0);
-require_once(__DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'visual_context.php');
-$visualContextPrompt = dialecticBuildVisualContextPrompt(
-    function_exists('dialecticLatestWorldContextPayload')
-        ? (dialecticLatestWorldContextPayload() ?: [])
-        : []
+$latestWorldContextPayload = function_exists('dialecticLatestWorldContextPayload')
+    ? (dialecticLatestWorldContextPayload() ?: [])
+    : [];
+$worldPrompt = buildWorldPrompt($gameRequest[2] ?? 0, $latestWorldContextPayload);
+$radioPrompt = buildRadioPrompt(
+    $latestWorldContextPayload,
+    function_exists('dialecticLatestNearbyActorsPayload') ? dialecticLatestNearbyActorsPayload() : null
 );
+require_once(__DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'visual_context.php');
+$visualContextPrompt = dialecticBuildVisualContextPrompt($latestWorldContextPayload);
 
 $playerBioSection = "";
 try {
@@ -2600,7 +2603,7 @@ if (!empty($GLOBALS["WORLDKNOWLEDGE_HINT"])) {
 }
 
 $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
-    "\n</roleplay_instructions>" . $worldPrompt . ($visualContextPrompt !== '' ? "\n\n" . $visualContextPrompt : '') .
+    "\n</roleplay_instructions>" . $worldPrompt . $radioPrompt . ($visualContextPrompt !== '' ? "\n\n" . $visualContextPrompt : '') .
     "\n\n<character>\n" . $GLOBALS["DIALECTIC_PERS"] . $dynamicBiography . $latestDiaryContext . $characterBottomInjections .
     "\n</character>" . $knowledgeSection .
     "\n\n<general_instructions>\n" . $GLOBALS["COMMAND_PROMPT"] .
@@ -2609,6 +2612,7 @@ $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
 $promptCompositionSections = [
     'roleplay_instructions' => $GLOBALS['PROMPT_HEAD'] ?? '',
     'world' => $worldPrompt ?? '',
+    'radio' => $radioPrompt ?? '',
     'visual_context' => $visualContextPrompt ?? '',
     'character' => ($GLOBALS['DIALECTIC_PERS'] ?? '') . ($dynamicBiography ?? '') . ($latestDiaryContext ?? '') . ($characterBottomInjections ?? ''),
     'knowledge' => $knowledgeSection ?? '',
@@ -2640,6 +2644,7 @@ $head = dialecticAppendCompactHistoryToPrompt($head, $compactHistoryBlock, $prom
 Logger::phaseEnd("prompt_dynamic_context_build", [
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
     "system_chars" => strlen((string)($head[0]['content'] ?? $systemPrompt)),
+    "radio_chars" => strlen((string)$radioPrompt),
     "nearby_chars" => strlen((string)$nearbySections),
     "actions_chars" => strlen((string)$actionsList),
 ], "info");

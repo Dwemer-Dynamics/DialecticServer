@@ -107,4 +107,93 @@ final class NearbyActorContextOptionsTest extends TestCase
             }
         }
     }
+
+    public function testRadioPromptIncludesStationAndSongForCurrentFollower(): void
+    {
+        $previousName = $GLOBALS['DIALECTIC_NAME'] ?? null;
+        $GLOBALS['DIALECTIC_NAME'] = 'Veronica';
+
+        try {
+            $prompt = buildRadioPrompt(
+                ['radio' => [
+                    'active' => true,
+                    'station' => 'Radio <New Vegas>',
+                    'station_formid' => '0x0016C0B2',
+                    'song' => 'Big & Iron',
+                ]],
+                ['party_members' => [['name' => 'Veronica', 'refid' => '0x000E32A9']]]
+            );
+
+            $this->assertStringContainsString('<radio>', $prompt);
+            $this->assertStringContainsString('<station>Radio &lt;New Vegas&gt;</station>', $prompt);
+            $this->assertStringContainsString('<song>Big &amp; Iron</song>', $prompt);
+        } finally {
+            if ($previousName === null) {
+                unset($GLOBALS['DIALECTIC_NAME']);
+            } else {
+                $GLOBALS['DIALECTIC_NAME'] = $previousName;
+            }
+        }
+    }
+
+    public function testRadioPromptUsesLiveTeammateFlagAndRejectsNonFollower(): void
+    {
+        $previousName = $GLOBALS['DIALECTIC_NAME'] ?? null;
+        $nearby = ['actors' => [
+            ['name' => 'Veronica', 'refid' => '0x000E32A9', 'is_player_teammate' => true],
+            ['name' => 'Sunny Smiles', 'refid' => '0x00104C6B', 'is_player_teammate' => false],
+        ]];
+        $world = ['radio' => [
+            'active' => true,
+            'station' => 'Mojave Music Radio',
+            'station_formid' => '0x0016C0B3',
+            'song' => 'Blue Moon',
+        ]];
+
+        try {
+            $GLOBALS['DIALECTIC_NAME'] = 'Veronica';
+            $this->assertStringContainsString('<radio>', buildRadioPrompt($world, $nearby));
+
+            $GLOBALS['DIALECTIC_NAME'] = 'Sunny Smiles';
+            $this->assertSame('', buildRadioPrompt($world, $nearby));
+        } finally {
+            if ($previousName === null) {
+                unset($GLOBALS['DIALECTIC_NAME']);
+            } else {
+                $GLOBALS['DIALECTIC_NAME'] = $previousName;
+            }
+        }
+    }
+
+    public function testRadioPromptOmitsInactiveRadioAndOptionalSong(): void
+    {
+        $previousName = $GLOBALS['DIALECTIC_NAME'] ?? null;
+        $GLOBALS['DIALECTIC_NAME'] = 'Veronica';
+        $nearby = ['party_members' => [['name' => 'Veronica']]];
+
+        try {
+            $this->assertSame('', buildRadioPrompt(
+                ['radio' => ['active' => false, 'station' => '', 'station_formid' => '', 'song' => '']],
+                $nearby
+            ));
+
+            $stationOnly = buildRadioPrompt(
+                ['radio' => [
+                    'active' => true,
+                    'station' => 'Radio New Vegas',
+                    'station_formid' => '0x0016C0B2',
+                    'song' => '',
+                ]],
+                $nearby
+            );
+            $this->assertStringContainsString('<station>Radio New Vegas</station>', $stationOnly);
+            $this->assertStringNotContainsString('<song>', $stationOnly);
+        } finally {
+            if ($previousName === null) {
+                unset($GLOBALS['DIALECTIC_NAME']);
+            } else {
+                $GLOBALS['DIALECTIC_NAME'] = $previousName;
+            }
+        }
+    }
 }
