@@ -3,6 +3,7 @@
 require_once __DIR__ . DIRECTORY_SEPARATOR . "runtime_bootstrap.php";
 require_once __DIR__ . DIRECTORY_SEPARATOR . "voice_clone_resolver.php";
 require_once __DIR__ . DIRECTORY_SEPARATOR . "logger.php";
+require_once __DIR__ . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPARATOR . "tts_filter_presets.php";
 
 function dialectic_tts_cache_seed(string $root, string $speaker, string $text): string
 {
@@ -60,7 +61,9 @@ function dialectic_tts_cache_seed(string $root, string $speaker, string $text): 
         $cacheVersion .= ".inworld-dialectic-v2";
     }
 
-    return $cacheVersion . "\n" . $ttsFunction . "\n" . $speaker . "\n" . $voice . "\n" . $text;
+    $filterPreset = dialecticGetActiveTtsFilterPresetId();
+    return $cacheVersion . "\n" . $ttsFunction . "\n" . $speaker . "\n" . $voice . "\n"
+        . $filterPreset . ':' . DIALECTIC_TTS_FILTER_PRESET_VERSION . "\n" . $text;
 }
 
 function dialectic_tts_cache_key(string $root, string $speaker, string $text): string
@@ -134,7 +137,7 @@ function dialectic_tts_load_npc_voice_data(object $db, string $speaker): array
     }
 
     $escaped = method_exists($db, 'escape') ? $db->escape($speaker) : str_replace("'", "''", $speaker);
-    $row = $db->fetchOne("SELECT voiceid, extended_data FROM public.core_npc_master WHERE npc_name='{$escaped}' LIMIT 1");
+    $row = $db->fetchOne("SELECT voiceid, metadata, extended_data FROM public.core_npc_master WHERE npc_name='{$escaped}' LIMIT 1");
     if (!is_array($row)) {
         return [];
     }
@@ -143,7 +146,21 @@ function dialectic_tts_load_npc_voice_data(object $db, string $speaker): array
         'voiceid' => trim(strval($row['voiceid'] ?? '')),
         'voice_name' => '',
         'voice_formid' => '',
+        'tts_filter_preset' => 'none',
     ];
+
+    $metadata = $row['metadata'] ?? null;
+    if (is_string($metadata) && trim($metadata) !== '') {
+        $metadata = json_decode($metadata, true);
+    }
+    if (is_array($metadata)) {
+        foreach ($metadata as $metadataKey => $metadataValue) {
+            if (strcasecmp(strval($metadataKey), 'tts_filter_preset') === 0) {
+                $voiceData['tts_filter_preset'] = dialecticNormalizeTtsFilterPresetId($metadataValue);
+                break;
+            }
+        }
+    }
 
     $extended = $row['extended_data'] ?? null;
     if (is_string($extended) && trim($extended) !== '') {
@@ -208,8 +225,13 @@ function dialectic_tts_generate_for_response(string $root, string $speaker, stri
         $oldVoice = $GLOBALS["PATCH_OVERRIDE_VOICE"] ?? null;
         $hadName = array_key_exists("DIALECTIC_NAME", $GLOBALS);
         $hadVoice = array_key_exists("PATCH_OVERRIDE_VOICE", $GLOBALS);
+        $hadFilterPreset = array_key_exists('DIALECTIC_TTS_FILTER_PRESET_ID', $GLOBALS);
+        $oldFilterPreset = $GLOBALS['DIALECTIC_TTS_FILTER_PRESET_ID'] ?? null;
 
         $GLOBALS["DIALECTIC_NAME"] = $speaker;
+        $db = $GLOBALS["db"] ?? null;
+        $voiceData = is_object($db) ? dialectic_tts_load_npc_voice_data($db, $speaker) : [];
+        dialecticSetActiveTtsFilterPreset($voiceData['tts_filter_preset'] ?? 'none');
 
         $cacheSeed = dialectic_tts_cache_seed($root, $speaker, $text);
         $cacheKey = md5($cacheSeed);
@@ -217,9 +239,7 @@ function dialectic_tts_generate_for_response(string $root, string $speaker, stri
         $cacheReady = is_file($cachePath) && filesize($cachePath) > 44;
 
         if (!$cacheReady) {
-            $db = $GLOBALS["db"] ?? null;
             if (is_object($db)) {
-                $voiceData = dialectic_tts_load_npc_voice_data($db, $speaker);
                 $voice = trim(strval($voiceData['voiceid'] ?? ''));
                 if ($voice !== '') {
                     $GLOBALS["PATCH_OVERRIDE_VOICE"] = dialectic_resolve_tts_voice_reference($voice, [
@@ -246,6 +266,11 @@ function dialectic_tts_generate_for_response(string $root, string $speaker, stri
             $GLOBALS["PATCH_OVERRIDE_VOICE"] = $oldVoice;
         } else {
             unset($GLOBALS["PATCH_OVERRIDE_VOICE"]);
+        }
+        if ($hadFilterPreset) {
+            dialecticSetActiveTtsFilterPreset($oldFilterPreset);
+        } else {
+            dialecticClearActiveTtsFilterPreset();
         }
 
         $ok = is_file($cachePath) && filesize($cachePath) > 44;
