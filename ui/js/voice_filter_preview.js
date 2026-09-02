@@ -21,18 +21,21 @@
     var READY_TEXT = 'Sample ready.';
     var BUSY_TEXT = 'Generating sample…';
 
-    function readSource(field, attribute) {
+    function resolveSource(field, attribute) {
         var selector = field.getAttribute(attribute) || '';
         if (!selector) {
-            return '';
+            return null;
         }
-        var element = null;
         try {
             var form = field.closest('form');
-            element = (form && form.querySelector(selector)) || document.querySelector(selector);
+            return (form && form.querySelector(selector)) || document.querySelector(selector);
         } catch (error) {
-            return '';
+            return null;
         }
+    }
+
+    function readSource(field, attribute) {
+        var element = resolveSource(field, attribute);
         return element ? String(element.value || '').trim() : '';
     }
 
@@ -72,15 +75,37 @@
             return;
         }
 
-        // A new preset selection invalidates the sample that is already loaded.
-        select.addEventListener('change', function () {
+        // The loaded sample belongs to the values it was generated from, so a change to the preset,
+        // voice, profile or connector stops the player and takes it back out of the layout.
+        function discardSample() {
             if (audio && !audio.hidden) {
                 audio.pause();
                 audio.hidden = true;
                 audio.removeAttribute('src');
             }
             setStatus(statusNode, '', '');
+        }
+
+        [
+            select,
+            resolveSource(field, 'data-voice-filter-voice-source'),
+            resolveSource(field, 'data-voice-filter-profile-source'),
+            resolveSource(field, 'data-voice-filter-connector-source')
+        ].forEach(function (source) {
+            if (!source) {
+                return;
+            }
+            source.addEventListener('change', discardSample);
+            source.addEventListener('input', discardSample);
         });
+
+        if (audio) {
+            audio.addEventListener('error', function () {
+                if (audio.getAttribute('src')) {
+                    setStatus(statusNode, 'The sample audio could not be played.', 'error');
+                }
+            });
+        }
 
         button.addEventListener('click', function () {
             if (button.disabled) {
@@ -135,6 +160,7 @@
                 var ok = data.ok === true || data.status === 'success';
                 var audioUrl = data.audio_url || data.url || '';
                 if (!ok || !audioUrl) {
+                    discardSample();
                     setStatus(statusNode, data.error || data.message || 'Preview could not be generated.', 'error');
                     return;
                 }
@@ -153,6 +179,7 @@
                 }
                 setStatus(statusNode, READY_TEXT, 'ready');
             }).catch(function () {
+                discardSample();
                 setStatus(statusNode, 'Preview request failed. Check that the server is reachable.', 'error');
             }).then(function () {
                 button.disabled = false;

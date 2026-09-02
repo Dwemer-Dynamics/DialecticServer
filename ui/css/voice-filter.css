@@ -29,7 +29,8 @@
 
 /* Keyboard focus has to stay obvious on these dark surfaces. */
 .voice-filter-field select:focus-visible,
-.voice-filter-field button:focus-visible { outline:2px solid var(--voice-filter-accent); outline-offset:2px; }
+.voice-filter-field button:focus-visible,
+.voice-filter-field audio:focus-visible { outline:2px solid var(--voice-filter-accent); outline-offset:2px; }
 
 .voice-filter-sr-only { position:absolute; width:1px; height:1px; margin:-1px; padding:0; border:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 

@@ -308,7 +308,8 @@ if (!function_exists('dialecticRenderVoiceFilterField')) {
             . ' data-voice-filter-status>'
             . (count($choices) === 0 ? 'Voice filter presets are unavailable on this server.' : '')
             . '</p>';
-        $html .= '<audio class="voice-filter-audio" data-voice-filter-audio controls preload="none" hidden></audio>';
+        $html .= '<audio class="voice-filter-audio" data-voice-filter-audio controls preload="none" hidden'
+            . ' aria-label="Voice filter sample"></audio>';
         $html .= '</div>';
         $html .= '<' . $hintTag . ' class="hint">' . $escape($hint) . '</' . $hintTag . '>';
         $html .= $wrapFormItem ? '</div>' : '';
