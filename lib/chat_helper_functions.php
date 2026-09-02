@@ -10,6 +10,32 @@ require_once(__DIR__."/utils_game_timestamp.php");
 require_once(__DIR__."/emote_moods.php");
 require_once(__DIR__."/npc_tts_status.php");
 require_once(__DIR__."/tts_pronunciation.php");
+require_once(__DIR__."/core/tts_filter_presets.php");
+
+/** Run connector synthesis without sharing text-only cache entries between filter presets. */
+function dialecticRunTtsWithActiveFilter(callable $callback)
+{
+    $activePreset = dialecticGetActiveTtsFilterPresetId();
+    $hadAvoidCache = array_key_exists('AVOID_TTS_CACHE', $GLOBALS);
+    $oldAvoidCache = $GLOBALS['AVOID_TTS_CACHE'] ?? null;
+    if ($activePreset !== 'none') {
+        $GLOBALS['AVOID_TTS_CACHE'] = true;
+    }
+
+    try {
+        $output = $callback();
+    } finally {
+        if ($activePreset !== 'none') {
+            if ($hadAvoidCache) {
+                $GLOBALS['AVOID_TTS_CACHE'] = $oldAvoidCache;
+            } else {
+                unset($GLOBALS['AVOID_TTS_CACHE']);
+            }
+        }
+    }
+
+    return dialecticApplyActiveTtsFilterPresetToOutput($output);
+}
 
 function dialecticBuildLatestDiaryContextBlock(string $npcName, array $profileData): string
 {
@@ -80,7 +106,9 @@ function callConfiguredTts($textString, $mood, $stringforhash)
         return false;
     }
 
-    return $GLOBALS["TTS_IN_USE"]($textString, $mood, $stringforhash);
+    return dialecticRunTtsWithActiveFilter(
+        static fn() => $GLOBALS["TTS_IN_USE"]($textString, $mood, $stringforhash)
+    );
 }
 
 function dialecticTtsCacheKeyForLine(string $speaker, string $text): string
@@ -1084,6 +1112,8 @@ function saveCurrentVoiceSettings() {
         'patch_override_tts_language' => $GLOBALS['PATCH_OVERRIDE_TTS_LANGUAGE'] ?? null,
         'has_patch_override_tts_options' => array_key_exists('PATCH_OVERRIDE_TTS_OPTIONS', $GLOBALS),
         'patch_override_tts_options' => $GLOBALS['PATCH_OVERRIDE_TTS_OPTIONS'] ?? null,
+        'has_active_tts_filter_preset' => array_key_exists('DIALECTIC_TTS_FILTER_PRESET_ID', $GLOBALS),
+        'active_tts_filter_preset' => $GLOBALS['DIALECTIC_TTS_FILTER_PRESET_ID'] ?? null,
     ];
 }
 
@@ -1117,6 +1147,7 @@ function loadNarratorVoiceSettings() {
     require_once(__DIR__ . "/core/tts_connector.class.php");
 
     $narrator = new Narrator();
+    dialecticSetActiveTtsFilterPreset($narrator->get('tts_filter_preset') ?? 'none');
     $profileId = $narrator->getProfileId();
     if ($profileId) {
         $profileManager = new CoreProfile();
@@ -1196,6 +1227,12 @@ function restoreVoiceSettings($savedSettings) {
         $GLOBALS['PATCH_OVERRIDE_TTS_OPTIONS'] = $savedSettings['patch_override_tts_options'];
     } else {
         unset($GLOBALS['PATCH_OVERRIDE_TTS_OPTIONS']);
+    }
+
+    if (!empty($savedSettings['has_active_tts_filter_preset'])) {
+        dialecticSetActiveTtsFilterPreset($savedSettings['active_tts_filter_preset']);
+    } else {
+        dialecticClearActiveTtsFilterPreset();
     }
 }
 
@@ -1297,7 +1334,9 @@ function dialectic_generate_deferred_tts(): void
         ]);
         $ttsOutput = callNpcTtsWithFallback($text, (string)($entry["mood"] ?? "default"), $cacheSeed);
         if (!$ttsOutput && isset($GLOBALS["TTS_FALLBACK_FNCT"])) {
-            $ttsOutput = $GLOBALS["TTS_FALLBACK_FNCT"]($text, (string)($entry["mood"] ?? "default"), $cacheSeed);
+            $ttsOutput = dialecticRunTtsWithActiveFilter(
+                static fn() => $GLOBALS["TTS_FALLBACK_FNCT"]($text, (string)($entry["mood"] ?? "default"), $cacheSeed)
+            );
         }
 
         $cachePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . "soundcache" . DIRECTORY_SEPARATOR . $cacheKey . ".wav";
@@ -1980,7 +2019,9 @@ function returnLines($lines,$writeOutput=true)
                     ]);
                     $ttsOutput = callNpcTtsWithFallback($pendingNpcTtsText, $pendingNpcTtsMood, $pendingNpcTtsCacheKey);
                     if (!$ttsOutput && isset($GLOBALS["TTS_FALLBACK_FNCT"])) {
-                        $ttsOutput = $GLOBALS["TTS_FALLBACK_FNCT"]($pendingNpcTtsText, $pendingNpcTtsMood, $pendingNpcTtsCacheKey);
+                        $ttsOutput = dialecticRunTtsWithActiveFilter(
+                            static fn() => $GLOBALS["TTS_FALLBACK_FNCT"]($pendingNpcTtsText, $pendingNpcTtsMood, $pendingNpcTtsCacheKey)
+                        );
                     }
 
                     if ($ttsOutput) {
@@ -2110,7 +2151,9 @@ function returnLines($lines,$writeOutput=true)
             ]);
             $ttsOutput = callNpcTtsWithFallback($pendingNpcTtsText, $pendingNpcTtsMood, $pendingNpcTtsCacheKey);
             if (!$ttsOutput && isset($GLOBALS["TTS_FALLBACK_FNCT"])) {
-                $ttsOutput = $GLOBALS["TTS_FALLBACK_FNCT"]($pendingNpcTtsText, $pendingNpcTtsMood, $pendingNpcTtsCacheKey);
+                $ttsOutput = dialecticRunTtsWithActiveFilter(
+                    static fn() => $GLOBALS["TTS_FALLBACK_FNCT"]($pendingNpcTtsText, $pendingNpcTtsMood, $pendingNpcTtsCacheKey)
+                );
             }
 
             if ($ttsOutput) {
