@@ -1,5 +1,20 @@
 <?php
 
+// Shared "Storage & Cleanup" fragment mode. The Dwemer Dashboard includes this
+// page in-process and renders its controls inside the shared shell, so only the
+// document chrome and asset URLs adapt while server-owned operations stay here.
+$ptmFragment = defined('DWEMER_STORAGE_FRAGMENT') && DWEMER_STORAGE_FRAGMENT === true;
+if (!$ptmFragment) {
+ // Shared compatibility policy lives in one place: redirect a bookmarked view,
+ // refuse stale writes, and stay standalone when the Dashboard is absent.
+ $ptmRouteHelper = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'lib'
+  . DIRECTORY_SEPARATOR . 'storage_manager_route.php';
+ if (is_file($ptmRouteHelper)) {
+  require_once $ptmRouteHelper;
+  dwemerStorageRedirect('dialectic', 'manage');
+ }
+}
+
 $enginePath = dirname(__DIR__) . DIRECTORY_SEPARATOR;
 
 require_once(__DIR__.DIRECTORY_SEPARATOR."profile_loader.php");
@@ -21,14 +36,33 @@ if ($webRoot == '/') $webRoot = '';
 $webRoot = rtrim($webRoot, '/');
 
 $TITLE = " DIALECTIC - Playthrough Manager";
-ob_start();
-include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
-?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><?php
-// Embed mode and navbar (match WorldKnowledge style)
-$isEmbed = (isset($_GET['embed']) && $_GET['embed'] == '1');
 $debugPaneLink = false;
-if (!$isEmbed) {
- include(__DIR__.DIRECTORY_SEPARATOR."tmpl/navbar.php");
+if ($ptmFragment) {
+ // The shared page lives under a different path, so every asset and endpoint
+ // URL is rebuilt against this server's own web root.
+ $webRoot = DWEMER_STORAGE_FRAGMENT_WEBROOT;
+ $isEmbed = true;
+ foreach ([
+  $webRoot . '/ui/lib/ui/bootstrap/bootstrap.min.css',
+  $webRoot . '/ui/css/style_new.css',
+  $webRoot . '/ui/css/dialectic-theme.css',
+  $webRoot . '/ui/css/main.css',
+ ] as $ptmStyleHref) {
+  if (function_exists('dwemer_storage_fragment_style')) {
+   dwemer_storage_fragment_style($ptmStyleHref);
+  } else {
+   echo '<link rel="stylesheet" href="' . htmlspecialchars($ptmStyleHref, ENT_QUOTES, 'UTF-8') . '">';
+  }
+ }
+} else {
+ ob_start();
+ include(__DIR__.DIRECTORY_SEPARATOR."tmpl/head.html");
+?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><?php
+ // Embed mode and navbar (match WorldKnowledge style)
+ $isEmbed = (isset($_GET['embed']) && $_GET['embed'] == '1');
+ if (!$isEmbed) {
+  include(__DIR__.DIRECTORY_SEPARATOR."tmpl/navbar.php");
+ }
 }
 
 $dbSettings = dialecticDbConnectionSettings('dialectic');
@@ -40,56 +74,14 @@ $username = $dbSettings['username'];
 $password = $dbSettings['password'];
 
 // Use a direct connection for playthrough administration; bootstrap owns the schema.
-$adminConn = pg_connect(dialecticPgConnectionString($dbSettings));
-if (!$adminConn) {
- echo '<div class="message"><p><strong>Error:</strong> Failed to connect to database: '.htmlspecialchars(pg_last_error()).'</p></div>';
-} else {
- $metaReady = pts_metadata_schema_ready($adminConn);
- if (!$metaReady) {
-  echo '<div class="message"><p><strong>Error:</strong> Playthrough metadata schema is unavailable. Run the DIALECTIC database bootstrap and check the server log.</p></div>';
- }
- // Auto-capture current DB as 'default' profile if none exists yet (GET-only)
- $needsDefault = false;
- if ($metaReady && $_SERVER['REQUEST_METHOD'] === 'GET') {
- $cntRes = @pg_query($adminConn, "SELECT COUNT(*) AS c FROM dialectic_meta.playthrough_profiles");
- if ($cntRes && ($c = pg_fetch_assoc($cntRes)) && intval($c['c']) === 0) { $needsDefault = true; }
- // Guard against partial states: if a row named 'default' exists, skip
- $existsRes = @pg_query_params($adminConn, "SELECT 1 FROM dialectic_meta.playthrough_profiles WHERE name=$1 LIMIT 1", ['default']);
- if ($existsRes && pg_fetch_assoc($existsRes)) { $needsDefault = false; }
- }
- if ($needsDefault) {
- $playerName = (string)($GLOBALS['PLAYER_NAME'] ?? 'Unknown');
- $gameName = 'Fallout';
- $eventlogCount = 0; $worldknowledgeCount = 0; $lastGamets = 0;
- $r1 = @pg_query($adminConn, "SELECT COUNT(*) AS c FROM {$schema}.eventlog");
- if ($r1 && ($rr = pg_fetch_assoc($r1))) { $eventlogCount = intval($rr['c']); }
- $rex = @pg_query_params($adminConn, "SELECT 1 FROM information_schema.tables WHERE table_schema=$1 AND table_name='worldknowledge' LIMIT 1", [$schema]);
- $hasWorldKnowledge = ($rex && pg_fetch_assoc($rex)) ? true : false;
- if ($hasWorldKnowledge) {
- $r2 = @pg_query($adminConn, "SELECT COUNT(*) AS c FROM {$schema}.worldknowledge");
- if ($r2 && ($rr = pg_fetch_assoc($r2))) { $worldknowledgeCount = intval($rr['c']); }
- }
- $r3 = @pg_query($adminConn, "SELECT MAX(gamets) AS mx FROM {$schema}.eventlog");
- if ($r3 && ($rr = pg_fetch_assoc($r3)) && !is_null($rr['mx'])) { $lastGamets = intval($rr['mx']); }
-
- // Use new schema-based storage for default profile
- $schemaName = pts_sanitize_profile_name('default');
- $cloneResult = pts_clone_schema($adminConn, 'public', $schemaName);
- if ($cloneResult['success']) {
- $size = pts_get_schema_size($adminConn, $schemaName);
- @pg_query($adminConn, 'BEGIN');
- $q1 = @pg_query_params(
- $adminConn,
- "INSERT INTO dialectic_meta.playthrough_profiles (name, size_bytes, storage_type, notes, is_active, player_name, game, eventlog_count, worldknowledge_count, last_gamets, schema_name) VALUES ($1,$2,$3,$4,true,$5,$6,$7,$8,$9,$10)",
- ['default', (string)$size, 'schema', 'Auto-captured default profile', $playerName, $gameName, (string)$eventlogCount, (string)$worldknowledgeCount, (string)$lastGamets, $schemaName]
- );
- if ($q1) {
- @pg_query($adminConn, 'COMMIT');
- } else {
- @pg_query($adminConn, 'ROLLBACK');
- }
- }
- }
+$adminConn = @pg_connect(dialecticPgConnectionString($dbSettings));
+$metaReady = false;
+if ($adminConn) {
+ $readyResult = @pg_query($adminConn, "SELECT to_regclass('dialectic_meta.playthrough_profiles') IS NOT NULL");
+ $metaReady = $readyResult && pg_fetch_result($readyResult, 0, 0) === 't';
+}
+if (!$metaReady) {
+ echo '<div class="message">Playthrough metadata is unavailable. Run the DIALECTIC database update, then reload this page.</div>';
 }
 
 $db = new sql();
@@ -104,219 +96,16 @@ function formatFileSize($bytes) {
  return round($bytes / pow($k, $i), 2) . ' ' . $sizes[$i];
 }
 
-// Handle actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
- $action = $_POST['action'] ?? '';
-
- if ($action === 'create') {
- $name = trim((string)($_POST['name'] ?? ''));
- $notes = trim((string)($_POST['notes'] ?? ''));
- if ($name === '') {
- $message .= '<p><strong>Error:</strong> Name is required.</p>';
- } else if (!$adminConn) {
- $message .= '<p><strong>Error:</strong> DB connection not available.</p>';
- } else {
- // Use schema-based storage for instant snapshots
- $schemaName = pts_sanitize_profile_name($name);
-
- // Check if schema already exists
- if (pts_schema_exists($adminConn, $schemaName)) {
- $message .= '<p><strong>Error:</strong> A profile with this name already exists.</p>';
- } else {
- // Clone public schema to new profile schema
- $cloneResult = pts_clone_schema($adminConn, 'public', $schemaName);
-
- if (!$cloneResult['success']) {
- $message .= '<p><strong>Error:</strong> Failed to create snapshot.</p>';
- $message .= '<pre>'.h($cloneResult['error']).'</pre>';
- } else {
- // Collect metadata
- $playerName = (string)($GLOBALS['PLAYER_NAME'] ?? 'Unknown');
- $gameName = 'Fallout';
- $eventlogCount = 0; $worldknowledgeCount = 0; $lastGamets = 0;
- $r1 = @pg_query($adminConn, "SELECT COUNT(*) AS c FROM {$schema}.eventlog");
- if ($r1 && ($rr = pg_fetch_assoc($r1))) { $eventlogCount = intval($rr['c']); }
- $rex = @pg_query_params($adminConn, "SELECT 1 FROM information_schema.tables WHERE table_schema=$1 AND table_name='worldknowledge' LIMIT 1", [$schema]);
- $hasWorldKnowledge = ($rex && pg_fetch_assoc($rex)) ? true : false;
- if ($hasWorldKnowledge) {
- $r2 = @pg_query($adminConn, "SELECT COUNT(*) AS c FROM {$schema}.worldknowledge");
- if ($r2 && ($rr = pg_fetch_assoc($r2))) { $worldknowledgeCount = intval($rr['c']); }
- }
- $r3 = @pg_query($adminConn, "SELECT MAX(gamets) AS mx FROM {$schema}.eventlog");
- if ($r3 && ($rr = pg_fetch_assoc($r3)) && !is_null($rr['mx'])) { $lastGamets = intval($rr['mx']); }
-
- // Calculate schema size
- $size = pts_get_schema_size($adminConn, $schemaName);
-
- // Insert profile record
- @pg_query($adminConn, 'BEGIN');
- $q1 = @pg_query_params(
- $adminConn,
- "INSERT INTO dialectic_meta.playthrough_profiles (name, size_bytes, storage_type, notes, is_active, player_name, game, eventlog_count, worldknowledge_count, last_gamets, schema_name) VALUES ($1,$2,$3,$4,false,$5,$6,$7,$8,$9,$10)",
- [$name, (string)$size, 'schema', $notes, $playerName, $gameName, (string)$eventlogCount, (string)$worldknowledgeCount, (string)$lastGamets, $schemaName]
- );
- if ($q1) {
- @pg_query($adminConn, 'COMMIT');
- $message .= '<p><strong> Snapshot created:</strong> '.h($name).' ('.h(formatFileSize($size)).')</p>';
- } else {
- @pg_query($adminConn, 'ROLLBACK');
- $message .= '<p><strong>Error:</strong> Failed to save snapshot metadata.</p>';
- }
- }
- }
- }
- }
-
- if ($action === 'switch') {
- $profileId = intval($_POST['profile_id'] ?? 0);
- if ($profileId <= 0) {
- $message .= '<p><strong>Error:</strong> Invalid profile selected.</p>';
- } else if (!$adminConn) {
- $message .= '<p><strong>Error:</strong> DB connection not available.</p>';
- } else {
- // Fetch target profile info
- $targetRes = pg_query_params($adminConn, 'SELECT name, storage_type, schema_name FROM dialectic_meta.playthrough_profiles WHERE id=$1', [$profileId]);
- $targetRow = $targetRes ? pg_fetch_assoc($targetRes) : null;
- if (!$targetRow) {
- $message .= '<p><strong>Error:</strong> Profile not found.</p>';
- goto SWITCH_ABORT;
- }
-
- $targetName = $targetRow['name'];
- $targetStorageType = $targetRow['storage_type'] ?? 'schema';
- $targetSchemaName = $targetRow['schema_name'] ?? '';
-
- // 1) Auto-save current active profile BEFORE switching
- $curRes = pg_query($adminConn, "SELECT id, name, storage_type, schema_name FROM dialectic_meta.playthrough_profiles WHERE is_active = true LIMIT 1");
- $curRow = $curRes ? pg_fetch_assoc($curRes) : null;
- if ($curRow) {
- $curProfileId = intval($curRow['id']);
- $curStorageType = $curRow['storage_type'] ?? 'schema';
- $curSchemaName = $curRow['schema_name'] ?? '';
-
- // Gather live metadata
- $playerName = (string)($GLOBALS['PLAYER_NAME'] ?? 'Unknown');
- $gameName = 'Fallout';
- $eventlogCount = 0; $worldknowledgeCount = 0; $lastGamets = 0;
- $r1 = @pg_query($adminConn, "SELECT COUNT(*) AS c FROM {$schema}.eventlog");
- if ($r1 && ($rr = pg_fetch_assoc($r1))) { $eventlogCount = intval($rr['c']); }
- $rex = @pg_query_params($adminConn, "SELECT 1 FROM information_schema.tables WHERE table_schema=$1 AND table_name='worldknowledge' LIMIT 1", [$schema]);
- $hasWorldKnowledge = ($rex && pg_fetch_assoc($rex)) ? true : false;
- if ($hasWorldKnowledge) {
- $r2 = @pg_query($adminConn, "SELECT COUNT(*) AS c FROM {$schema}.worldknowledge");
- if ($r2 && ($rr = pg_fetch_assoc($r2))) { $worldknowledgeCount = intval($rr['c']); }
- }
- $r3 = @pg_query($adminConn, "SELECT MAX(gamets) AS mx FROM {$schema}.eventlog");
- if ($r3 && ($rr = pg_fetch_assoc($r3)) && !is_null($rr['mx'])) { $lastGamets = intval($rr['mx']); }
-
- if ($curStorageType === 'schema' && !empty($curSchemaName)) {
- // Schema-based: clone public back to profile schema
- $cloneResult = pts_clone_schema($adminConn, 'public', $curSchemaName);
- if (!$cloneResult['success']) {
- $message .= '<p><strong>Error:</strong> Failed to save current profile. Aborting switch.</p>';
- $message .= '<pre>'.h($cloneResult['error']).'</pre>';
- goto SWITCH_ABORT;
- }
- // Update metadata
- $size = pts_get_schema_size($adminConn, $curSchemaName);
- @pg_query_params(
- $adminConn,
- 'UPDATE dialectic_meta.playthrough_profiles SET size_bytes=$2, player_name=$3, game=$4, eventlog_count=$5, worldknowledge_count=$6, last_gamets=$7 WHERE id=$1',
- [(string)$curProfileId, (string)$size, $playerName, $gameName, (string)$eventlogCount, (string)$worldknowledgeCount, (string)$lastGamets]
- );
- } else {
- $message .= '<p><strong>Error:</strong> Unsupported playthrough storage type for the current profile. Recreate this profile with schema storage.</p>';
- goto SWITCH_ABORT;
- }
- }
-
- // 2) Load target profile
- if ($targetStorageType === 'schema' && !empty($targetSchemaName)) {
- // Schema-based: fast switch
- if (!pts_schema_exists($adminConn, $targetSchemaName)) {
- $message .= '<p><strong>Error:</strong> Profile schema does not exist.</p>';
- goto SWITCH_ABORT;
- }
-
- // Recreate public schema
- if (!pts_recreate_public_schema($adminConn)) {
- $message .= '<p><strong>Error:</strong> Failed to recreate public schema.</p>';
- goto SWITCH_ABORT;
- }
-
- // Clone profile schema to public
- $cloneResult = pts_clone_schema($adminConn, $targetSchemaName, 'public');
- if (!$cloneResult['success']) {
- $message .= '<p><strong>Error:</strong> Failed to load profile.</p>';
- $message .= '<pre>'.h($cloneResult['error']).'</pre>';
- goto SWITCH_ABORT;
- }
-
- // Mark active
- pg_query($adminConn, 'BEGIN');
- pg_query($adminConn, 'UPDATE dialectic_meta.playthrough_profiles SET is_active = false');
- $resU = pg_query_params($adminConn, 'UPDATE dialectic_meta.playthrough_profiles SET is_active = true WHERE id=$1', [$profileId]);
- if ($resU) {
- pg_query($adminConn, 'COMMIT');
- pg_query($adminConn, 'TRUNCATE table public.database_versioning'); // So views and functiosn get recreated on next server starttup
- $message .= '<p><strong> Switched to profile:</strong> '.h($targetName).'</p>';
- $message .= '<div style="background:#4a1e0d; border:2px solid #dc2626; border-radius:8px; padding:15px; margin-top:15px;">';
- $message .= '<p style="color:#fbbf24; font-weight:bold; margin:0 0 10px 0;"> RESTART REQUIRED</p>';
- $message .= '<p style="margin:0 0 8px 0;">You must restart the DIALECTIC server for the switch to take effect:</p>';
- $message .= '<ol style="margin:5px 0; padding-left:20px;">';
- $message .= '<li>Shutdown Fallout</li>';
- $message .= '<li>Restart DIALECTIC Server</li>';
- $message .= '<li>Restart Fallout and load into the save you want to continue from</li>';
- $message .= '</ol>';
- $message .= '<p style="margin:8px 0 0 0; font-size:0.9em; color:#ccc;">Database connections were terminated during the schema switch.</p>';
- $message .= '</div>';
- } else {
- pg_query($adminConn, 'ROLLBACK');
- $message .= '<p><strong>Warning:</strong> Profile loaded but failed to mark active.</p>';
- }
- } else {
- $message .= '<p><strong>Error:</strong> Unsupported playthrough storage type for the selected profile. Recreate this profile with schema storage.</p>';
- goto SWITCH_ABORT;
- }
- }
- SWITCH_ABORT:;
- }
-
- if ($action === 'delete') {
- $profileId = intval($_POST['profile_id'] ?? 0);
- if ($profileId <= 0) {
- $message .= '<p><strong>Error:</strong> Invalid profile selected.</p>';
- } else if (!$adminConn) {
- $message .= '<p><strong>Error:</strong> DB connection not available.</p>';
- } else {
- $row = $db->fetchOne("SELECT is_active, name, storage_type, schema_name FROM dialectic_meta.playthrough_profiles WHERE id = ".$profileId);
- if (!$row) {
- $message .= '<p><strong>Error:</strong> Profile not found.</p>';
- } else if ((int)$row['is_active'] === 1) {
- $message .= '<p><strong>Error:</strong> Cannot delete the active profile.</p>';
- } else if (strtolower((string)$row['name']) === 'default') {
- $message .= '<p><strong>Error:</strong> Cannot delete the default profile.</p>';
- } else {
- $storageType = $row['storage_type'] ?? 'schema';
- $schemaName = $row['schema_name'] ?? '';
-
- // If schema-based, drop the schema first
- if ($storageType === 'schema' && !empty($schemaName)) {
- $dropResult = pts_drop_schema($adminConn, $schemaName);
- if (!$dropResult['success']) {
- $message .= '<p><strong>Warning:</strong> Failed to drop schema: '.h($dropResult['error']).'</p>';
- }
- }
-
- // Delete profile record.
- $ok = pg_query_params($adminConn, 'DELETE FROM dialectic_meta.playthrough_profiles WHERE id=$1', [$profileId]);
- if ($ok) {
- $message .= '<p><strong> Deleted:</strong> '.h($row['name']).'</p>';
- } else {
- $message .= '<p><strong>Error:</strong> Failed to delete profile.</p>';
- }
- }
- }
+// The server-owned adapter keeps snapshot schemas, live data and metadata atomic.
+require_once $enginePath . 'lib/playthrough_manager_actions.php';
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+ try {
+  if (!$adminConn) throw new RuntimeException('The database is unavailable.');
+  $action = $_POST['action'] ?? '';
+  if (!is_string($action)) throw new RuntimeException('Invalid snapshot action.');
+  $message = '<p>' . h(dpt_manage($adminConn, $action, $_POST)) . '</p>';
+ } catch (Throwable $e) {
+  $message = '<p><strong>Error:</strong> ' . h($e->getMessage()) . '</p>';
  }
 }
 
@@ -471,7 +260,7 @@ if (!empty($timelineItems)) {
  .lds-ring div:nth-child(2) { animation-delay:-0.3s; }
  .lds-ring div:nth-child(3) { animation-delay:-0.15s; }
  @keyframes lds-ring { 0% { transform: rotate(0deg);} 100% { transform: rotate(360deg);} }
-</style><?php if ($isEmbed): ?><style> main { padding-top: 20px; } </style><?php endif; ?><main><div id="toast" class="toast-notification"><span class="message"></span></div><div id="switch-overlay" role="alert" aria-live="assertive" aria-modal="true"><div class="loading-modal"><div class="loading-title" id="loading-title">Restoring Snapshot</div><div class="lds-ring"><div></div><div></div><div></div><div></div></div><div class="loading-sub">This can take a few minutes. Please keep this tab open.</div></div></div><div class="page-header"><h1>Playthrough Manager</h1><div style="font-size: 0.95em; color: #ccc; margin-bottom: 15px;">Create, switch, and manage playthrough snapshots using instant schema cloning.</div><div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; border: 1px solid #444; margin-top: 15px;"><div style="font-size: 0.9em; color: #e0e0e0; line-height: 1.6;"><strong style="color: #4ade80;">How it works:</strong><br><strong>Public Schema</strong> = Your active database schema where your current playthrough is stored.<br><strong>Stored Snapshots</strong> = Backups in separate schemas<br><strong>Switching</strong> = Copies a snapshot INTO public (auto-saves current public first)<br><strong>Timeline Breaks</strong> = Auto-snapshots when you load a save 3+ days behind<br></div></div></div><div class="content-section full-width-section" style="background: linear-gradient(135deg, #1a3a2a 0%, #2a2a2a 100%); border: 2px solid #4ade80;"><div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;"><div style="font-size: 2.5em;"></div><div style="flex: 1;"><h2 style="margin: 0;">Active Database</h2><div style="font-size: 0.9em; color: #9fb1c9; margin-top: 4px;">
+</style><?php if ($isEmbed): ?><style> main { padding-top: 20px; } </style><?php endif; ?><main><div id="toast" class="toast-notification"><span class="message"></span></div><div id="switch-overlay" role="alert" aria-live="assertive" aria-modal="true"><div class="loading-modal"><div class="loading-title" id="loading-title">Restoring Snapshot</div><div class="lds-ring"><div></div><div></div><div></div><div></div></div><div class="loading-sub">This can take a few minutes. Please keep this tab open.</div></div></div><div class="page-header"><?php if ($ptmFragment): ?><h2>Snapshots and cleanup</h2><?php else: ?><h1>Playthrough Manager</h1><?php endif; ?><div style="font-size: 0.95em; color: #ccc; margin-bottom: 15px;">Save or restore server snapshots. Restoring first saves current progress over the loaded snapshot.</div><details class="storage-help"><summary>How snapshots work</summary><div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; border: 1px solid #444; margin-top: 15px;"><div style="font-size: 0.9em; color: #e0e0e0; line-height: 1.6;"><strong>Public Schema</strong> = Your active database schema where your current playthrough is stored.<br><strong>Stored Snapshots</strong> = Backups in separate schemas<br><strong>Switching</strong> = Copies a snapshot INTO public (auto-saves current public first)<br><strong>Timeline Breaks</strong> = Auto-snapshots when you load a save 3+ days behind<br></div></div></details></div><div class="content-section full-width-section" style="background: linear-gradient(135deg, #1a3a2a 0%, #2a2a2a 100%); border: 2px solid #4ade80;"><div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;"><div style="font-size: 2.5em;"></div><div style="flex: 1;"><h2 style="margin: 0;">Active Database</h2><div style="font-size: 0.9em; color: #9fb1c9; margin-top: 4px;">
  This is the live database used by DIALECTIC. It's on the Public Schema.
  </div></div></div><div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 6px; border-left: 4px solid #4ade80;"><div style="display:flex; gap:12px; flex-wrap:wrap; font-size: 14px; color:#ccc; align-items: center;"><div style="font-size: 1.1em; color: #4ade80; font-weight: bold;">
  Last copied from: <?php echo h($activeProfileName !== '' ? $activeProfileName : '(unknown)'); ?></div><div style="border-left: 2px solid #444; padding-left: 12px; margin-left: 6px;"><strong style="color:#f8f9fa;">Player:</strong><span id="live-player"><?php echo h($livePlayerName); ?></span></div><div><strong style="color:#f8f9fa;">Game:</strong><span id="live-game"><?php echo h($liveGameName); ?></span></div><div><strong style="color:#f8f9fa;">Events:</strong><span id="live-eventlog"><?php echo intval($liveEventlogCount); ?></span></div><div><strong style="color:#f8f9fa;">WorldKnowledge:</strong><span id="live-worldknowledge"><?php echo intval($liveWorldKnowledgeCount); ?></span></div><div><strong style="color:#f8f9fa;">Last in-game date:</strong><span id="live-last"><?php echo h($liveFalloutDate !== '' ? $liveFalloutDate : 'n/a'); ?></span></div></div></div><?php if (!empty($timelineItems)) { ?><div class="timeline" id="pt-timeline"><div class="timeline-title" id="pt-title"></div><div class="timeline-track"></div><div class="timeline-notches" id="pt-timeline-notches"></div><div class="timeline-nodes" id="pt-timeline-nodes"></div><div class="timeline-legend"><span id="pt-min"></span><span id="pt-max"></span></div><div class="timeline-tooltip" id="pt-tooltip"></div></div><?php } ?></div><?php if (!empty($message)) { echo '<div class="content-section">'.$message.'</div>'; } ?><div class="content-grid"><div class="content-section"><h2> Save Current Public Database</h2><div style="font-size: 0.9em; color: #9fb1c9; margin-bottom: 12px;">
@@ -502,11 +291,13 @@ if (!empty($timelineItems)) {
  $lg = isset($p['last_gamets']) ? intval($p['last_gamets']) : 0;
  $skDate = $lg > 0 ? convert_gamets2fallout_long_date($lg) : '';
  ?><span> last in-game: <?php echo h($skDate); ?></span></div><?php if (!empty($p['notes'])) { ?><div style="font-size: 12px; color:#9fb1c9; margin-top: 4px; word-break: break-all;"><?php echo h($p['notes']); ?></div><?php } ?></div><div style="display:flex; gap:6px; align-items:flex-start;"><?php if ((int)$p['is_active'] !== 1) { ?><form method="post" class="switch-form"><input type="hidden" name="action" value="switch"><input type="hidden" name="profile_id" value="<?php echo (int)$p['id']; ?>"><button type="submit" class="button" style="background-color: rgb(1 53 166 / 90%); color:#fff; padding:6px 10px;">Copy to Public</button></form><?php } else { ?><button class="button" style="background-color: #333; color:#999; padding:6px 10px; cursor: not-allowed;" disabled>Already Active</button><?php } ?><?php $isDefault = (strtolower((string)$p['name']) === 'default'); ?><?php if (!$isDefault) { ?><form method="post" onsubmit="return confirm('Delete this snapshot? This action cannot be undone.');"><input type="hidden" name="action" value="delete"><input type="hidden" name="profile_id" value="<?php echo (int)$p['id']; ?>"><button type="submit" class="button" style="background-color: rgba(166, 53, 63, 0.9); color:#fff; padding:6px 10px;" <?php echo ((int)$p['is_active']===1? 'disabled':''); ?>>Delete</button></form><?php } ?></div></div></div><?php } ?></div><?php } ?></div></div></main><?php
-$buffer = ob_get_contents();
-ob_end_clean();
-$title = $TITLE;
-$buffer = preg_replace('/(<title>)(.*?)(<\/title>)/i', '$1' . $title . '$3', $buffer);
-echo $buffer;
+if (!$ptmFragment) {
+ $buffer = ob_get_contents();
+ ob_end_clean();
+ $title = $TITLE;
+ $buffer = preg_replace('/(<title>)(.*?)(<\/title>)/i', '$1' . $title . '$3', $buffer);
+ echo $buffer;
+}
 ?><script>
 (function(){
  const overlay = document.getElementById('switch-overlay');
@@ -630,5 +421,3 @@ echo $buffer;
  } catch (_e) {}
 })();
 </script>
-
-
