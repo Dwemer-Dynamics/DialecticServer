@@ -1,5 +1,14 @@
 <?php 
 
+// Expand the legacy placeholders still used by rolemaster instruction responses.
+function make_replacements($text)
+{
+    return strtr($text, [
+        "#LOCATION#" => DataLastKnownLocationHuman(),
+        "#PLAYER#" => $GLOBALS["PLAYER_NAME"],
+    ]);
+}
+
 $GLOBALS["TASKS"]["rolemaster"]=[];
 $GLOBALS["TASKS"]["rolemaster"]["explicit_only"]=true;
 $GLOBALS["TASKS"]["rolemaster"]["fn"]=function() {
