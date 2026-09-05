@@ -103,7 +103,8 @@ if (!isset($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]) ) {
         // Function stuff
         require($enginePath . "functions/functions_instruction.php");
 
-        if (!function_exists('dialecticActionCatalogIsActionEnabled') || dialecticActionCatalogIsActionEnabled("ReturnBackHome")) {
+        if (isset($GLOBALS["BASE_FUNCTIONS"]["ReturnBackHome"]) &&
+            (!function_exists('dialecticActionCatalogIsActionEnabled') || dialecticActionCatalogIsActionEnabled("ReturnBackHome"))) {
             $GLOBALS["ENABLED_FUNCTIONS"][]="ReturnBackHome";
             $GLOBALS["FUNCTIONS"][]=$GLOBALS["BASE_FUNCTIONS"]["ReturnBackHome"];
         }
