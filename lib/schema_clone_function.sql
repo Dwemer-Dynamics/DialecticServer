@@ -1,4 +1,4 @@
--- Schema cloning function for fast playthrough snapshots
+-- Schema cloning function for fast playthrough saves
 -- This function clones an entire PostgreSQL schema including tables, data, sequences, and views
 -- Functions are created in dialectic_meta schema so they survive public schema drops
 

@@ -25,6 +25,20 @@ if (!is_string($distroDashboardRoot) || trim($distroDashboardRoot) === '' || $di
 $distroDebuggerDialecticEmbedUrl = rtrim($distroDashboardRoot, '/') . '/distro_debugger.php?embed=1&tab=dialectic';
 $distroDatabaseManagerUrl = rtrim($distroDashboardRoot, '/') . '/database_manager.php?server=DialecticServer&embed=1';
 
+// One entry point: playthroughs, storage and database tools now share a single page.
+$distroDataManagerFile = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'Dwemer-Dashboard'
+ . DIRECTORY_SEPARATOR . 'data_manager.php';
+$distroDataManagerAvailable = is_file($distroDataManagerFile) && is_file(dirname($distroDataManagerFile) . '/lib/storage_fragment.php');
+$storageTabLabel = 'Playthrough Management';
+$storageEmbedUrl = $distroDataManagerAvailable
+ ? rtrim($distroDashboardRoot, '/') . '/data_manager.php?mod=dialectic&view=manage'
+ : $webRoot . '/ui/playthrough_manager.php?embed=1';
+$storageEmbedTitle = $distroDataManagerAvailable
+ ? 'DIALECTIC playthroughs, storage and database tools'
+ : 'DIALECTIC Playthrough Manager';
+// Without the shared page installed, the legacy database tools keep their own tab.
+$legacyDbmgrEmbedUrl = $distroDataManagerAvailable ? null : $distroDatabaseManagerUrl;
+
 $TITLE = "Control Panel";
 $BODY_CLASS = 'hub-page dialectic-hub-flow';
 ob_start();
@@ -144,10 +158,10 @@ main { padding-top: 80px; padding-left: 10px; padding-right: 10px; }
 </div></section>
 <section class="tab-group" data-category="data-tools"><div class="tab-group-label">Data &amp; Tools</div><div class="tab-buttons" role="tablist" aria-label="Data and tools pages">
 <button class="tab-button" data-tab="cache" data-category="data-tools"><span class="tab-icon" aria-hidden="true">&#x1F3BC;</span><span class="tab-label">Audio &amp; Image Cache</span></button>
-<button class="tab-button" data-tab="playthrough" data-category="data-tools"><span class="tab-icon" aria-hidden="true">&#x1F3AE;</span><span class="tab-label">Playthrough Manager</span></button>
-<button class="tab-button" data-tab="dbmgr" data-category="data-tools"><span class="tab-icon" aria-hidden="true">&#x1F5C4;&#xFE0F;</span><span class="tab-label">Database Manager</span></button>
+<button class="tab-button" data-tab="storage" data-category="data-tools"><span class="tab-icon" aria-hidden="true">&#x1F5C4;&#xFE0F;</span><span class="tab-label"><?php echo htmlspecialchars($storageTabLabel, ENT_QUOTES, 'UTF-8'); ?></span></button>
+<?php if ($legacyDbmgrEmbedUrl !== null): ?><button class="tab-button" data-tab="dbmgr" data-category="data-tools"><span class="tab-icon" aria-hidden="true">&#x1F5C3;&#xFE0F;</span><span class="tab-label">Database Manager</span></button><?php endif; ?>
 </div></section>
-</div></div><div id="srvlogs" class="tab-content active"><div class="embed-wrap"><iframe class="embed" loading="eager" src="<?php echo htmlspecialchars($distroDebuggerDialecticEmbedUrl, ENT_QUOTES, 'UTF-8'); ?>"></iframe></div></div><div id="cache" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/soundcache/"></iframe></div></div><div id="requests" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/request_logs.php?embed=1"></iframe></div></div><div id="worldknowledgeaudit" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/worldknowledge_audit.php?embed=1"></iframe></div></div><div id="audit" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/audit.php?embed=1"></iframe></div></div><div id="responses" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/index.php?table=responselog&embed=1"></iframe></div></div><div id="rellogs" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/relationship_logs.php?embed=1"></iframe></div></div><div id="playthrough" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/playthrough_manager.php?embed=1"></iframe></div></div><div id="dbmgr" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo htmlspecialchars($distroDatabaseManagerUrl, ENT_QUOTES, 'UTF-8'); ?>"></iframe></div></div></main><script>
+</div></div><div id="srvlogs" class="tab-content active"><div class="embed-wrap"><iframe class="embed" loading="eager" src="<?php echo htmlspecialchars($distroDebuggerDialecticEmbedUrl, ENT_QUOTES, 'UTF-8'); ?>"></iframe></div></div><div id="cache" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/soundcache/"></iframe></div></div><div id="requests" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/request_logs.php?embed=1"></iframe></div></div><div id="worldknowledgeaudit" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/worldknowledge_audit.php?embed=1"></iframe></div></div><div id="audit" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/audit.php?embed=1"></iframe></div></div><div id="responses" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/index.php?table=responselog&embed=1"></iframe></div></div><div id="rellogs" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" data-src="<?php echo $webRoot; ?>/ui/relationship_logs.php?embed=1"></iframe></div></div><div id="storage" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" title="<?php echo htmlspecialchars($storageEmbedTitle, ENT_QUOTES, 'UTF-8'); ?>" data-src="<?php echo htmlspecialchars($storageEmbedUrl, ENT_QUOTES, 'UTF-8'); ?>"></iframe></div></div><?php if ($legacyDbmgrEmbedUrl !== null): ?><div id="dbmgr" class="tab-content"><div class="embed-wrap"><iframe class="embed" loading="lazy" src="about:blank" title="DIALECTIC Database Manager" data-src="<?php echo htmlspecialchars($legacyDbmgrEmbedUrl, ENT_QUOTES, 'UTF-8'); ?>"></iframe></div></div><?php endif; ?></main><script>
 (function(){
  const buttons = document.querySelectorAll('.tab-button');
  const groups = document.querySelectorAll('.tab-group');
@@ -172,8 +186,11 @@ main { padding-top: 80px; padding-left: 10px; padding-right: 10px; }
  window.history.replaceState({}, '', url);
  }
  buttons.forEach(b=> b.addEventListener('click', ()=> activate(b.dataset.tab)));
+ // Retired tab ids stay valid as deep links.
+ const TAB_ALIASES = {playthrough: 'storage', dbmgr: 'storage'};
  const qp = new URL(window.location).searchParams.get('tab');
- if (qp && document.getElementById(qp)) activate(qp);
+ const target = (qp && !document.getElementById(qp)) ? TAB_ALIASES[qp] : qp;
+ if (target && document.getElementById(target)) activate(target);
 })();
 </script><?php
 include(__DIR__.DIRECTORY_SEPARATOR."tmpl".DIRECTORY_SEPARATOR."footer.html");
@@ -193,5 +210,4 @@ $buffer = str_replace(
 $buffer = preg_replace('/(<title>)(.*?)(<\/title>)/i', '$1' . $title . '$3', $buffer);
 echo $buffer;
 ?>
-
 

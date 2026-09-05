@@ -425,6 +425,34 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
         line-height: 1.1;
     }
 
+    .home-heading-actions {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .home-action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border: 1px solid var(--dialectic-border);
+        background: var(--dialectic-surface);
+        color: #f7f7f7;
+        border-radius: 6px;
+        text-decoration: none;
+        white-space: nowrap;
+        transition: border-color 0.2s ease, background-color 0.2s ease;
+    }
+
+    .home-action-btn:hover,
+    .home-action-btn:focus-visible {
+        border-color: var(--dialectic-accent);
+        color: #fff;
+        text-decoration: none;
+    }
+
     .player-pill {
         display: inline-flex;
         align-items: center;
@@ -876,9 +904,15 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
     </div>
     <div class="home-heading">
         <h1>DIALECTIC Dashboard</h1>
-        <div class="player-pill">
-            <i class="bi bi-person-circle"></i>
-            <span><?php echo dialectic_home_h($playerName); ?></span>
+        <div class="home-heading-actions">
+            <a class="home-action-btn" href="<?php echo dialectic_home_h($webRoot . '/ui/control_panel.php?tab=storage'); ?>">
+                <span aria-hidden="true">🧩</span>
+                <span>Playthrough Management</span>
+            </a>
+            <div class="player-pill">
+                <i class="bi bi-person-circle"></i>
+                <span><?php echo dialectic_home_h($playerName); ?></span>
+            </div>
         </div>
     </div>
 
