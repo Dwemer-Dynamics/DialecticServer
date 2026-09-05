@@ -29,7 +29,7 @@ $distroDatabaseManagerUrl = rtrim($distroDashboardRoot, '/') . '/database_manage
 $distroDataManagerFile = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'Dwemer-Dashboard'
  . DIRECTORY_SEPARATOR . 'data_manager.php';
 $distroDataManagerAvailable = is_file($distroDataManagerFile) && is_file(dirname($distroDataManagerFile) . '/lib/storage_fragment.php');
-$storageTabLabel = 'Storage & Cleanup';
+$storageTabLabel = 'Playthrough Management';
 $storageEmbedUrl = $distroDataManagerAvailable
  ? rtrim($distroDashboardRoot, '/') . '/data_manager.php?mod=dialectic&view=manage'
  : $webRoot . '/ui/playthrough_manager.php?embed=1';
