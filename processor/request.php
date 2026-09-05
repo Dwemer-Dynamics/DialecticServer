@@ -174,7 +174,8 @@ if ($gameRequest[0] == "funcret") { // Take out the functions part
 $commandSent = false;
 
 // Add
-if (($gameRequest[0] == "inputtext") || ($gameRequest[0] == "inputtext_s")) {
+if ((($gameRequest[0] == "inputtext") || ($gameRequest[0] == "inputtext_s"))
+    && empty($GLOBALS["DIALECTIC_DIRECTOR_INPUT"])) {
 	$hasDialogueTarget = preg_match('/\(\s*(?:(?:talking|whispering|shouting|speaking\s+privately)\s+to|speaking\s+loudly\s+to)\s+[^()]+(?:\s+from\s+far\s+away)?\s*\)/i', (string)$gameRequest[3]) === 1;
 	if (!$hasDialogueTarget) {
 		$gameRequest[3] = $gameRequest[3]." $DIALOGUE_TARGET";
