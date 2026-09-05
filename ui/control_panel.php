@@ -34,7 +34,7 @@ $storageEmbedUrl = $distroDataManagerAvailable
  ? rtrim($distroDashboardRoot, '/') . '/data_manager.php?mod=dialectic&view=manage'
  : $webRoot . '/ui/playthrough_manager.php?embed=1';
 $storageEmbedTitle = $distroDataManagerAvailable
- ? 'DIALECTIC snapshots, storage and database tools'
+ ? 'DIALECTIC playthroughs, storage and database tools'
  : 'DIALECTIC Playthrough Manager';
 // Without the shared page installed, the legacy database tools keep their own tab.
 $legacyDbmgrEmbedUrl = $distroDataManagerAvailable ? null : $distroDatabaseManagerUrl;
