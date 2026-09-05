@@ -96,7 +96,7 @@ function formatFileSize($bytes) {
  return round($bytes / pow($k, $i), 2) . ' ' . $sizes[$i];
 }
 
-// The server-owned adapter keeps snapshot schemas, live data and metadata atomic.
+// The server-owned adapter keeps playthrough schemas, live data and metadata atomic.
 require_once $enginePath . 'lib/playthrough_manager_actions.php';
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
  try {

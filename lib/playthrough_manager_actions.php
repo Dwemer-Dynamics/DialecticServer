@@ -5,7 +5,7 @@ function dpt_query($conn, string $sql, array $params = [])
 {
     $result = @pg_query_params($conn, $sql, $params);
     if (!$result) {
-        Logger::error('Storage snapshot query failed: ' . pg_last_error($conn));
+        Logger::error('Storage playthrough query failed: ' . pg_last_error($conn));
         throw new RuntimeException('Playthrough operation failed. Your previous data has been kept.');
     }
     return $result;

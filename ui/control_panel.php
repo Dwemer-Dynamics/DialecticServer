@@ -25,7 +25,7 @@ if (!is_string($distroDashboardRoot) || trim($distroDashboardRoot) === '' || $di
 $distroDebuggerDialecticEmbedUrl = rtrim($distroDashboardRoot, '/') . '/distro_debugger.php?embed=1&tab=dialectic';
 $distroDatabaseManagerUrl = rtrim($distroDashboardRoot, '/') . '/database_manager.php?server=DialecticServer&embed=1';
 
-// One entry point: snapshots, storage and database tools now share a single page.
+// One entry point: playthroughs, storage and database tools now share a single page.
 $distroDataManagerFile = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'Dwemer-Dashboard'
  . DIRECTORY_SEPARATOR . 'data_manager.php';
 $distroDataManagerAvailable = is_file($distroDataManagerFile) && is_file(dirname($distroDataManagerFile) . '/lib/storage_fragment.php');

@@ -6,15 +6,15 @@ require_once(__DIR__ . DIRECTORY_SEPARATOR . 'playthrough_schema.php');
 require_once(__DIR__ . DIRECTORY_SEPARATOR . 'db_connection_settings.php');
 
 /**
- * Timeline Break autosnapshot helper.
- * Creates a Playthrough Manager snapshot in dialectic_meta when a large rollback is detected.
+ * Timeline Break automatic playthrough save helper.
+ * Saves a playthrough in dialectic_meta when a large rollback is detected.
  */
 
 function timeline_break_is_enabled() {
-	if (!isset($GLOBALS["TIMELINE_BREAK_AUTOSNAPSHOT"])) {
-		$GLOBALS["TIMELINE_BREAK_AUTOSNAPSHOT"] = true;
+	if (!isset($GLOBALS["TIMELINE_BREAK_AUTO_PLAYTHROUGH"])) {
+		$GLOBALS["TIMELINE_BREAK_AUTO_PLAYTHROUGH"] = true;
 	}
-	return !!$GLOBALS["TIMELINE_BREAK_AUTOSNAPSHOT"];
+	return !!$GLOBALS["TIMELINE_BREAK_AUTO_PLAYTHROUGH"];
 }
 
 function timeline_break_min_days() {
@@ -32,14 +32,14 @@ function timeline_break_meta_schema_ready($adminConn) {
 }
 
 /**
- * Create a snapshot profile using fast schema cloning.
+ * Create a playthrough profile using fast schema cloning.
  * Returns the created profile id, or existing id on name collision, or 0 on failure.
  */
-function timeline_break_create_snapshot($name, $notes) {
+function timeline_break_create_playthrough($name, $notes) {
 	$dbSettings = dialecticDbConnectionSettings('dialectic');
 	$adminConn = @pg_connect(dialecticPgConnectionString($dbSettings));
 	if (!$adminConn) {
-		Logger::error("TimelineBreak: Failed to connect to database for snapshot: " . @pg_last_error());
+		Logger::error("TimelineBreak: Failed to connect to database for playthrough: " . @pg_last_error());
 		return 0;
 	}
 
@@ -48,16 +48,16 @@ function timeline_break_create_snapshot($name, $notes) {
 		return 0;
 	}
 
-	$lockKey = 'dialectic.timeline_break_snapshot';
+	$lockKey = 'dialectic.timeline_break_playthrough';
 	$lockResult = @pg_query_params($adminConn, 'SELECT pg_advisory_lock(hashtext($1))', [$lockKey]);
 	if (!$lockResult) {
-		Logger::error("TimelineBreak: Failed to acquire snapshot lock: " . pg_last_error($adminConn));
+		Logger::error("TimelineBreak: Failed to acquire playthrough lock: " . pg_last_error($adminConn));
 		return 0;
 	}
 
 	try {
 		// Concurrent main/gamedata requests can observe the same rollback. Reuse the
-		// first completed snapshot instead of cloning the same timeline repeatedly.
+		// first completed playthrough instead of cloning the same timeline repeatedly.
 		$existsRes = @pg_query_params(
 			$adminConn,
 			'SELECT id FROM dialectic_meta.playthrough_profiles WHERE name=$1 LIMIT 1',
@@ -121,7 +121,7 @@ function timeline_break_create_snapshot($name, $notes) {
 		$row = $q1 ? pg_fetch_assoc($q1) : false;
 		if ($row) {
 			$profileId = intval($row['id'] ?? 0);
-			Logger::info("TimelineBreak: Schema-based snapshot created with id {$profileId} and name '{$name}'");
+			Logger::info("TimelineBreak: Schema-based playthrough created with id {$profileId} and name '{$name}'");
 			return $profileId;
 		}
 
@@ -144,10 +144,10 @@ function timeline_break_create_snapshot($name, $notes) {
 }
 
 /**
- * Compose a Timeline Break snapshot name and create it if not present.
- * Returns snapshot id (existing or newly created), or 0.
+ * Compose a Timeline Break playthrough name and create it if not present.
+ * Returns playthrough id (existing or newly created), or 0.
  */
-function timeline_break_snapshot_if_needed($prevGamets, $incomingGamets) {
+function timeline_break_playthrough_if_needed($prevGamets, $incomingGamets) {
 	if (!timeline_break_is_enabled()) {
 		return 0;
 	}
@@ -166,8 +166,8 @@ function timeline_break_snapshot_if_needed($prevGamets, $incomingGamets) {
 	$dateNew = convert_gamets2fallout_long_date_no_time($incoming);
 	$dateOld = convert_gamets2fallout_long_date_no_time($prev);
 	$name = "Timeline Break (" . $dateOld . " -> " . $dateNew . ")";
-	$notes = "Auto snapshot due to rollback of {$daysRollback} in-game days ({$incoming} -> {$prev}).";
-	return timeline_break_create_snapshot($name, $notes);
+	$notes = "Automatic playthrough save due to rollback of {$daysRollback} in-game days ({$incoming} -> {$prev}).";
+	return timeline_break_create_playthrough($name, $notes);
 }
 
 ?>

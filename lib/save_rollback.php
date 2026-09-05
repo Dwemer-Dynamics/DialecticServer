@@ -1,7 +1,7 @@
 <?php
 
 require_once(__DIR__ . DIRECTORY_SEPARATOR . "utils_game_timestamp.php");
-require_once(__DIR__ . DIRECTORY_SEPARATOR . "playthrough_snapshot.php");
+require_once(__DIR__ . DIRECTORY_SEPARATOR . "playthrough_autosave.php");
 require_once(__DIR__ . DIRECTORY_SEPARATOR . "logger.php");
 
 if (!function_exists('dialecticRollbackNormalizeGamets')) {
@@ -121,13 +121,13 @@ if (!function_exists('dialecticRollbackPruneFutureData')) {
         }
 
         $stats = [];
-        $snapshotId = 0;
+        $playthroughId = 0;
         try {
-            $snapshotId = function_exists('timeline_break_snapshot_if_needed')
-                ? intval(timeline_break_snapshot_if_needed($previousMaxGamets, $targetGamets))
+            $playthroughId = function_exists('timeline_break_playthrough_if_needed')
+                ? intval(timeline_break_playthrough_if_needed($previousMaxGamets, $targetGamets))
                 : 0;
         } catch (Throwable $e) {
-            Logger::warn("[SAVE_ROLLBACK] Timeline Break snapshot failed: " . $e->getMessage());
+            Logger::warn("[SAVE_ROLLBACK] Timeline Break playthrough failed: " . $e->getMessage());
         }
 
         foreach ([
@@ -156,7 +156,7 @@ if (!function_exists('dialecticRollbackPruneFutureData')) {
             'source' => $source,
             'previous_max_gamets' => $previousMaxGamets,
             'target_gamets' => $targetGamets,
-            'snapshot_id' => $snapshotId,
+            'playthrough_id' => $playthroughId,
             'deleted' => $stats,
         ]));
 
@@ -164,7 +164,7 @@ if (!function_exists('dialecticRollbackPruneFutureData')) {
             'rolled_back' => true,
             'previous_max_gamets' => $previousMaxGamets,
             'target_gamets' => $targetGamets,
-            'snapshot_id' => $snapshotId,
+            'playthrough_id' => $playthroughId,
             'deleted' => $stats,
         ];
     }
