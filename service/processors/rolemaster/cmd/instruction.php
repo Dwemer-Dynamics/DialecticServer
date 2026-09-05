@@ -124,6 +124,12 @@ if (!isset($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]) ) {
             }
         }
 
+        if (!$isBoredInstruction) {
+            require_once $enginePath . 'lib/director_scene.php';
+            dialecticGenerateDirectorScene($connectionHandler, (string)($GLOBALS['argv'][3] ?? ''), $historyData);
+            return;
+        }
+
 // Load director examples prompt from database with fallback
 $commonprompt = null;
 try {
