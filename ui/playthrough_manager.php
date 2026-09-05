@@ -109,6 +109,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
  }
 }
 
+// API callers reuse the operation above without rendering the legacy manager.
+if (defined('DWEMER_STORAGE_ACTIONS_ONLY')) {
+ return ['ok' => !str_contains($message ?? '', 'Error:'), 'message' => $message ?? ''];
+}
 // Fetch profiles
 $profiles = $db->fetchAll("SELECT id, name, created_at, size_bytes, storage_type, schema_name, notes, is_active, player_name, game, eventlog_count, worldknowledge_count, last_gamets FROM dialectic_meta.playthrough_profiles ORDER BY COALESCE(last_gamets,0) DESC, created_at DESC");
 
