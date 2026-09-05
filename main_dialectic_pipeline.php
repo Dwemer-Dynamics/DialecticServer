@@ -2076,6 +2076,12 @@ if ($gameRequest[0] != "diary") {
             'party'=>$GLOBALS["CACHE_PARTY"],
         );
 
+        // Keep scene directions out of player speech and dialogue-history retrieval.
+        if (!empty($GLOBALS["DIALECTIC_DIRECTOR_INPUT"])
+            && in_array($gameRequest[0], ["inputtext", "inputtext_s"], true)) {
+            $eventlogInsert['type'] = 'instruction';
+        }
+
         if ($gameRequest[0] === "chat") {
             $eventlogInsert["delivery_state"] = "spoken";
         }

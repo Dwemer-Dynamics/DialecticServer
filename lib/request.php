@@ -489,8 +489,19 @@ function dialectic_adapt_json_input_payload_for_pipeline(array &$gameRequest): a
     $text = dialectic_sanitize_pipeline_input_fragment($text);
     $target = dialectic_sanitize_pipeline_input_fragment(str_replace(["(", ")"], " ", $target));
 
+    $isDirectorInstruction = dialectic_payload_bool_value($fields["director_instruction"] ?? false);
     $display = $player !== "" ? "{$player}: {$text}" : $text;
-    if ($target !== "" && strcasecmp($target, "The Narrator") !== 0) {
+    if ($isDirectorInstruction) {
+        $listener = dialectic_sanitize_pipeline_input_fragment(
+            is_scalar($fields["director_target"] ?? null) ? strval($fields["director_target"]) : ''
+        );
+        $display = "Director instruction for {$target}";
+        if ($listener !== '') {
+            $display .= " (listener: {$listener})";
+        }
+        $display .= ": {$text}";
+        $result["skip_player_tts"] = true;
+    } elseif ($target !== "" && strcasecmp($target, "The Narrator") !== 0) {
         $display .= " (Talking to {$target})";
     }
 
@@ -504,6 +515,7 @@ function dialectic_adapt_json_input_payload_for_pipeline(array &$gameRequest): a
     }
 
     $GLOBALS["DIALECTIC_STRUCTURED_INPUT_FIELDS"] = $fields;
+    $GLOBALS["DIALECTIC_DIRECTOR_INPUT"] = $isDirectorInstruction;
     $GLOBALS["DIALECTIC_PLAYER_INPUT_TEXT"] = $text;
     $GLOBALS["DIALECTIC_INPUT_TARGET"] = $target;
     $GLOBALS["DIALECTIC_SKIP_PLAYER_TTS"] = $result["skip_player_tts"];
