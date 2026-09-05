@@ -309,6 +309,7 @@ user request: actor \"a\" leaves the place
                     "character" => make_replacements($characterName),
                     "instruction" => make_replacements("{$instructionText} (must use ACTION $action)"),
                     "task_id" => $taskId,
+                    "target" => trim((string)($response["target"] ?? '')),
                 ]
             );
 

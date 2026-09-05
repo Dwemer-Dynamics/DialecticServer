@@ -2512,9 +2512,37 @@ if ($gameRequest[0] === "vision") {
     $GLOBALS["COMMAND_PROMPT"] = "Respond with atmospheric narration only. Use the Talk action.";
 }
 
+// Director input is a scene direction, not a line spoken by the player.
+$directorFields = $GLOBALS["DIALECTIC_STRUCTURED_INPUT_FIELDS"] ?? [];
+if (in_array($gameRequest[0], ["inputtext", "inputtext_s"], true)
+    && !empty($directorFields["director_instruction"])) {
+    $directorText = trim((string)($GLOBALS["DIALECTIC_PLAYER_INPUT_TEXT"] ?? ''));
+    $directorListener = trim((string)($directorFields["director_target"] ?? ''));
+    $directorAction = trim((string)($directorFields["director_action"] ?? 'Talk'));
+    $GLOBALS["COMMAND_PROMPT"] = "Follow this scene direction as {$GLOBALS['DIALECTIC_NAME']}: {$directorText}\n"
+        . "This is a director instruction, not player dialogue. Speak the requested dialogue now, in character; do not describe what you should say. "
+        . "Include a non-empty message that fulfills the direction. Do not replace the requested dialogue with an unrelated greeting or an action-only response.";
+    if ($directorListener !== '') {
+        $GLOBALS["COMMAND_PROMPT"] .= " Address {$directorListener} and set listener to {$directorListener}.";
+    }
+    if (in_array(strtolower($directorAction), ['talk', 'justtalk'], true)) {
+        $FUNCTIONS_ARE_ENABLED = false;
+        $GLOBALS["FUNCTIONS_ARE_ENABLED"] = false;
+        $GLOBALS["COMMAND_PROMPT"] .= " This is dialogue only; do not issue movement or other game actions.";
+    } else {
+        $GLOBALS["COMMAND_PROMPT"] .= " If appropriate, accompany the dialogue with the requested action: {$directorAction}.";
+    }
+}
+
 // Ensure actions and nearby sections are added to PROMPT_HEAD before building system prompt
 require_once(__DIR__.DIRECTORY_SEPARATOR."functions".DIRECTORY_SEPARATOR."json_response.php");
 require_once(__DIR__.DIRECTORY_SEPARATOR."lib".DIRECTORY_SEPARATOR."prompt_composition.php");
+
+if (in_array($gameRequest[0], ["inputtext", "inputtext_s"], true)
+    && !empty($directorFields["director_instruction"])) {
+    dialecticRefreshJsonResponseState(true);
+    $GLOBALS["structuredOutputTemplate"]["json_schema"]["schema"]["properties"]["message"]["minLength"] = 1;
+}
 
 if (
     $gameRequest[0] === "narrator_inputtext"
