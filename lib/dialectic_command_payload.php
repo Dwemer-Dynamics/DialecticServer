@@ -14,7 +14,7 @@ function dialecticCommandPayloadOrderedArgs(string $commandName, array $args = [
         'renamenpc' => ['refid', 'name'],
         'scriptproxy' => ['payload'],
         'impersonateplayer' => ['speech', 'request_type'],
-        'instruction' => ['character', 'instruction', 'task_id'],
+        'instruction' => ['character', 'instruction', 'task_id', 'target'],
         'suggestion' => ['character', 'instruction', 'task_id'],
         'teleportactor' => ['target', 'location'],
     ];
