@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/playthrough_schema.php';
+require_once __DIR__ . '/playthrough_retention.php';
 
 function dpt_query($conn, string $sql, array $params = [])
 {
@@ -35,8 +36,8 @@ function dpt_capture($conn, string $name, string $notes, ?array $existing = null
             player_name=$5,eventlog_count=$6,worldknowledge_count=$7,last_gamets=$8,schema_name=$9 WHERE id=$10', $values);
     } else {
         dpt_query($conn, "INSERT INTO dialectic_meta.playthrough_profiles(name,size_bytes,notes,is_active,player_name,
-            eventlog_count,worldknowledge_count,last_gamets,schema_name,storage_type,game)
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'schema','Fallout')", $values);
+            eventlog_count,worldknowledge_count,last_gamets,schema_name,storage_type,game,retention_kind)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'schema','Fallout','manual')", $values);
     }
 }
 
@@ -48,9 +49,10 @@ function dpt_manage($conn, string $action, array $input): string
     dpt_query($conn, 'BEGIN');
     try {
         dpt_query($conn, "SET LOCAL lock_timeout='2s'");
-        if (pg_fetch_result(dpt_query($conn, "SELECT pg_try_advisory_xact_lock(hashtext('dialectic_storage_manager'))"), 0, 0) !== 't') {
+        if (pg_fetch_result(dpt_query($conn, "SELECT pg_try_advisory_xact_lock(hashtext('dialectic_meta_playthrough_retention'))"), 0, 0) !== 't') {
             throw new RuntimeException('Another playthrough action is running. Try again shortly.');
         }
+        ptr_ensure_schema($conn);
         if ($action === 'setup' || $action === 'create') {
             // The old page did this on GET. Capture the recovery point only after a confirmed write.
             $count = (int)pg_fetch_result(dpt_query($conn, 'SELECT count(*) FROM dialectic_meta.playthrough_profiles'), 0, 0);
@@ -72,7 +74,7 @@ function dpt_manage($conn, string $action, array $input): string
                 throw new RuntimeException('This playthrough has an unsupported storage format.');
             }
             if ($action === 'delete') {
-                if (strtolower($target['name']) === 'default') throw new RuntimeException('The initial recovery playthrough cannot be deleted.');
+                if (strtolower($target['name']) === 'default' || $target['retention_pinned'] === 't') throw new RuntimeException('The default or a protected Playthrough Save cannot be deleted.');
                 $drop = pts_drop_schema($conn, $target['schema_name']);
                 if (empty($drop['success'])) throw new RuntimeException('Could not delete the playthrough. Nothing was removed.');
                 dpt_query($conn, 'DELETE FROM dialectic_meta.playthrough_profiles WHERE id=$1', [$id]);

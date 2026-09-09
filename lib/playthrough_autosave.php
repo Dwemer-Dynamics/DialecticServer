@@ -4,6 +4,7 @@ require_once(__DIR__ . DIRECTORY_SEPARATOR . 'utils_game_timestamp.php');
 require_once(__DIR__ . DIRECTORY_SEPARATOR . 'logger.php');
 require_once(__DIR__ . DIRECTORY_SEPARATOR . 'playthrough_schema.php');
 require_once(__DIR__ . DIRECTORY_SEPARATOR . 'db_connection_settings.php');
+require_once(__DIR__ . DIRECTORY_SEPARATOR . 'playthrough_retention.php');
 
 /**
  * Timeline Break automatic playthrough save helper.
@@ -11,17 +12,11 @@ require_once(__DIR__ . DIRECTORY_SEPARATOR . 'db_connection_settings.php');
  */
 
 function timeline_break_is_enabled() {
-	if (!isset($GLOBALS["TIMELINE_BREAK_AUTO_PLAYTHROUGH"])) {
-		$GLOBALS["TIMELINE_BREAK_AUTO_PLAYTHROUGH"] = true;
-	}
-	return !!$GLOBALS["TIMELINE_BREAK_AUTO_PLAYTHROUGH"];
+	return ptp_runtime_backup_settings()['enabled'];
 }
 
 function timeline_break_min_days() {
-	if (!isset($GLOBALS["TIMELINE_BREAK_MIN_DAYS"])) {
-		$GLOBALS["TIMELINE_BREAK_MIN_DAYS"] = 3;
-	}
-	return intval($GLOBALS["TIMELINE_BREAK_MIN_DAYS"]);
+	return ptp_runtime_backup_settings()['min_days'];
 }
 
 /**
@@ -48,7 +43,7 @@ function timeline_break_create_playthrough($name, $notes) {
 		return 0;
 	}
 
-	$lockKey = 'dialectic.timeline_break_playthrough';
+	$lockKey = 'dialectic_meta_playthrough_retention';
 	$lockResult = @pg_query_params($adminConn, 'SELECT pg_advisory_lock(hashtext($1))', [$lockKey]);
 	if (!$lockResult) {
 		Logger::error("TimelineBreak: Failed to acquire playthrough lock: " . pg_last_error($adminConn));
@@ -56,6 +51,7 @@ function timeline_break_create_playthrough($name, $notes) {
 	}
 
 	try {
+		ptr_ensure_schema($adminConn);
 		// Concurrent main/gamedata requests can observe the same rollback. Reuse the
 		// first completed playthrough instead of cloning the same timeline repeatedly.
 		$existsRes = @pg_query_params(
@@ -64,7 +60,8 @@ function timeline_break_create_playthrough($name, $notes) {
 			[$name]
 		);
 		if ($existsRes && ($existing = pg_fetch_assoc($existsRes))) {
-			return intval($existing['id'] ?? 0);
+			$profileId = intval($existing['id'] ?? 0);
+			return $profileId;
 		}
 
 		$sourceSchema = trim((string)($dbSettings['schema'] ?? 'public'));
@@ -115,7 +112,7 @@ function timeline_break_create_playthrough($name, $notes) {
 		$size = pts_get_schema_size($adminConn, $schemaName);
 		$q1 = @pg_query_params(
 			$adminConn,
-			"INSERT INTO dialectic_meta.playthrough_profiles (name, size_bytes, storage_type, notes, is_active, player_name, game, eventlog_count, worldknowledge_count, last_gamets, schema_name) VALUES ($1,$2,$3,$4,false,$5,$6,$7,$8,$9,$10) ON CONFLICT (name) DO NOTHING RETURNING id",
+			"INSERT INTO dialectic_meta.playthrough_profiles (name, size_bytes, storage_type, notes, is_active, player_name, game, eventlog_count, worldknowledge_count, last_gamets, schema_name, retention_kind) VALUES ($1,$2,$3,$4,false,$5,$6,$7,$8,$9,$10,'dragon_break') ON CONFLICT (name) DO NOTHING RETURNING id",
 			[$name, (string)$size, 'schema', $notes, $playerName, $gameName, (string)$eventlogCount, (string)$worldknowledgeCount, (string)$lastGamets, $schemaName]
 		);
 		$row = $q1 ? pg_fetch_assoc($q1) : false;
@@ -133,12 +130,13 @@ function timeline_break_create_playthrough($name, $notes) {
 			[$name]
 		);
 		if ($existingAfterConflict && ($existing = pg_fetch_assoc($existingAfterConflict))) {
-			return intval($existing['id'] ?? 0);
+			return $profileId = intval($existing['id'] ?? 0);
 		}
 
 		Logger::error("TimelineBreak: Failed to insert profile record: " . pg_last_error($adminConn));
 		return 0;
 	} finally {
+		ptp_record_backup($adminConn, $profileId ?? 0, ($profileId ?? 0) > 0 ? 'Automatic Playthrough Save created.' : 'Automatic Playthrough Save failed. Check the server log.');
 		@pg_query_params($adminConn, 'SELECT pg_advisory_unlock(hashtext($1))', [$lockKey]);
 	}
 }
@@ -148,9 +146,6 @@ function timeline_break_create_playthrough($name, $notes) {
  * Returns playthrough id (existing or newly created), or 0.
  */
 function timeline_break_playthrough_if_needed($prevGamets, $incomingGamets) {
-	if (!timeline_break_is_enabled()) {
-		return 0;
-	}
 	$prev = intval($prevGamets);
 	$incoming = intval($incomingGamets);
 	if ($prev <= 0 || $incoming <= 0) {
@@ -159,13 +154,17 @@ function timeline_break_playthrough_if_needed($prevGamets, $incomingGamets) {
 	if ($incoming >= $prev) {
 		return 0;
 	}
+	if (!timeline_break_is_enabled()) {
+		return 0;
+	}
+
 	$daysRollback = gamets2days_between($incoming, $prev);
 	if ($daysRollback < timeline_break_min_days()) {
 		return 0;
 	}
 	$dateNew = convert_gamets2fallout_long_date_no_time($incoming);
 	$dateOld = convert_gamets2fallout_long_date_no_time($prev);
-	$name = "Timeline Break (" . $dateOld . " -> " . $dateNew . ")";
+	$name = "Automatic Playthrough Save (" . $dateOld . " -> " . $dateNew . ")";
 	$notes = "Automatic playthrough save due to rollback of {$daysRollback} in-game days ({$incoming} -> {$prev}).";
 	return timeline_break_create_playthrough($name, $notes);
 }
