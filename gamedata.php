@@ -543,10 +543,17 @@ function handleDialogueDeliveryUpdate(array $data): void
 
     if ($utteranceId !== '') {
         $utteranceEscaped = dialectic_db_escape($db, $utteranceId);
+        // Director speech becomes history only on completion. Duplicate or late
+        // acknowledgements must not overwrite an already completed/cancelled line.
+        $deliveryGuard = $nonAbortedSql;
+        if (str_starts_with($utteranceId, 'director-')) {
+            if (!in_array($state, ['spoken', 'aborted', 'failed', 'text_only'], true)) return;
+            $deliveryGuard = "delivery_state='pending'";
+        }
         $db->update(
             'public.eventlog',
             "delivery_state='{$stateEscaped}'",
-            "type='chat' AND utterance_id='{$utteranceEscaped}' AND {$nonAbortedSql}"
+            "type='chat' AND utterance_id='{$utteranceEscaped}' AND {$deliveryGuard}"
         );
         Logger::debug("[gamedata.php] dialogue_delivery {$state} for utterance {$utteranceId}");
         return;

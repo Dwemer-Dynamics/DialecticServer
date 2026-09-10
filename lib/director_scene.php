@@ -255,12 +255,45 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
         if (!is_file($audioPath) || filesize($audioPath) <= 44) {
             throw new RuntimeException('Director scene audio generation failed');
         }
-        $line['utterance_id'] = $scene['id'] . '-' . $index;
+        $line['utterance_id'] = 'director-' . $scene['id'] . '-' . $index;
     }
     unset($line);
     // Queue atomically only after every line is valid and all audio is available.
     $requestToken = (string)($GLOBALS['argv'][5] ?? '');
     $tag = preg_match('/^[a-f0-9]{32}$/D', $requestToken) ? 'director_scene:' . $requestToken : '';
-    dialecticQueueCommandResponse('rolemaster', 'DirectorScene', ['payload' => json_encode($scene, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)], '', $tag);
+    dialecticQueueTrackedDirectorScene($scene, $tag);
     Logger::info('[DIRECTOR] Authored scene queued: ' . $scene['id'] . ' lines=' . count($scene['lines']) . ' actions=' . count($scene['actions']));
+}
+
+// Publish the scene and its pending history together, after all audio work has finished.
+function dialecticQueueTrackedDirectorScene(array $scene, string $tag): void
+{
+    $db = $GLOBALS['db'];
+    $location = $GLOBALS['CACHE_LOCATION'] ?? DataLastKnownLocation();
+    $party = $GLOBALS['CACHE_PARTY'] ?? DataGetCurrentPartyConf();
+    $payload = dialecticEncodeCommandAction('DirectorScene', [
+        'payload' => json_encode($scene, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+    ]);
+    if ($db->query('BEGIN') === false) throw new RuntimeException('Could not begin Director scene publication');
+    try {
+        foreach ($scene['lines'] as $index => $line) {
+            $saved = $db->insert('eventlog', [
+                'type' => 'chat', 'ts' => (int)($GLOBALS['gameRequest'][1] ?? time()) + $index,
+                'gamets' => (int)($GLOBALS['gameRequest'][2] ?? 0), 'localts' => time(), 'sess' => 'pending',
+                'data' => $line['speaker'] . ': ' . $line['text'] . ' ' . buildDialogueTargetSuffix($line['listener']),
+                'people' => '|' . $line['speaker'] . '|' . $line['listener'] . '|',
+                'location' => $location, 'party' => $party,
+                'utterance_id' => $line['utterance_id'], 'delivery_state' => 'pending',
+            ]);
+            if (!$saved) throw new RuntimeException('Could not record pending Director speech');
+        }
+        if (!$db->insert('responselog', ['localts' => time(), 'sent' => 0, 'actor' => 'rolemaster',
+            'text' => '', 'action' => $payload, 'tag' => $tag])) {
+            throw new RuntimeException('Could not queue Director scene');
+        }
+        if ($db->query('COMMIT') === false) throw new RuntimeException('Could not commit Director scene');
+    } catch (Throwable $error) {
+        $db->query('ROLLBACK');
+        throw $error;
+    }
 }
