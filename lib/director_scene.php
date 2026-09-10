@@ -1,5 +1,51 @@
 <?php
 
+// Build one catalog for the scene, retaining each actor's availability and requirements.
+function dialecticDirectorActionCatalog(array $actors, NpcMaster $npcMaster): array
+{
+    $catalog = [];
+    $party = json_decode($GLOBALS['CACHE_PARTY'] ?? DataGetCurrentPartyConf(), true) ?: [];
+    $contexts = [];
+    foreach ($actors as $name => $actor) {
+        $metadata = $npcMaster->getMetadata($actor['npc']);
+        $contexts[$name] = [
+            'npc_name' => $name, 'player_name' => (string)$GLOBALS['PLAYER_NAME'],
+            'request_type' => 'inputtext', 'is_rechat' => false,
+            'is_npc_mode' => !isset($party[$name]), 'is_rolemastered' => true,
+            'npc_master' => $npcMaster, 'npc_data' => $actor['npc'],
+            'npc_metadata' => $metadata, 'npc_extended' => $npcMaster->getExtendedData($actor['npc']),
+            'activity_status' => dialecticNormalizeActivityStatus($metadata),
+        ];
+    }
+    foreach (dialecticGetActionCatalogRowsByCode() as $code => $row) {
+        // DirectorCommand starts a new Director request, not an executable closing action.
+        if ($code === 'DirectorCommand' || !in_array($code, dialecticCanonicalActionCodes(), true)
+            || empty($row['is_activated']) || ($row['metadata']['dispatch'] ?? '') !== 'plugin_command') {
+            continue;
+        }
+        $speakers = [];
+        $narrator = in_array($code, ['ReadQuests', 'SpawnCaps', 'SpawnItem', 'TeleportActor', 'KillTarget'], true);
+        if ($narrator) {
+            $context = ['npc_name' => 'The Narrator', 'request_type' => 'inputtext', 'is_rechat' => false];
+            if (!empty($row['available_to_narrator']) && dialecticActionCatalogRowMatchesRequirements($row, $context)) {
+                $speakers[] = 'The Narrator';
+            }
+        } else {
+            foreach ($contexts as $name => $context) {
+                $availability = $context['is_npc_mode'] ? 'available_to_npc' : 'available_to_followers';
+                if (!empty($row[$availability]) && dialecticActionCatalogRowMatchesRequirements($row, $context)) {
+                    $speakers[] = $name;
+                }
+            }
+        }
+        if ($speakers) {
+            $catalog[$code] = ['description' => $row['description'], 'speakers' => $speakers,
+                'parameters' => $row['parameters_json']];
+        }
+    }
+    return $catalog;
+}
+
 // Validate the complete scene before generating audio or queueing any game work.
 function dialecticValidateDirectorScene(array $scene, array $actors, array $actions, string $player): array
 {
@@ -28,21 +74,57 @@ function dialecticValidateDirectorScene(array $scene, array $actors, array $acti
     }
     foreach ($closingActions as $action) {
         if (!is_array($action) || !is_string($action['speaker'] ?? null)
-            || !is_string($action['command_name'] ?? null) || !is_string($action['target'] ?? null)) {
+            || !is_string($action['command_name'] ?? null)) {
             throw new RuntimeException('Director returned an invalid action');
         }
         $speaker = trim($action['speaker']);
         $command = trim($action['command_name']);
-        $target = trim($action['target']);
-        if (!isset($actors[$speaker]) || !in_array($command, $actions, true)
-            || ($target !== '' && $target !== $player && !isset($actors[$target]))) {
-            throw new RuntimeException('Director returned an unavailable action or target');
+        $definition = $actions[$command] ?? null;
+        if (!$definition || !in_array($speaker, $definition['speakers'], true)
+            || ($speaker !== 'The Narrator' && !isset($actors[$speaker]))) {
+            throw new RuntimeException('Director returned an unavailable action or speaker');
         }
-        if (in_array($command, ['Attack', 'Follow', 'MoveTo'], true) && ($target === '' || $target === $speaker)) {
+        $parameters = $action['parameters'] ?? (isset($action['target']) ? ['target' => $action['target']] : []);
+        if (!is_array($parameters) || ($parameters && array_is_list($parameters))) {
+            throw new RuntimeException('Director returned invalid action parameters');
+        }
+        $schema = $definition['parameters'];
+        foreach ($parameters as $key => &$value) {
+            $property = $schema['properties'][$key] ?? null;
+            $type = $property['type'] ?? 'string';
+            if (!in_array($key, ['target', 'item', 'amount', 'location', 'speed', 'id_quest'], true)
+                || !$property || !is_scalar($value)
+                || ($type === 'string' && !is_string($value))
+                || ($type === 'integer' && !is_int($value))
+                || ($type === 'number' && !is_int($value) && !is_float($value))
+                || ($type === 'boolean' && !is_bool($value))) {
+                throw new RuntimeException('Director returned an unknown parameter or invalid type');
+            }
+            if (is_string($value)) $value = trim($value);
+            if ((is_string($value) && (mb_strlen($value) > 600 || preg_match('/[\x00-\x1f]/', $value)))
+                || (isset($property['enum']) && !in_array($value, $property['enum'], true))
+                || (isset($property['minimum']) && $value < $property['minimum'])
+                || (isset($property['maximum']) && $value > $property['maximum'])
+                || ($key === 'amount' && (!is_numeric($value) || $value < 1 || $value > 1000000))) {
+                throw new RuntimeException('Director returned an invalid action parameter value');
+            }
+        }
+        unset($value);
+        foreach ($schema['required'] ?? [] as $key) {
+            if ($key !== '' && (!isset($parameters[$key]) || $parameters[$key] === '')) {
+                throw new RuntimeException('Director omitted a required action parameter');
+            }
+        }
+        $target = (string)($parameters['target'] ?? '');
+        if (in_array($command, ['Attack', 'MoveTo', 'GiveCapsTo', 'GiveItemTo', 'SpawnCaps', 'SpawnItem', 'TeleportActor', 'KillTarget'], true)
+            && $target !== '' && $target !== $player && !isset($actors[$target])) {
+            throw new RuntimeException('Director returned an unavailable action target');
+        }
+        if (in_array($command, ['Attack', 'MoveTo'], true) && ($target === '' || $target === $speaker)) {
             throw new RuntimeException('Director action requires another actor');
         }
-        $cast[$speaker] = true;
-        $result['actions'][] = ['speaker' => $speaker, 'command_name' => $command, 'target' => $target];
+        if ($speaker !== 'The Narrator') $cast[$speaker] = true;
+        $result['actions'][] = ['speaker' => $speaker, 'command_name' => $command, 'parameters' => $parameters];
     }
     if (count($cast) > 3) {
         throw new RuntimeException('Director scene exceeds three participating NPCs');
@@ -80,6 +162,10 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
         }
         $bio['profile_instructions'] = mb_substr((string)($profile['prompt'] ?? ''), 0, 2000);
         $extended = $npcMaster->getExtendedData($npc);
+        $metadata = $npcMaster->getMetadata($npc);
+        // Bound inventory context without extra database or model calls.
+        $inventory = is_array($metadata['inventory'] ?? null) ? $metadata['inventory'] : [];
+        $bio['inventory'] = array_slice(dialecticFormatInventoryPromptLines($inventory), 0, 80);
         $memories = $extended['middle_term_memory'] ?? [];
         $bio['past_events'] = [];
         foreach (is_array($memories) ? $memories : [] as $gamets => $memory) {
@@ -93,24 +179,24 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
     if (!$actors) {
         throw new RuntimeException('No nearby NPC profiles are available for the Director');
     }
-    // Only actor/package actions with deterministic argument shapes belong here.
-    // Inventory, travel destinations and narrator powers need their own grounded arguments.
-    $actions = array_values(array_filter(['Attack', 'Follow', 'MoveTo', 'ComeCloser', 'StopFollowing', 'TakeASeat'],
-        static fn($action) => in_array($action, $GLOBALS['ENABLED_FUNCTIONS'] ?? [], true)
-            && (!function_exists('dialecticActionCatalogIsActionEnabled') || dialecticActionCatalogIsActionEnabled($action))));
+    $actions = dialecticDirectorActionCatalog($actors, $npcMaster);
     $system = 'You are the Director of a Fallout scene. Write the finished dialogue for every participating NPC, '
         . 'not instructions for another writer. The user request is off-stage direction, never spoken by the player. '
         . 'Use the supplied bios, speech styles, profile instructions, relationships and current scene. '
         . 'Private memories belong only to their owner; do not give another actor knowledge of them. '
         . 'Follow the requested outcome while keeping distinct character voices. Use exact eligible names. '
         . 'Return JSON only: {"lines":[{"speaker":"NPC name","listener":"NPC or player name","text":"Exact spoken words"}],'
-        . '"actions":[{"speaker":"NPC name","command_name":"Allowed action","target":"NPC or player name"}]}. '
+        . '"actions":[{"speaker":"Eligible action speaker","command_name":"Catalog code","parameters":{}}]}. '
         . 'Use 1-6 short lines, at most 3 NPC speakers, and 0-3 closing actions. '
         . 'Lines play in order, then closing actions are attempted. Do not write dialogue that assumes an action succeeded. '
         . 'No narration, stage directions, player dialogue, invented actors, scene notes or unsupported gestures. '
         . 'If an action cannot be performed, convey intent through dialogue without claiming it happened. '
-        . 'Allowed closing actions: ' . implode(', ', $actions) . '. '
-        . 'Attack, Follow and MoveTo need another actor as target. Other actions may use an empty target. '
+        . 'Use the action catalog below: choose an eligible speaker and supply parameters matching its schema. '
+        . 'The Narrator may perform only its listed actions and never speaks a dialogue line. '
+        . 'For inventory actions use the acting NPC inventory; PickupItem uses nearby item references; TravelTo uses known locations. '
+        . 'Never invent items or reference IDs. SpawnItem names are resolved against World Descriptions. '
+        . 'Do not supply authority, dispatch fields, or raw script commands. '
+        . 'Action catalog: ' . json_encode($actions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '. '
         . 'An empty actions array is valid.';
     $prompt = [
         ['role' => 'system', 'content' => $system],
@@ -130,6 +216,22 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
         throw new RuntimeException('Director did not return a JSON scene');
     }
     $scene = dialecticValidateDirectorScene($decoded, $actors, $actions, $player);
+    // Resolve structured arguments before audio; native execution remains deferred until speech ends.
+    foreach ($scene['actions'] as &$action) {
+        $parameters = $action['parameters'];
+        if ($action['speaker'] === 'The Narrator') {
+            $parameters = dialecticPrepareNarratorPluginAction($action['command_name'], $parameters);
+            if ($parameters === null) throw new RuntimeException('Director action arguments could not be resolved');
+            unset($parameters['action_source'], $parameters['authority']);
+            $action['authority'] = 'narrator';
+        } elseif ($action['command_name'] === 'TravelTo') {
+            $parameters = json_decode(dialecticBuildTravelToActionPayload($parameters['location'], $parameters), true);
+        }
+        // Flatten validated/resolved parameters for the ordinary native action decoder.
+        unset($action['parameters']);
+        $action = array_merge($action, $parameters);
+    }
+    unset($action);
     foreach ($scene['lines'] as $index => &$line) {
         $actor = $actors[$line['speaker']];
         $profiles->setOldGlobals($actor['profile']);
