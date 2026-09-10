@@ -51,7 +51,7 @@ function dialecticValidateDirectorScene(array $scene, array $actors, array $acti
 {
     $lines = $scene['lines'] ?? null;
     $sceneActions = $scene['actions'] ?? [];
-    if (!is_array($lines) || !array_is_list($lines) || count($lines) < 1 || count($lines) > 6
+    if (!is_array($lines) || !array_is_list($lines) || count($lines) < 1 || count($lines) > 5
         || !is_array($sceneActions) || !array_is_list($sceneActions) || count($sceneActions) > 3) {
         throw new RuntimeException('Director returned an invalid scene size');
     }
@@ -193,7 +193,12 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
         . 'Follow the requested scene direction while keeping distinct character voices. Use exact eligible names. '
         . 'Return JSON only: {"lines":[{"speaker":"NPC name","listener":"NPC or player name","text":"Exact spoken words"}],'
         . '"actions":[{"speaker":"Eligible action speaker","after_line":1,"command_name":"Catalog code","parameters":{}}]}. '
-        . 'Use 1-6 short lines, at most 3 NPC speakers, and 0-3 actions. '
+        . 'Script the entire scene upfront: one opening line and up to 4 reply turns (5 short lines total), '
+        . 'with at most 3 NPC speakers and 0-3 actions. Each lines entry is one spoken turn. '
+        . 'When the direction asks NPCs to talk, discuss, ask, or converse with each other, write a complete exchange: '
+        . 'include the addressed eligible NPC answering and further relevant back-and-forth toward a natural stopping point. '
+        . 'Do not stop at an unanswered opening question or greeting when an eligible NPC can reply. '
+        . 'These replies are part of this script, not later generated follow-ups. A single line is valid for a one-way remark or action request. '
         . 'after_line is the 1-based line number after which the action starts. NPC actions must follow their own spoken line. '
         . 'Each line finishes, its attached actions are dispatched in listed order, then the next actor speaks. '
         . 'Do not wait for actions to finish: long-running actions continue during later dialogue. '
