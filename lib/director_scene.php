@@ -190,7 +190,7 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
         . 'not instructions for another writer. The user request is off-stage direction, never spoken by the player. '
         . 'Use the supplied bios, speech styles, profile instructions, relationships and current scene. '
         . 'Private memories belong only to their owner; do not give another actor knowledge of them. '
-        . 'Follow the requested outcome while keeping distinct character voices. Use exact eligible names. '
+        . 'Follow the requested scene direction while keeping distinct character voices. Use exact eligible names. '
         . 'Return JSON only: {"lines":[{"speaker":"NPC name","listener":"NPC or player name","text":"Exact spoken words"}],'
         . '"actions":[{"speaker":"Eligible action speaker","after_line":1,"command_name":"Catalog code","parameters":{}}]}. '
         . 'Use 1-6 short lines, at most 3 NPC speakers, and 0-3 actions. '
