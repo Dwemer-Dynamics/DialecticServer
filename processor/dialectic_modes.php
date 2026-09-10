@@ -258,13 +258,13 @@ function dialecticModeNotify(string $message): void
     }
 }
 
-function dialecticModeFlushQueuedRolecommands(): void
+function dialecticModeFlushQueuedRolecommands(string $directorTag = ''): void
 {
     if (!function_exists('DataDequeue') || !function_exists('dialectic_buffer_command_response_line')) {
         return;
     }
 
-    $rows = DataDequeue(time() + 1);
+    $rows = DataDequeue(time() + 1, $directorTag);
     foreach ($rows as $row) {
         $command = trim((string)($row["action"] ?? ""));
         if ($command === '') {
@@ -339,8 +339,9 @@ if ($EXECUTION_MODE=="STANDARD") {
     }
 
     dialecticModeNotify("Director mode instruction received.");
-    dialecticRunServiceManager(["rolemaster", "instruction", $instruction, "notify"], $output, $returnCode);
-    dialecticModeFlushQueuedRolecommands();
+    $directorToken = bin2hex(random_bytes(16));
+    dialecticRunServiceManager(["rolemaster", "instruction", $instruction, "notify", $directorToken], $output, $returnCode);
+    dialecticModeFlushQueuedRolecommands('director_scene:' . $directorToken);
     if (intval($returnCode ?? 0) !== 0) {
         Logger::warn("[DIRECTOR] Service manager failed with exit code " . intval($returnCode));
         dialecticModeNotify("Director mode instruction failed.");

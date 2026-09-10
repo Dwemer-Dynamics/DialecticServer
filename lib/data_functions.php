@@ -599,7 +599,7 @@ function getHeightDescription(float $scale): string {
 }
 
 
-function DataDequeue($timestamp = 0)
+function DataDequeue($timestamp = 0, string $directorTag = '')
 {
     global $db;
     if ($timestamp !== 0) {
@@ -607,6 +607,10 @@ function DataDequeue($timestamp = 0)
     } else {
         $clause="";
     }
+    // Request-bound scenes must never be collected by an unrelated poll/turn.
+    $clause .= $directorTag !== ''
+        ? " AND tag='" . $db->escape($directorTag) . "' "
+        : " AND COALESCE(tag, '') NOT LIKE 'director_scene:%' ";
     // Use atomic UPDATE...RETURNING to prevent race conditions where multiple concurrent
     // requests could fetch the same dialogue before it's marked as sent
     $results = $db->fetchAll(
