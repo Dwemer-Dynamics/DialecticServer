@@ -8,44 +8,61 @@
  */
 
 require_once(__DIR__ . DIRECTORY_SEPARATOR . 'logger.php');
+require_once(__DIR__ . DIRECTORY_SEPARATOR . 'playthrough_policy.php');
 
 function pts_clone_function_is_current($definition): bool {
     return is_string($definition)
-        && stripos($definition, 'OVERRIDING SYSTEM VALUE') !== false
-        && stripos($definition, 'sync_schema_sequences(dest_schema)') !== false;
+        && stripos($definition, 'clone_selected_schema') !== false
+        && stripos($definition, 'CREATE OR REPLACE VIEW') === false;
 }
 
+/**
+ * Ensure the clone_schema SQL functions exist in the database.
+ * Safe to call multiple times (idempotent).
+ */
 function pts_ensure_functions($conn): bool {
-    $checkQuery = "
-        SELECT pg_get_functiondef(p.oid) AS function_definition
-          FROM pg_proc p
-          JOIN pg_namespace n ON n.oid = p.pronamespace
-         WHERE n.nspname = 'dialectic_meta'
-           AND p.proname = 'clone_schema'
-         LIMIT 1
-    ";
+    // Upgrade older installations to the selected-table capture and restore API.
+    $checkQuery = "SELECT pg_get_functiondef(p.oid) AS function_definition FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE p.proname = 'clone_schema' AND n.nspname = 'dialectic_meta' LIMIT 1";
     $checkResult = @pg_query($conn, $checkQuery);
-    $checkRow = $checkResult ? pg_fetch_assoc($checkResult) : false;
-    if ($checkRow && pts_clone_function_is_current($checkRow['function_definition'] ?? null)) {
-        return true;
-    }
+    if ($checkResult && pg_num_rows($checkResult) > 0) {
+        $row = pg_fetch_assoc($checkResult);
+        if (pts_clone_function_is_current($row['function_definition'] ?? null)
+            && pg_fetch_result(pg_query($conn, "SELECT to_regprocedure('dialectic_meta.sync_playthrough_comments(text[])') IS NOT NULL AND to_regprocedure('dialectic_meta.restore_playthrough_upgraded(text,text[])') IS NOT NULL AND to_regprocedure('dialectic_meta.restore_playthrough(text,text[])') IS NOT NULL AND to_regprocedure('dialectic_meta.capture_playthrough(text,text[])') IS NOT NULL AND to_regprocedure('dialectic_meta.clone_selected_schema(text,text,text[])') IS NOT NULL"), 0, 0) === 't') {
+            return true;
+        }
 
-    if ($checkRow) {
         Logger::info("Schema clone functions are outdated; refreshing definitions");
     }
 
     $sqlFile = __DIR__ . DIRECTORY_SEPARATOR . 'schema_clone_function.sql';
-    $sql = @file_get_contents($sqlFile);
-    if ($sql === false || trim($sql) === '') {
-        Logger::error("Schema clone function SQL is unavailable");
+    if (!file_exists($sqlFile)) {
+        Logger::error("schema_clone_function.sql not found at: " . $sqlFile);
         return false;
     }
 
-    if (@pg_query($conn, $sql) === false) {
-        Logger::error("Could not install schema clone functions: " . pg_last_error($conn));
+    $sql = file_get_contents($sqlFile);
+    $selectionSql = file_get_contents(__DIR__ . '/playthrough_selection.sql');
+    $upgradeSql = file_get_contents(__DIR__ . '/playthrough_upgrade.sql');
+    if ($selectionSql === false || $upgradeSql === false) {
+        return false;
+    }
+    if ($sql !== false) {
+        $sql .= "\n" . $selectionSql . "\n" . $upgradeSql;
+    }
+    if ($sql === false) {
+        Logger::error("Failed to read schema_clone_function.sql");
         return false;
     }
 
+    // Execute the SQL to create functions
+    $result = @pg_query($conn, $sql);
+    if (!$result) {
+        $error = pg_last_error($conn);
+        Logger::error("Failed to create schema clone functions: " . $error);
+        return false;
+    }
+
+    // Verify the current function definition was installed
     $verifyResult = @pg_query($conn, $checkQuery);
     $verifyRow = $verifyResult ? pg_fetch_assoc($verifyResult) : false;
     if (!$verifyRow || !pts_clone_function_is_current($verifyRow['function_definition'] ?? null)) {
@@ -53,6 +70,7 @@ function pts_ensure_functions($conn): bool {
         return false;
     }
 
+    Logger::info("Schema clone functions installed successfully");
     return true;
 }
 
@@ -131,6 +149,18 @@ function pts_schema_exists($conn, string $schemaName): bool {
     return pg_num_rows($result) > 0;
 }
 
+/** Capture or restore the explicit table policy in one atomic database statement. */
+function pts_transfer_playthrough($conn, string $schemaName, bool $restore = false): array {
+    if (!pts_ensure_functions($conn)) {
+        return ['success' => false, 'error' => 'Playthrough database functions are unavailable'];
+    }
+    $function = $restore ? 'restore_playthrough_upgraded' : 'capture_playthrough';
+    $result = @pg_query_params($conn,
+        "SELECT dialectic_meta.{$function}($1, ARRAY(SELECT jsonb_array_elements_text($2::jsonb)))",
+        [$schemaName, json_encode(pts_playthrough_tables())]);
+    return $result ? ['success' => true, 'error' => '']
+        : ['success' => false, 'error' => pg_last_error($conn)];
+}
 /**
  * Clone a schema (source) to another schema (destination).
  * Returns ['success' => bool, 'error' => string]

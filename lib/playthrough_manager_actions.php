@@ -18,7 +18,7 @@ function dpt_capture($conn, string $name, string $notes, ?array $existing = null
     $schema = $existing['schema_name'] ?? pts_sanitize_profile_name($name);
     if (!str_starts_with($schema, 'dialectic_profile_')) throw new RuntimeException('Invalid playthrough schema.');
     if (!$existing && pts_schema_exists($conn, $schema)) throw new RuntimeException('A playthrough with this name already exists.');
-    $clone = pts_clone_schema($conn, 'public', $schema);
+    $clone = pts_transfer_playthrough($conn, $schema);
     if (empty($clone['success'])) throw new RuntimeException('Could not save the current data. No switch was made.');
     $eventCount = 0; $knowledgeCount = 0; $gamets = 0;
     if (pg_fetch_result(dpt_query($conn, "SELECT to_regclass('public.eventlog') IS NOT NULL"), 0, 0) === 't') {
@@ -84,13 +84,9 @@ function dpt_manage($conn, string $action, array $input): string
                 $current = pg_fetch_assoc(dpt_query($conn, 'SELECT * FROM dialectic_meta.playthrough_profiles WHERE is_active=true LIMIT 1 FOR UPDATE'));
                 if (!$current) throw new RuntimeException('No active playthrough is recorded. Save a recovery playthrough before restoring.');
                 dpt_capture($conn, $current['name'], $current['notes'] ?? '', $current, true);
-                if (!pts_recreate_public_schema($conn)) throw new RuntimeException('Could not prepare the live database. Previous data was kept.');
-                $clone = pts_clone_schema($conn, $target['schema_name'], 'public');
+                $clone = pts_transfer_playthrough($conn, $target['schema_name'], true);
                 if (empty($clone['success'])) throw new RuntimeException('Restore failed. Previous data was kept.');
                 dpt_query($conn, 'UPDATE dialectic_meta.playthrough_profiles SET is_active=(id=$1)', [$id]);
-                if (pg_fetch_result(dpt_query($conn, "SELECT to_regclass('public.database_versioning') IS NOT NULL"), 0, 0) === 't') {
-                    dpt_query($conn, 'TRUNCATE public.database_versioning');
-                }
                 $message = 'Playthrough restored. Restart the DIALECTIC server and Fallout, then load the matching game save.';
             }
         }

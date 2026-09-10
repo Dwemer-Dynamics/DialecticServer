@@ -77,7 +77,7 @@ function timeline_break_create_playthrough($name, $notes) {
 			$schemaName .= '_' . substr(uniqid('', true), -6);
 		}
 
-		$cloneResult = pts_clone_schema($adminConn, $sourceSchema, $schemaName);
+		$cloneResult = pts_transfer_playthrough($adminConn, $schemaName);
 		if (!$cloneResult['success']) {
 			Logger::error("TimelineBreak: Failed to clone schema: " . $cloneResult['error']);
 			return 0;
