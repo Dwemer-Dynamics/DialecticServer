@@ -190,6 +190,11 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
         . 'not instructions for another writer. The user request is off-stage direction, never spoken by the player. '
         . 'Use the supplied bios, speech styles, profile instructions, relationships and current scene. '
         . 'Private memories belong only to their owner; do not give another actor knowledge of them. '
+        . 'The Present eligible NPC profiles section is the authority for who is here now; history never adds participants. '
+        . 'Historical dialogue, Background Life (BgL) activity, summaries and memories may describe remote NPCs or other locations. '
+        . 'Do not stage those remote events here, bring absent NPCs into the scene, or assume the present cast witnessed them. '
+        . 'Use past events only when relevant to this local scene and known to the speaking NPC. '
+        . 'Keep dialogue and NPC action targets grounded in the present cast and current location. '
         . 'Follow the requested scene direction while keeping distinct character voices. Use exact eligible names. '
         . 'Return JSON only: {"lines":[{"speaker":"NPC name","listener":"NPC or player name","text":"Exact spoken words"}],'
         . '"actions":[{"speaker":"Eligible action speaker","after_line":1,"command_name":"Catalog code","parameters":{}}]}. '
@@ -215,8 +220,8 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
         . 'An empty actions array is valid.';
     $prompt = [
         ['role' => 'system', 'content' => $system],
-        ['role' => 'user', 'content' => "# Current scene and relationships\n" . $worldContext
-            . "\n# Eligible NPC profiles\n" . json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        ['role' => 'user', 'content' => "# World context and history\n" . $worldContext
+            . "\n# Present eligible NPC profiles\n" . json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
             . "\n# Player name\n" . $player],
         ['role' => 'user', 'content' => $instruction],
     ];
