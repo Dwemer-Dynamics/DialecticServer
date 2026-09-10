@@ -50,13 +50,13 @@ function dialecticDirectorActionCatalog(array $actors, NpcMaster $npcMaster): ar
 function dialecticValidateDirectorScene(array $scene, array $actors, array $actions, string $player): array
 {
     $lines = $scene['lines'] ?? null;
-    $closingActions = $scene['actions'] ?? [];
+    $sceneActions = $scene['actions'] ?? [];
     if (!is_array($lines) || !array_is_list($lines) || count($lines) < 1 || count($lines) > 6
-        || !is_array($closingActions) || !array_is_list($closingActions) || count($closingActions) > 3) {
+        || !is_array($sceneActions) || !array_is_list($sceneActions) || count($sceneActions) > 3) {
         throw new RuntimeException('Director returned an invalid scene size');
     }
     $cast = [];
-    $result = ['schema' => 'dialectic.director_scene.v1', 'id' => bin2hex(random_bytes(16)), 'lines' => [], 'actions' => []];
+    $result = ['schema' => 'dialectic.director_scene.v2', 'id' => bin2hex(random_bytes(16)), 'lines' => [], 'actions' => []];
     foreach ($lines as $line) {
         if (!is_array($line) || !is_string($line['speaker'] ?? null)
             || !is_string($line['listener'] ?? null) || !is_string($line['text'] ?? null)) {
@@ -72,13 +72,18 @@ function dialecticValidateDirectorScene(array $scene, array $actors, array $acti
         $cast[$speaker] = true;
         $result['lines'][] = ['speaker' => $speaker, 'listener' => $listener, 'text' => $text];
     }
-    foreach ($closingActions as $action) {
+    foreach ($sceneActions as $action) {
         if (!is_array($action) || !is_string($action['speaker'] ?? null)
             || !is_string($action['command_name'] ?? null)) {
             throw new RuntimeException('Director returned an invalid action');
         }
         $speaker = trim($action['speaker']);
         $command = trim($action['command_name']);
+        $afterLine = $action['after_line'] ?? null;
+        if (!is_int($afterLine) || $afterLine < 1 || $afterLine > count($lines)
+            || ($speaker !== 'The Narrator' && $speaker !== $result['lines'][$afterLine - 1]['speaker'])) {
+            throw new RuntimeException('Director action must follow a line spoken by its actor');
+        }
         $definition = $actions[$command] ?? null;
         if (!$definition || !in_array($speaker, $definition['speakers'], true)
             || ($speaker !== 'The Narrator' && !isset($actors[$speaker]))) {
@@ -124,7 +129,8 @@ function dialecticValidateDirectorScene(array $scene, array $actors, array $acti
             throw new RuntimeException('Director action requires another actor');
         }
         if ($speaker !== 'The Narrator') $cast[$speaker] = true;
-        $result['actions'][] = ['speaker' => $speaker, 'command_name' => $command, 'parameters' => $parameters];
+        $result['actions'][] = ['speaker' => $speaker, 'command_name' => $command,
+            'after_line' => $afterLine, 'parameters' => $parameters];
     }
     if (count($cast) > 3) {
         throw new RuntimeException('Director scene exceeds three participating NPCs');
@@ -186,9 +192,13 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
         . 'Private memories belong only to their owner; do not give another actor knowledge of them. '
         . 'Follow the requested outcome while keeping distinct character voices. Use exact eligible names. '
         . 'Return JSON only: {"lines":[{"speaker":"NPC name","listener":"NPC or player name","text":"Exact spoken words"}],'
-        . '"actions":[{"speaker":"Eligible action speaker","command_name":"Catalog code","parameters":{}}]}. '
-        . 'Use 1-6 short lines, at most 3 NPC speakers, and 0-3 closing actions. '
-        . 'Lines play in order, then closing actions are attempted. Do not write dialogue that assumes an action succeeded. '
+        . '"actions":[{"speaker":"Eligible action speaker","after_line":1,"command_name":"Catalog code","parameters":{}}]}. '
+        . 'Use 1-6 short lines, at most 3 NPC speakers, and 0-3 actions. '
+        . 'after_line is the 1-based line number after which the action starts. NPC actions must follow their own spoken line. '
+        . 'Each line finishes, its attached actions are dispatched in listed order, then the next actor speaks. '
+        . 'Do not wait for actions to finish: long-running actions continue during later dialogue. '
+        . 'No action follow-up dialogue or outcome-dependent branches will be generated. '
+        . 'Do not write dialogue or dependent actions that assume an earlier action succeeded or finished. '
         . 'No narration, stage directions, player dialogue, invented actors, scene notes or unsupported gestures. '
         . 'If an action cannot be performed, convey intent through dialogue without claiming it happened. '
         . 'Use the action catalog below: choose an eligible speaker and supply parameters matching its schema. '
@@ -216,7 +226,7 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
         throw new RuntimeException('Director did not return a JSON scene');
     }
     $scene = dialecticValidateDirectorScene($decoded, $actors, $actions, $player);
-    // Resolve structured arguments before audio; native execution remains deferred until speech ends.
+    // Resolve arguments before audio; each action waits only for its attached spoken line.
     foreach ($scene['actions'] as &$action) {
         $parameters = $action['parameters'];
         if ($action['speaker'] === 'The Narrator') {
