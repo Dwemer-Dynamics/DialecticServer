@@ -1,4 +1,10 @@
-# Optional multiplayer dialogue sharing
+# Multiplayer dialogue sharing
+
+For internet play without port forwarding or player INI edits, use the new
+[standalone public relay](../relay/README.md). The configuration below is the
+legacy self-hosted relay; it remains available for existing users.
+
+## Legacy self-hosted sharing
 
 This beta relays ordinary NPC speech from one Dialectic player to other players.
 It requires the matching Dialectic plugin change. It does not integrate with NVMP's
@@ -44,9 +50,10 @@ Key=PASTE_HOST_KEY_HERE
 On each listener, use the same URL/session, `Mode=2`, and the **listener** key.
 Keep the host's normal DialecticServer connection configured as before. Listeners
 use only the sharing URL. Restart the game after initial configuration, or close
-MCM after changing its Tools > (Beta) Multiplayer Dialogue Sharing setting to reload the INI.
+MCM after editing the INI to reload settings. Tools > (Beta) Multiplayer Dialogue
+Sharing now provides Host/Join controls for the public relay plus Disconnect / Off.
 
-The setting uses the existing numeric MCM control: **0 Off**, **1 Host**, **2 Listen**.
+The legacy INI mode values remain **0 Off**, **1 Host**, **2 Listen**.
 Off is the shipped default. A listener remains a listener when disconnected; it
 does not fall back to running its own AI. Set Off to resume ordinary Dialectic use.
 Do not combine listening with a Discord stream of the same speech or it will echo.

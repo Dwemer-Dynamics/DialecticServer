@@ -21,7 +21,7 @@ function dialectic_share_request(array $config, array $input, string $key, strin
     }
 
     // One private, bounded file per installation; no web-accessible cache or saved-game data.
-    $directory = sys_get_temp_dir() . '/dialectic-share-' . hash('sha256', $root);
+    $directory = $config['state_directory'] ?? (sys_get_temp_dir() . '/dialectic-share-' . hash('sha256', $root));
     if (!is_dir($directory) && !@mkdir($directory, 0700, true) && !is_dir($directory)) {
         return [503, 'Sharing is unavailable.'];
     }
