@@ -11,6 +11,7 @@
 !/soundcache/.gitkeep
 
 # Local config
+conf/multiplayer.php
 conf/character_map.json
 conf/conf.php
 conf/conf_*.php
