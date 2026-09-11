@@ -83,8 +83,9 @@ function dpt_manage($conn, string $action, array $input): string
                 if (!pts_schema_exists($conn, $target['schema_name'])) throw new RuntimeException('The saved playthrough schema is missing.');
                 $current = pg_fetch_assoc(dpt_query($conn, 'SELECT * FROM dialectic_meta.playthrough_profiles WHERE is_active=true LIMIT 1 FOR UPDATE'));
                 if (!$current) throw new RuntimeException('No active playthrough is recorded. Save a recovery playthrough before restoring.');
+                $preparedSchema = pts_prepare_playthrough($conn, $target['schema_name']);
                 dpt_capture($conn, $current['name'], $current['notes'] ?? '', $current, true);
-                $clone = pts_transfer_playthrough($conn, $target['schema_name'], true);
+                $clone = pts_activate_playthrough($conn, $preparedSchema);
                 if (empty($clone['success'])) throw new RuntimeException('Restore failed. Previous data was kept.');
                 dpt_query($conn, 'UPDATE dialectic_meta.playthrough_profiles SET is_active=(id=$1)', [$id]);
                 $message = 'Playthrough restored. Restart the DIALECTIC server and Fallout, then load the matching game save.';
