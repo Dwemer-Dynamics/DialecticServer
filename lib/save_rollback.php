@@ -1,7 +1,7 @@
 <?php
 
 require_once(__DIR__ . DIRECTORY_SEPARATOR . "utils_game_timestamp.php");
-require_once(__DIR__ . DIRECTORY_SEPARATOR . "playthrough_snapshot.php");
+require_once(__DIR__ . DIRECTORY_SEPARATOR . "playthrough_autosave.php");
 require_once(__DIR__ . DIRECTORY_SEPARATOR . "logger.php");
 
 if (!function_exists('dialecticRollbackNormalizeGamets')) {
@@ -38,6 +38,7 @@ if (!function_exists('dialecticRollbackTableExists')) {
             return $cache[$table];
         } catch (Throwable $e) {
             Logger::warn("[SAVE_ROLLBACK] Table existence check failed for {$table}: " . $e->getMessage());
+            if (!empty($GLOBALS['pgr_operation'])) $GLOBALS['pgr_sql_failed'] = true;
             $cache[$table] = false;
             return false;
         }
@@ -64,6 +65,7 @@ if (!function_exists('dialecticRollbackDelete')) {
             }
         } catch (Throwable $e) {
             Logger::warn("[SAVE_ROLLBACK] Count failed for {$table}: " . $e->getMessage());
+            if (!empty($GLOBALS['pgr_operation'])) $GLOBALS['pgr_sql_failed'] = true;
         }
 
         if ($count <= 0) {
@@ -74,9 +76,12 @@ if (!function_exists('dialecticRollbackDelete')) {
         try {
             if ($db->delete($table, $where)) {
                 $stats[$table] = ($stats[$table] ?? 0) + $count;
+            } elseif (!empty($GLOBALS['pgr_operation'])) {
+                $GLOBALS['pgr_sql_failed'] = true;
             }
         } catch (Throwable $e) {
             Logger::warn("[SAVE_ROLLBACK] Delete failed for {$table}: " . $e->getMessage());
+            if (!empty($GLOBALS['pgr_operation'])) $GLOBALS['pgr_sql_failed'] = true;
         }
     }
 }
@@ -111,7 +116,7 @@ if (!function_exists('dialecticRollbackPruneFutureData')) {
         }
 
         $previousMaxGamets = function_exists('DataLastKnownGameTS') ? intval(DataLastKnownGameTS()) : 0;
-        if (!$force && ($previousMaxGamets <= 0 || $targetGamets >= $previousMaxGamets)) {
+        if (!$force && empty($GLOBALS['pgr_operation']) && ($previousMaxGamets <= 0 || $targetGamets >= $previousMaxGamets)) {
             return [
                 'rolled_back' => false,
                 'reason' => 'not_older',
@@ -121,14 +126,16 @@ if (!function_exists('dialecticRollbackPruneFutureData')) {
         }
 
         $stats = [];
-        $snapshotId = 0;
+        $playthroughId = 0;
         try {
-            $snapshotId = function_exists('timeline_break_snapshot_if_needed')
-                ? intval(timeline_break_snapshot_if_needed($previousMaxGamets, $targetGamets))
+            $playthroughId = function_exists('timeline_break_playthrough_if_needed')
+                ? intval(timeline_break_playthrough_if_needed($previousMaxGamets, $targetGamets))
                 : 0;
         } catch (Throwable $e) {
-            Logger::warn("[SAVE_ROLLBACK] Timeline Break snapshot failed: " . $e->getMessage());
+            Logger::warn("[SAVE_ROLLBACK] Timeline Break playthrough failed: " . $e->getMessage());
         }
+
+        if ($playthroughId < 0) return ['rolled_back'=>false,'reason'=>'snapshot_failed'];
 
         foreach ([
             'eventlog',
@@ -152,11 +159,13 @@ if (!function_exists('dialecticRollbackPruneFutureData')) {
         dialecticRollbackClearConfOpt('COMBAT_BARK_LAST_TIMESTAMP', $stats);
         dialecticRollbackClearConfOpt('last_narrator_welcome', $stats);
 
+        if (!pgr_complete()) return ['rolled_back'=>false,'reason'=>'rollback_failed','deleted'=>$stats];
+
         Logger::info("[SAVE_ROLLBACK] Pruned future Dialectic data" . Logger::formatContext([
             'source' => $source,
             'previous_max_gamets' => $previousMaxGamets,
             'target_gamets' => $targetGamets,
-            'snapshot_id' => $snapshotId,
+            'playthrough_id' => $playthroughId,
             'deleted' => $stats,
         ]));
 
@@ -164,7 +173,7 @@ if (!function_exists('dialecticRollbackPruneFutureData')) {
             'rolled_back' => true,
             'previous_max_gamets' => $previousMaxGamets,
             'target_gamets' => $targetGamets,
-            'snapshot_id' => $snapshotId,
+            'playthrough_id' => $playthroughId,
             'deleted' => $stats,
         ];
     }
@@ -178,7 +187,7 @@ if (!function_exists('dialecticMaybeHandleIncomingGametsRollback')) {
             return ['rolled_back' => false, 'reason' => 'missing_gamets'];
         }
 
-        if ($force) {
+        if ($force || !empty($GLOBALS['pgr_operation'])) {
             return dialecticRollbackPruneFutureData($targetGamets, $source, true);
         }
 

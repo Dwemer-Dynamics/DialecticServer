@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/playthrough_runtime.php';
 require_once("logger.php");
 
 if (class_exists('sql', false)) {
@@ -14,6 +15,7 @@ class sql
     
     public function __construct()
     {
+        ptr_runtime_enter();
         if (!function_exists('pg_connect')) {
             throw new \RuntimeException("PHP PostgreSQL extension is not loaded; pg_connect() is unavailable.");
         }

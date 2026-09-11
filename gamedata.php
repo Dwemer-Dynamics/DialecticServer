@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . "/lib/playthrough_guard.php";
+pgr_http_preflight("gamedata");
 /**
  * Game Data Endpoint
  * 
@@ -1616,6 +1618,14 @@ function handlePlayerSurvivalUpdate(array $data): void
         throw new InvalidArgumentException('Unsupported player survival schema');
     }
 
+    // New clients include level in the existing player heartbeat; older clients omit it.
+    $playerLevel = $data['player_level'] ?? null;
+    if (array_key_exists('player_level', $data)
+        && (($data['actor_type'] ?? '') !== 'player' || !is_int($playerLevel)
+            || $playerLevel < 1 || $playerLevel > 65535)) {
+        throw new InvalidArgumentException('Invalid player level');
+    }
+
     $needs = is_array($data['needs'] ?? null) ? $data['needs'] : [];
     $radiationPayload = is_array($data['radiation'] ?? null) ? $data['radiation'] : [];
     $normalizedNeeds = [];
@@ -1645,6 +1655,14 @@ function handlePlayerSurvivalUpdate(array $data): void
     $player = new Player();
     if (!$player->setJson('survival', $survival)) {
         throw new RuntimeException('Unable to store player survival state');
+    }
+    if ($playerLevel !== null) {
+        $stats = $player->getJson('stats');
+        $stats = is_array($stats) ? $stats : [];
+        $stats['level'] = $playerLevel;
+        if (!$player->setJson('stats', $stats)) {
+            throw new RuntimeException('Unable to store player level');
+        }
     }
 
     Logger::debug('[gamedata.php] Updated player survival state' . Logger::formatContext([

@@ -4097,11 +4097,12 @@ $playthroughMetadataRow = $db->fetchOne("
           WHERE n.nspname = 'dialectic_meta'
             AND p.proname IN ('clone_schema', 'drop_schema_safe', 'get_schema_size')) AS clone_functions
 ");
+require_once dirname(__DIR__) . '/lib/playthrough_schema.php';
 $playthroughMetadataIncomplete = (
     empty($playthroughMetadataRow['profiles_relation']) ||
     empty($playthroughMetadataRow['settings_relation']) ||
     intval($playthroughMetadataRow['clone_functions'] ?? 0) !== 3 ||
-    stripos((string)($playthroughMetadataRow['clone_function_definition'] ?? ''), 'sync_schema_sequences(dest_schema)') === false
+    !pts_clone_function_is_current($playthroughMetadataRow['clone_function_definition'] ?? null)
 );
 
 if ($checkVersion("playthrough_metadata_schema") < 20260730001 || $playthroughMetadataIncomplete) {
@@ -5125,3 +5126,18 @@ if ($checkVersion('core_tts_pronunciation') < 20260901001) {
 }
 
 Logger::info(__FILE__." update file processed. This file has ".__LINE__." lines.");
+
+
+// Keep the installed snapshot functions and pgAdmin comments aligned with the current table policy.
+require_once dirname(__DIR__) . '/lib/playthrough_schema.php';
+require_once dirname(__DIR__) . '/lib/playthrough_preferences.php';
+$playthroughPolicyConn = ptp_connect();
+if ($playthroughPolicyConn) {
+    try {
+        if (!pts_update_playthrough_policy($playthroughPolicyConn)) {
+            Logger::error('Playthrough Save table policy update failed; retry the database update.');
+        }
+    } finally { pg_close($playthroughPolicyConn); }
+} else {
+    Logger::error('Cannot connect to update the Playthrough Save table policy.');
+}
