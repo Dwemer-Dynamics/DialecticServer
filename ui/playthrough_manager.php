@@ -316,7 +316,7 @@ if (!$ptmFragment) {
  document.addEventListener('submit', function(e){
  const form = e.target;
  if (form && form.classList && form.classList.contains('switch-form')) {
- const ok = window.confirm('Restore this Playthrough Save? Stop Fallout first.\n\nYour current progress replaces the contents of the active Playthrough Save, then the selected save is restored. If no active save is found, the restore is blocked.\n\nAfter restoring, restart DIALECTIC and load the matching Fallout save.');
+ const ok = window.confirm('Restore this Playthrough Save? Stop Fallout first.\n\nYour current progress replaces the contents of the active Playthrough Save, then the selected save is restored. If no active save is found, the restore is blocked.\n\nWait for the server to finish restoring, then load the matching Fallout save.');
  if (!ok) { e.preventDefault(); return false; }
  if (overlayTitle) overlayTitle.textContent = 'Restoring Playthrough Save';
  showOverlay();

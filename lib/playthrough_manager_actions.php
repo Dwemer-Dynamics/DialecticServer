@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/playthrough_runtime.php';
 require_once __DIR__ . '/playthrough_schema.php';
 require_once __DIR__ . '/playthrough_retention.php';
 
@@ -46,8 +47,10 @@ function dpt_manage($conn, string $action, array $input): string
 {
     if (!in_array($action, ['setup', 'create', 'switch', 'delete'], true)) throw new RuntimeException('Unknown playthrough action.');
     if (!pts_metadata_schema_ready($conn)) throw new RuntimeException('Run the DIALECTIC database update before managing playthroughs.');
-    dpt_query($conn, 'BEGIN');
+    $runtimeSwitch = null;
     try {
+        if ($action === 'switch') $runtimeSwitch = ptr_runtime_begin_switch(30.0, $conn);
+        dpt_query($conn, 'BEGIN');
         dpt_query($conn, "SET LOCAL lock_timeout='2s'");
         if (pg_fetch_result(dpt_query($conn, "SELECT pg_try_advisory_xact_lock(hashtext('dialectic_meta_playthrough_retention'))"), 0, 0) !== 't') {
             throw new RuntimeException('Another playthrough action is running. Try again shortly.');
@@ -88,13 +91,20 @@ function dpt_manage($conn, string $action, array $input): string
                 $clone = pts_activate_playthrough($conn, $preparedSchema);
                 if (empty($clone['success'])) throw new RuntimeException('Restore failed. Previous data was kept.');
                 dpt_query($conn, 'UPDATE dialectic_meta.playthrough_profiles SET is_active=(id=$1)', [$id]);
-                $message = 'Playthrough restored. Restart the DIALECTIC server and Fallout, then load the matching game save.';
+                $message = 'Playthrough restored.';
             }
         }
         dpt_query($conn, 'COMMIT');
+        if ($runtimeSwitch !== null) {
+            $message .= ptr_runtime_finish_switch($runtimeSwitch)
+                ? ' Background processing refreshed. Load the matching Fallout save.'
+                : ' Warning: background processing could not be confirmed. Restart the DIALECTIC server before loading the matching Fallout save.';
+        }
         return $message;
     } catch (Throwable $e) {
         pg_query($conn, 'ROLLBACK');
         throw $e;
+    } finally {
+        if ($runtimeSwitch !== null) ptr_runtime_finish_switch($runtimeSwitch);
     }
 }
