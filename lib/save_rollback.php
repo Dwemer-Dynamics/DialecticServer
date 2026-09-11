@@ -135,6 +135,8 @@ if (!function_exists('dialecticRollbackPruneFutureData')) {
             Logger::warn("[SAVE_ROLLBACK] Timeline Break playthrough failed: " . $e->getMessage());
         }
 
+        if ($playthroughId < 0) return ['rolled_back'=>false,'reason'=>'snapshot_failed'];
+
         foreach ([
             'eventlog',
             'speech',
@@ -157,7 +159,7 @@ if (!function_exists('dialecticRollbackPruneFutureData')) {
         dialecticRollbackClearConfOpt('COMBAT_BARK_LAST_TIMESTAMP', $stats);
         dialecticRollbackClearConfOpt('last_narrator_welcome', $stats);
 
-        pgr_complete();
+        if (!pgr_complete()) return ['rolled_back'=>false,'reason'=>'rollback_failed','deleted'=>$stats];
 
         Logger::info("[SAVE_ROLLBACK] Pruned future Dialectic data" . Logger::formatContext([
             'source' => $source,
