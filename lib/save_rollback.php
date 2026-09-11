@@ -38,6 +38,7 @@ if (!function_exists('dialecticRollbackTableExists')) {
             return $cache[$table];
         } catch (Throwable $e) {
             Logger::warn("[SAVE_ROLLBACK] Table existence check failed for {$table}: " . $e->getMessage());
+            if (!empty($GLOBALS['pgr_operation'])) $GLOBALS['pgr_sql_failed'] = true;
             $cache[$table] = false;
             return false;
         }
@@ -64,6 +65,7 @@ if (!function_exists('dialecticRollbackDelete')) {
             }
         } catch (Throwable $e) {
             Logger::warn("[SAVE_ROLLBACK] Count failed for {$table}: " . $e->getMessage());
+            if (!empty($GLOBALS['pgr_operation'])) $GLOBALS['pgr_sql_failed'] = true;
         }
 
         if ($count <= 0) {
@@ -74,9 +76,12 @@ if (!function_exists('dialecticRollbackDelete')) {
         try {
             if ($db->delete($table, $where)) {
                 $stats[$table] = ($stats[$table] ?? 0) + $count;
+            } elseif (!empty($GLOBALS['pgr_operation'])) {
+                $GLOBALS['pgr_sql_failed'] = true;
             }
         } catch (Throwable $e) {
             Logger::warn("[SAVE_ROLLBACK] Delete failed for {$table}: " . $e->getMessage());
+            if (!empty($GLOBALS['pgr_operation'])) $GLOBALS['pgr_sql_failed'] = true;
         }
     }
 }
@@ -111,7 +116,7 @@ if (!function_exists('dialecticRollbackPruneFutureData')) {
         }
 
         $previousMaxGamets = function_exists('DataLastKnownGameTS') ? intval(DataLastKnownGameTS()) : 0;
-        if (!$force && ($previousMaxGamets <= 0 || $targetGamets >= $previousMaxGamets)) {
+        if (!$force && empty($GLOBALS['pgr_operation']) && ($previousMaxGamets <= 0 || $targetGamets >= $previousMaxGamets)) {
             return [
                 'rolled_back' => false,
                 'reason' => 'not_older',
@@ -152,6 +157,8 @@ if (!function_exists('dialecticRollbackPruneFutureData')) {
         dialecticRollbackClearConfOpt('COMBAT_BARK_LAST_TIMESTAMP', $stats);
         dialecticRollbackClearConfOpt('last_narrator_welcome', $stats);
 
+        pgr_complete();
+
         Logger::info("[SAVE_ROLLBACK] Pruned future Dialectic data" . Logger::formatContext([
             'source' => $source,
             'previous_max_gamets' => $previousMaxGamets,
@@ -178,7 +185,7 @@ if (!function_exists('dialecticMaybeHandleIncomingGametsRollback')) {
             return ['rolled_back' => false, 'reason' => 'missing_gamets'];
         }
 
-        if ($force) {
+        if ($force || !empty($GLOBALS['pgr_operation'])) {
             return dialecticRollbackPruneFutureData($targetGamets, $source, true);
         }
 
