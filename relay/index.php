@@ -175,6 +175,18 @@ try {
             }
         }
     }
+    // Correlate with client logs using the same truncated SHA-256 IDs. Never log payloads or tokens.
+    $trace = null;
+    if (!$clean && is_string($op) && in_array($op, ['create', 'join', 'publish', 'reset', 'pause', 'resume', 'cancel', 'close', 'end', 'poll', 'audio', 'heartbeat'], true)
+        && (($status === 200 && !in_array($op, ['poll', 'audio', 'heartbeat'], true))
+            || ($status !== 200 && relay_allow($state['rates'], 'diagnostic_failures', 10, 60)))) {
+        $sessionForLog = $status === 200 && in_array($op, ['create', 'join'], true) ? $id : ($input['session'] ?? '');
+        $lineForLog = $input['utterance'] ?? '';
+        $trace = sprintf('[public-relay] session=%s line=%s op=%s http=%d upload_bytes=%d',
+            is_string($sessionForLog) && $sessionForLog !== '' ? substr(hash('sha256', $sessionForLog), 0, 16) : '-',
+            is_string($lineForLog) && $lineForLog !== '' ? substr(hash('sha256', $lineForLog), 0, 16) : '-',
+            $op, $status, strlen($audio));
+    }
     $encoded = json_encode($state, JSON_THROW_ON_ERROR);
     // Keep the prior complete registry if the process exits during a write.
     if (file_put_contents("$storage/rooms.tmp", $encoded) !== strlen($encoded)
@@ -184,6 +196,7 @@ try {
     // Open before releasing the lock so cancellation cannot substitute a different file.
     $stream = $audioPath && $status === 200 ? fopen($audioPath, 'rb') : null;
     flock($lock, LOCK_UN); fclose($lock); $lock = null;
+    if ($trace !== null) error_log($trace);
     http_response_code($status);
     if ($stream) {
         header('Content-Type: audio/wav');

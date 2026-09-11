@@ -90,3 +90,15 @@ Actual game UI/input and XAudio2 playback, two-PC NVMP, WAN delay, TLS proxy for
 real concurrent-user load and hosting cost remain unverified. This service has not been
 publicly deployed. The original local `multiplayer.php` remains separate and unchanged
 except for an internal server-selected state-directory option in its shared library.
+
+## Operator diagnostics
+
+The PHP error log records `[public-relay]` for successful create/join/publish and control
+operations. Match `session=` and `line=` with the client `Sharing:` logs: both use the
+first 16 hexadecimal characters of SHA-256 over their identifiers. Entries contain the
+operation, HTTP status and upload byte count, never tokens, codes, text or raw IDs.
+Successful idle poll/audio/heartbeat requests are not logged here; clients record audio
+download outcomes. Classified failures reaching the request dispatcher are limited to
+ten diagnostic entries per minute globally. Early malformed requests and storage/lock
+failures still rely on proxy access/error logs. These remote logs are not part of either
+player's local DwemerDistro debugging bundle.
