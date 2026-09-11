@@ -7,10 +7,8 @@
  *
  * It injects relationship context into the AI prompt.
  *
- * ASYNC QUEUE PROCESSING:
- * Before injecting context, we process any pending relationship evaluations
- * that were queued by the PREVIOUS request. This ensures relationship data
- * is up-to-date before building the prompt, without blocking the response.
+ * Relationship evaluations are queued after completed responses and handled by
+ * the background worker. Prompt construction only reads persisted state.
  *
  * TWO MODES:
  * 1. RELLLM_CONNECTOR set: Token-efficient mode
@@ -33,127 +31,6 @@ if (!dialecticRelationshipSettingEnabled()) {
 }
 
 require_once $GLOBALS["ENGINE_PATH"] . "lib/logger.php";
-
-// AUTO-START WORKER DAEMON
-// When RELLLM_CONNECTOR is set, ensure the background worker is running
-// Uses proc_open for proper detachment - no cron, no sudo, no permissions needed
-$useRelLLM = dialecticRelationshipUsesDedicatedConnector();
-if ($useRelLLM) {
-    _relEnsureWorkerRunning();
-}
-
-error_log("TRACE:\t".__LINE__. "\t".__FILE__.":\t".(microtime(true) - $relationshipContextStartTime));
-
-/**
- * Ensure the relationship worker daemon is running
- * Spawns it in background if not already active - instant, non-blocking
- * Uses proc_open for proper process detachment (Apache can't kill it)
- */
-function _relEnsureWorkerRunning() {
-    static $checked = false;
-    if ($checked) return; // Only check once per PHP request
-    $checked = true;
-
-    $pidFile = $GLOBALS["ENGINE_PATH"] . 'log/relationship_worker.pid';
-    $workerPath = __DIR__ . '/worker.php';
-    $logPath = $GLOBALS["ENGINE_PATH"] . 'log/relationship_worker.log';
-
-    Logger::trace("[REL-WORKER-START] Checking worker status...");
-
-    // Check PID file first (fast path)
-    if (file_exists($pidFile)) {
-        $pid = trim(file_get_contents($pidFile));
-        Logger::trace("[REL-WORKER-START] PID file exists with PID: {$pid}");
-        if (!empty($pid) && _relWorkerProcessRunning((int)$pid)) {
-            Logger::trace("[REL-WORKER-START] Worker already running at PID {$pid}");
-            return; // Worker is running
-        }
-        // Stale PID file - worker died, clean up
-        Logger::debug("[REL-WORKER-START] Stale PID file, process {$pid} not running, deleting");
-        @unlink($pidFile);
-    }
-
-    Logger::info("[REL-WORKER-START] No worker running, spawning new one...");
-
-    // Worker not running - spawn it using proc_open for full detachment
-    // This creates a process that survives Apache request termination
-
-    // Ensure log file exists and is writable
-    if (!file_exists($logPath)) {
-        @touch($logPath);
-        Logger::debug("[REL-WORKER-START] Created log file: {$logPath}");
-    } elseif (!is_writable($logPath)) {
-        @unlink($logPath);
-        @touch($logPath);
-        Logger::debug("[REL-WORKER-START] Recreated log file (was not writable)");
-    }
-
-    $logTarget = is_writable($logPath) ? $logPath : (DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null');
-    Logger::debug("[REL-WORKER-START] Log target: {$logTarget}");
-
-    $phpBinary = defined('PHP_BINARY') && PHP_BINARY !== '' ? PHP_BINARY : 'php';
-    if (DIRECTORY_SEPARATOR === '\\') {
-        $cmd = 'start "" /B ' . _relWorkerCmdQuote($phpBinary) . ' ' . _relWorkerCmdQuote($workerPath) . ' --daemon';
-        Logger::debug("[REL-WORKER-START] Windows command: {$cmd}");
-        $proc = @popen($cmd, 'r');
-        if (is_resource($proc)) {
-            pclose($proc);
-        } else {
-            Logger::error("[REL-WORKER-START] popen FAILED!");
-            return;
-        }
-    } else {
-        $cmd = escapeshellarg($phpBinary) . ' ' . escapeshellarg($workerPath) . ' --daemon';
-        Logger::debug("[REL-WORKER-START] Command: {$cmd}");
-
-        $descriptors = [
-            0 => ['file', '/dev/null', 'r'],
-            1 => ['file', $logTarget, 'a'],
-            2 => ['file', $logTarget, 'a'],
-        ];
-
-        $proc = proc_open($cmd, $descriptors, $pipes, dirname($workerPath));
-        if (is_resource($proc)) {
-            Logger::debug("[REL-WORKER-START] proc_open succeeded, closing handle");
-            proc_close($proc);
-        } else {
-            Logger::error("[REL-WORKER-START] proc_open FAILED!");
-            return;
-        }
-    }
-
-    // Do not wait/verify in the prompt hot path. The worker is best-effort
-    // background maintenance; response latency should not depend on tasklist
-    // checks or PID-file creation timing.
-    Logger::info("[REL-WORKER-START] Worker daemon launch requested");
-}
-
-function _relWorkerProcessRunning(int $pid): bool {
-    if ($pid <= 0) {
-        return false;
-    }
-
-    if (DIRECTORY_SEPARATOR === '\\') {
-        $output = [];
-        @exec('tasklist /FI "PID eq ' . $pid . '" /FO CSV /NH', $output);
-        foreach ($output as $line) {
-            if (preg_match('/^"[^"]+","' . preg_quote((string)$pid, '/') . '"/', trim($line)) === 1) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    if (function_exists('posix_kill')) {
-        return @posix_kill($pid, 0);
-    }
-
-    return file_exists("/proc/{$pid}");
-}
-
-function _relWorkerCmdQuote(string $value): string {
-    return '"' . str_replace('"', '\"', $value) . '"';
-}
 
 if (!function_exists('_relSplitPeopleList')) {
     function _relSplitPeopleList($people): array {
@@ -181,6 +58,8 @@ $npcName = $GLOBALS["DIALECTIC_NAME"] ?? null;
 Logger::info("[REL-CONTEXT] npcName=" . ($npcName ?? 'NULL') . ", CACHE_PEOPLE=" . substr($GLOBALS["CACHE_PEOPLE"] ?? 'NULL', 0, 100));
 
 if ($npcName && strcasecmp(trim((string)$npcName), 'The Narrator') !== 0) {
+    $knownRels = RelationshipManager::getRelationships($npcName);
+
     // Parse nearby NPCs from CACHE_PEOPLE
     $nearbyNpcs = [];
     if (!empty($GLOBALS["CACHE_PEOPLE"])) {
@@ -192,8 +71,6 @@ if ($npcName && strcasecmp(trim((string)$npcName), 'The Narrator') !== 0) {
     // This ensures relationships are shown for NPCs being discussed, not just physically present
     $mentionedNpcs = [];
     if (!empty($GLOBALS["DIALECTIC_CONTEXT"])) {
-        // Get this NPC's known relationships to check for mentions
-        $knownRels = RelationshipManager::getRelationships($npcName);
         $knownNames = array_keys($knownRels);
 
         // Scan recent context for mentions of known NPCs
@@ -219,7 +96,11 @@ if ($npcName && strcasecmp(trim((string)$npcName), 'The Narrator') !== 0) {
 
     // Build the relationship context block
     // This automatically uses tier-only mode if RELLLM_CONNECTOR is set
-    $relationshipContext = RelationshipManager::buildContext($npcName, $relevantNpcs);
+    $relationshipContext = RelationshipManager::buildContextFromRelationships(
+        $npcName,
+        $knownRels,
+        $relevantNpcs
+    );
 
     Logger::debug("[REL-CONTEXT] buildContext returned " . strlen($relationshipContext) . " chars for " . $npcName);
 

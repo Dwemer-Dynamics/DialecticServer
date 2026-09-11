@@ -6,17 +6,100 @@
  *
  * FLOW:
  * 1. postrequest.php queues evaluation data (non-blocking)
- * 2. context.php (next request) processes the queue before building context
- * 3. Relationship context is ready for the AI prompt
- *
- * This means evaluations are processed on the NEXT conversation turn,
- * but before context injection - so the AI always has current relationship data.
+ * 2. A background worker processes queued evaluations and initializations
+ * 3. Later prompts read the latest persisted relationship state
  *
  * Queue storage: Database table for persistence across requests
  */
 
 // Ensure Logger is available
 require_once $GLOBALS["ENGINE_PATH"] . "lib/logger.php";
+
+/**
+ * Start the detached relationship worker only when there is queued work.
+ */
+function _relEnsureWorkerRunning() {
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+
+    $pidFile = $GLOBALS["ENGINE_PATH"] . 'log/relationship_worker.pid';
+    $workerPath = __DIR__ . '/worker.php';
+    $logPath = $GLOBALS["ENGINE_PATH"] . 'log/relationship_worker.log';
+
+    Logger::trace("[REL-WORKER-START] Checking worker status...");
+
+    if (file_exists($pidFile)) {
+        $pid = trim(file_get_contents($pidFile));
+        if (!empty($pid) && _relWorkerProcessRunning((int)$pid)) {
+            return;
+        }
+        Logger::debug("[REL-WORKER-START] Stale PID file, process {$pid} not running, deleting");
+        @unlink($pidFile);
+    }
+
+    if (!file_exists($logPath)) {
+        @touch($logPath);
+    } elseif (!is_writable($logPath)) {
+        @unlink($logPath);
+        @touch($logPath);
+    }
+
+    $logTarget = is_writable($logPath) ? $logPath : (DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null');
+    $phpBinary = defined('PHP_BINARY') && PHP_BINARY !== '' ? PHP_BINARY : 'php';
+    if (DIRECTORY_SEPARATOR === '\\') {
+        $cmd = 'start "" /B ' . _relWorkerCmdQuote($phpBinary) . ' ' . _relWorkerCmdQuote($workerPath) . ' --daemon';
+        $proc = @popen($cmd, 'r');
+        if (is_resource($proc)) {
+            pclose($proc);
+        } else {
+            Logger::error("[REL-WORKER-START] Failed to launch relationship worker");
+            return;
+        }
+    } else {
+        $cmd = escapeshellarg($phpBinary) . ' ' . escapeshellarg($workerPath) . ' --daemon';
+        $descriptors = [
+            0 => ['file', '/dev/null', 'r'],
+            1 => ['file', $logTarget, 'a'],
+            2 => ['file', $logTarget, 'a'],
+        ];
+        $proc = proc_open($cmd, $descriptors, $pipes, dirname($workerPath));
+        if (!is_resource($proc)) {
+            Logger::error("[REL-WORKER-START] Failed to launch relationship worker");
+            return;
+        }
+        proc_close($proc);
+    }
+
+    Logger::info("[REL-WORKER-START] Worker daemon launch requested for queued work");
+}
+
+function _relWorkerProcessRunning(int $pid): bool {
+    if ($pid <= 0) {
+        return false;
+    }
+
+    if (DIRECTORY_SEPARATOR === '\\') {
+        $output = [];
+        @exec('tasklist /FI "PID eq ' . $pid . '" /FO CSV /NH', $output);
+        foreach ($output as $line) {
+            if (preg_match('/^"[^"]+","' . preg_quote((string)$pid, '/') . '"/', trim($line)) === 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (function_exists('posix_kill')) {
+        return @posix_kill($pid, 0);
+    }
+
+    return file_exists("/proc/{$pid}");
+}
+
+function _relWorkerCmdQuote(string $value): string {
+    return '"' . str_replace('"', '\"', $value) . '"';
+}
 
 /**
  * Queue a relationship evaluation for async processing
@@ -88,6 +171,7 @@ function _relQueueEvaluation($evalData) {
 
         Logger::info("[REL-ASYNC] Queued evaluation for {$npcName} (NPC {$npcId})" .
                   ($listenerNpcId ? " + NPC-to-NPC with {$listenerName}" : ""));
+        _relEnsureWorkerRunning();
         return true;
 
     } catch (Exception $e) {
@@ -98,7 +182,7 @@ function _relQueueEvaluation($evalData) {
 
 /**
  * Process all pending evaluations in the queue
- * Called at the start of each request (from context.php)
+ * Called by the detached relationship worker.
  *
  * @param int $limit Max number of evaluations to process (default 5)
  * @return array Results of processing
@@ -315,6 +399,7 @@ function _relQueueNpcInit($npcId, $npcName) {
              ON CONFLICT (npc_id) DO NOTHING"  // Don't replace - first request wins
         );
 
+        _relEnsureWorkerRunning();
         return true;
 
     } catch (Exception $e) {
@@ -325,7 +410,7 @@ function _relQueueNpcInit($npcId, $npcName) {
 
 /**
  * Process pending NPC inits from queue
- * Called at the start of each request (from context.php)
+ * Called by the detached relationship worker.
  *
  * @param int $limit Max number to process per request
  */
