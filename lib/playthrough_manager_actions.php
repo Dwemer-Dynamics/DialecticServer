@@ -47,9 +47,11 @@ function dpt_manage($conn, string $action, array $input): string
 {
     if (!in_array($action, ['setup', 'create', 'switch', 'delete'], true)) throw new RuntimeException('Unknown playthrough action.');
     if (!pts_metadata_schema_ready($conn)) throw new RuntimeException('Run the DIALECTIC database update before managing playthroughs.');
-    $runtimeSwitch = null;
+    if ($action === 'switch') {
+        require_once __DIR__ . '/playthrough_home.php';
+        return pth_change($conn, 'switch', $input)['message'];
+    }
     try {
-        if ($action === 'switch') $runtimeSwitch = ptr_runtime_begin_switch(30.0, $conn);
         dpt_query($conn, 'BEGIN');
         dpt_query($conn, "SET LOCAL lock_timeout='2s'");
         if (pg_fetch_result(dpt_query($conn, "SELECT pg_try_advisory_xact_lock(hashtext('dialectic_meta_playthrough_retention'))"), 0, 0) !== 't') {
@@ -82,29 +84,12 @@ function dpt_manage($conn, string $action, array $input): string
                 if (empty($drop['success'])) throw new RuntimeException('Could not delete the playthrough. Nothing was removed.');
                 dpt_query($conn, 'DELETE FROM dialectic_meta.playthrough_profiles WHERE id=$1', [$id]);
                 $message = 'Playthrough deleted.';
-            } else {
-                if (!pts_schema_exists($conn, $target['schema_name'])) throw new RuntimeException('The saved playthrough schema is missing.');
-                $current = pg_fetch_assoc(dpt_query($conn, 'SELECT * FROM dialectic_meta.playthrough_profiles WHERE is_active=true LIMIT 1 FOR UPDATE'));
-                if (!$current) throw new RuntimeException('No active playthrough is recorded. Save a recovery playthrough before restoring.');
-                $preparedSchema = pts_prepare_playthrough($conn, $target['schema_name']);
-                dpt_capture($conn, $current['name'], $current['notes'] ?? '', $current, true);
-                $clone = pts_activate_playthrough($conn, $preparedSchema);
-                if (empty($clone['success'])) throw new RuntimeException('Restore failed. Previous data was kept.');
-                dpt_query($conn, 'UPDATE dialectic_meta.playthrough_profiles SET is_active=(id=$1)', [$id]);
-                $message = 'Playthrough restored.';
             }
         }
         dpt_query($conn, 'COMMIT');
-        if ($runtimeSwitch !== null) {
-            $message .= ptr_runtime_finish_switch($runtimeSwitch)
-                ? ' Background processing refreshed. Load the matching Fallout save.'
-                : ' Warning: background processing could not be confirmed. Restart the DIALECTIC server before loading the matching Fallout save.';
-        }
         return $message;
     } catch (Throwable $e) {
         pg_query($conn, 'ROLLBACK');
         throw $e;
-    } finally {
-        if ($runtimeSwitch !== null) ptr_runtime_finish_switch($runtimeSwitch);
     }
 }

@@ -905,16 +905,14 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
     <div class="home-heading">
         <h1>DIALECTIC Dashboard</h1>
         <div class="home-heading-actions">
-            <a class="home-action-btn" href="<?php echo dialectic_home_h($webRoot . '/ui/control_panel.php?tab=storage'); ?>">
-                <span aria-hidden="true">🧩</span>
-                <span>Playthrough Management</span>
-            </a>
             <div class="player-pill">
                 <i class="bi bi-person-circle"></i>
                 <span><?php echo dialectic_home_h($playerName); ?></span>
             </div>
         </div>
     </div>
+
+    <?php require __DIR__ . '/tmpl/playthrough_home_controls.php'; ?>
 
     <section class="dashboard-container" aria-label="DIALECTIC dashboard">
         <article class="widget">
