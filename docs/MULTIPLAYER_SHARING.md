@@ -44,7 +44,7 @@ Key=PASTE_HOST_KEY_HERE
 On each listener, use the same URL/session, `Mode=2`, and the **listener** key.
 Keep the host's normal DialecticServer connection configured as before. Listeners
 use only the sharing URL. Restart the game after initial configuration, or close
-MCM after changing its Sound > Dialogue Sharing Mode setting to reload the INI.
+MCM after changing its Tools > (Beta) Multiplayer Dialogue Sharing setting to reload the INI.
 
 The setting uses the existing numeric MCM control: **0 Off**, **1 Host**, **2 Listen**.
 Off is the shipped default. A listener remains a listener when disconnected; it
