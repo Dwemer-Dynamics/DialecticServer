@@ -197,6 +197,8 @@ function dialectic_tts_load_npc_voice_data(object $db, string $speaker): array
 
 function dialectic_tts_generate_for_response(string $root, string $speaker, string $text): bool
 {
+    require_once __DIR__ . '/dialectic_interaction.php';
+    if (!dialecticInteractionAllowed()) return false;
     $text = trim($text);
     if ($text === '') {
         return false;

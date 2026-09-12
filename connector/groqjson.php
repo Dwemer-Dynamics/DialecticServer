@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__) . '/lib/dialectic_interaction.php';
 
 $enginePath = dirname((__FILE__)) . DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR;
 require_once($enginePath . "lib" .DIRECTORY_SEPARATOR."tokenizer_helper_functions.php");
@@ -112,6 +113,7 @@ class groqjson
     
     public function open($contextData, $customParms)
     {
+        dialecticInteractionRequire();
         $this->init_connector($customParms);
 
         $MAX_TOKENS=intval((isset($GLOBALS["CONNECTOR"][$this->name]["max_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["max_tokens"] : 48));
@@ -441,6 +443,7 @@ class groqjson
 
     public function process()
     {
+        dialecticInteractionRequire();
         global $alreadysent;
 
         static $numOutputTokens=0;
@@ -569,6 +572,7 @@ class groqjson
 
     public function processActions()
     {
+        dialecticInteractionRequire();
         global $alreadysent;
 
         if ($this->_functionName) {

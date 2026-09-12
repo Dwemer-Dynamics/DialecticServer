@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__) . '/lib/dialectic_interaction.php';
 
 /* kolboldcpp connector */
 
@@ -30,6 +31,7 @@ class koboldcppjson
 
     public function open(&$contextData, $customParms)
     {
+        dialecticInteractionRequire();
         $path='/api/extra/generate/stream/';
         $url=$GLOBALS["CONNECTOR"][$this->name]["url"].$path;
         $context="";
@@ -292,6 +294,7 @@ class koboldcppjson
 
     public function process()
     {
+        dialecticInteractionRequire();
         $line = fgets($this->primary_handler);
         $buffer="";
         $totalBuffer="";
@@ -395,6 +398,7 @@ class koboldcppjson
 
     public function processActions()
     {
+        dialecticInteractionRequire();
         global $alreadysent;
 
         unset($GLOBALS["_JSON_BUFFER"]);    // __jpd_decode_lazy has a cache
