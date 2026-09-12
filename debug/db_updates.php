@@ -5141,3 +5141,11 @@ if ($playthroughPolicyConn) {
 } else {
     Logger::error('Cannot connect to update the Playthrough Save table policy.');
 }
+
+if ($checkColumnExists('responselog', 'interaction_generation') < 0) {
+    $db->execQuery('ALTER TABLE public.responselog ADD COLUMN IF NOT EXISTS interaction_generation bigint NOT NULL DEFAULT 0');
+}
+if ($checkVersion('responselog') < 20260912001 && $checkColumnExists('responselog', 'interaction_generation') > 0) {
+    $updateVersion('responselog', 20260912001);
+}
+?>

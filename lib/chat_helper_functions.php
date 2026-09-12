@@ -87,6 +87,8 @@ function dialecticBuildLatestDiaryContextBlock(string $npcName, array $profileDa
 
 function callConfiguredTts($textString, $mood, $stringforhash)
 {
+    require_once __DIR__ . '/dialectic_interaction.php';
+    if (!dialecticInteractionAllowed()) return false;
     $ttsFunction = strval($GLOBALS["TTSFUNCTION"] ?? '');
     if ($ttsFunction === '') {
         return false;
@@ -1402,6 +1404,9 @@ function dialectic_npc_tts_php_binary(): string
 
 function dialectic_spawn_deferred_npc_tts_worker(array $entry): bool
 {
+    require_once __DIR__ . '/dialectic_interaction.php';
+    if (!dialecticInteractionAllowed()) return false;
+    $entry['interaction_generation'] = $GLOBALS['dialectic_interaction_generation'];
     $root = dirname(__DIR__);
     $worker = $root . DIRECTORY_SEPARATOR . 'processor' . DIRECTORY_SEPARATOR . 'npc_tts_worker.php';
     if (!is_file($worker)) {

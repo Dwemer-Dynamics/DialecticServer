@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/dialectic_interaction.php';
 
 require_once(__DIR__ . DIRECTORY_SEPARATOR . "settings.php");
 require_once(__DIR__ . DIRECTORY_SEPARATOR . "dialectic_runtime.php");
@@ -172,6 +173,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
         }
 
         $requiredVersions = [
+            'responselog' => 20260912001,
             'conf_opts' => 20260626001,
             'core_action' => 20260823003,
             'core_player' => 20260707001,

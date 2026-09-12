@@ -607,6 +607,10 @@ function DataDequeue($timestamp = 0, string $directorTag = '')
     } else {
         $clause="";
     }
+    require_once __DIR__ . '/dialectic_interaction.php';
+    if (!dialecticInteractionAllowed()) return [];
+    $interactionGeneration = (int)$GLOBALS['dialectic_interaction_generation'];
+    $clause .= " AND interaction_generation={$interactionGeneration} ";
     // Request-bound scenes must never be collected by an unrelated poll/turn.
     $clause .= $directorTag !== ''
         ? " AND tag='" . $db->escape($directorTag) . "' "
@@ -8070,4 +8074,3 @@ function getBaseDataForNpcFromLog($npcname) {
 
     return $currentNpcData;
 }
-

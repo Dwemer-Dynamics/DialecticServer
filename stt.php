@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/lib/dialectic_interaction.php';
+dialecticInteractionRequire();
 
 
 /* STT entry point */

@@ -177,6 +177,13 @@ class sql
 
     public function insert($table, $data)
     {
+        require_once __DIR__ . '/dialectic_interaction.php';
+        if ($table === 'responselog') {
+            if (!dialecticInteractionAllowed()) return false;
+            $data['interaction_generation'] = $GLOBALS['dialectic_interaction_generation'];
+        }
+        if ($table === 'eventlog' && !empty($GLOBALS['dialectic_interaction_generated'])
+            && !dialecticInteractionAllowed()) return false;
         $startTime = microtime(true);
         $this->re_connect();
         $i=0;

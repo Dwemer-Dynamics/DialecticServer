@@ -110,6 +110,7 @@ function dialecticSpawnPlayerTtsWorker(string $line, string $cachePath): void
         return;
     }
     if (@file_put_contents($jobPath, json_encode([
+        "interaction_generation" => $GLOBALS['dialectic_interaction_generation'],
         "line" => $line,
         "player_name" => $GLOBALS["PLAYER_NAME"] ?? "Player",
         "cache_path" => $cachePath,

@@ -46,3 +46,5 @@ data/CurrentModel_*.json
 *.swo
 *.log
 */Zone.Identifier
+
+/conf/dialectic_interaction/

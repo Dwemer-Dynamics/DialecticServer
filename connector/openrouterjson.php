@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__) . '/lib/dialectic_interaction.php';
 
 $enginePath = dirname((__FILE__)) . DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR;
 require_once($enginePath . "lib" .DIRECTORY_SEPARATOR."tokenizer_helper_functions.php");
@@ -379,6 +380,7 @@ class openrouterjson
     
     public function open($contextData, $customParms)
     {
+        dialecticInteractionRequire();
 
         $this->init_connector($customParms);
 
@@ -1013,6 +1015,7 @@ class openrouterjson
 
     public function process()
     {
+        dialecticInteractionRequire();
         global $alreadysent;
 
         static $numOutputTokens=0;
@@ -1196,6 +1199,7 @@ class openrouterjson
     // Method to close the data processing operation
     public function processActions()
     {
+        dialecticInteractionRequire();
         global $alreadysent;
 
         if ($this->_functionName) {

@@ -32,6 +32,7 @@ requireFilesRecursivelyByPattern($GLOBALS["ENGINE_ROOT"]."/service/processors/",
 
 // Helper function to execute task in forked process
 function executeTaskAsync($taskname, $task) {
+    if (!dialecticInteractionAllowed() && !in_array($taskname, ['retention', 'player2health'], true)) return 0;
     if (!function_exists('pcntl_fork')) {
         echo "[SYNC-$taskname] pcntl_fork unavailable; running task inline".PHP_EOL;
         Logger::info("pcntl_fork unavailable; running task inline: $taskname");

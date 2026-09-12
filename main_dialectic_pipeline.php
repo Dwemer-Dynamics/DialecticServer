@@ -1032,7 +1032,8 @@ if (in_array($gameRequest[0],["bored"])) {
                 : "php";
         }
         $managerPath = __DIR__ . DIRECTORY_SEPARATOR . "service" . DIRECTORY_SEPARATOR . "manager.php";
-        $command = escapeshellarg($phpCli)
+        $command = 'DIALECTIC_INTERACTION_GENERATION=' . escapeshellarg((string)$GLOBALS['dialectic_interaction_generation'])
+            . ' ' . escapeshellarg($phpCli)
             . " " . escapeshellarg($managerPath)
             . " rolemaster instruction " . escapeshellarg("")
             . " bored " . escapeshellarg($boredSeedActor)
@@ -1685,6 +1686,7 @@ if ($MUST_END) {  // Shorthand for non LLM processing
     terminate();
 
 }
+dialecticInteractionRequire();
 $executionMode = strtoupper((string)($GLOBALS["DIALECTIC_EXECUTION_MODE"] ?? ""));
 if ($executionMode=="INJECTION_LOG") {
     

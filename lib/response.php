@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/dialectic_interaction.php';
 
 require_once(__DIR__ . DIRECTORY_SEPARATOR . 'dialectic_command_payload.php');
 
@@ -24,6 +25,9 @@ function dialectic_should_generate_npc_tts_before_emit(): bool
 
 function dialectic_emit_json_response_envelope(array $lines, bool $close = false): void
 {
+    if (!dialecticInteractionAllowed()) {
+        $lines = [];
+    }
     $requestId = class_exists('Logger') ? Logger::getRequestId() : ($GLOBALS["DIALECTIC_REQUEST_ID"] ?? "");
     echo json_encode([
         "schema" => "dialectic.response.v1",
@@ -56,6 +60,7 @@ function dialectic_abort_json_response(): void
 
 function dialectic_buffer_response_line(string $speaker, string $action, string $text, array $metadata = []): void
 {
+    if (!dialecticInteractionAllowed()) return;
     $speaker = trim($speaker);
     $action = trim($action);
     $text = trim($text);
