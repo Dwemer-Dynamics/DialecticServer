@@ -129,10 +129,10 @@ outbound WAV upload, once-only playback dispatch, end/revocation and idle Off. E
 probes cover roles, session isolation, upload limits, cancellation, join throttling and
 scheduled cleanup. Game/audio/TaskManager boundaries in those probes are stubs.
 
-The Railway deployment at `https://dialectic-relay-production.up.railway.app/index.php`
+The Railway deployment at `https://relay.dwemerdynamics.com/index.php`
 has passed the two-native-client flow over public HTTPS, maximum 4 MiB WAV round-trip,
 private-path rejection, request-size limits and client-IP header spoofing probes.
-The configured custom domain `relay.dwemerdynamics.com` still requires DNS verification.
+The custom domain has verified CNAME/TXT records and a valid HTTPS certificate.
 Actual game UI/input and XAudio2 playback, two-PC NVMP, adverse WAN conditions,
 real concurrent-user load and hosting cost remain unverified. The original local
 `multiplayer.php` remains separate and unchanged except for an internal server-selected
