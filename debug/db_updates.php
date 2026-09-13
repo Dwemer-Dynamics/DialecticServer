@@ -3,6 +3,7 @@
 require_once(dirname(__DIR__).DIRECTORY_SEPARATOR."lib/logger.php");
 require_once(dirname(__DIR__).DIRECTORY_SEPARATOR."lib/settings.php");
 require_once(dirname(__DIR__).DIRECTORY_SEPARATOR."lib/dialectic_runtime.php");
+require_once(dirname(__DIR__).DIRECTORY_SEPARATOR."lib/tts_pronunciation.php");
 
 $checkVersion = function($tablename) {
     global $db;
@@ -121,6 +122,10 @@ try {
     }
     if ($checkTableExists("core_tts_connector") == -1) {
         $db->execQuery(file_get_contents(__DIR__."/../lib/core/database_schema/core_tts_connector.sql"));
+        $db->execQuery("SET search_path TO public");
+    }
+    if ($checkTableExists("core_tts_pronunciation") == -1) {
+        dialecticEnsureTtsPronunciationDictionary();
         $db->execQuery("SET search_path TO public");
     }
     if ($checkTableExists("core_llm_connector") == -1) {
@@ -4092,11 +4097,12 @@ $playthroughMetadataRow = $db->fetchOne("
           WHERE n.nspname = 'dialectic_meta'
             AND p.proname IN ('clone_schema', 'drop_schema_safe', 'get_schema_size')) AS clone_functions
 ");
+require_once dirname(__DIR__) . '/lib/playthrough_schema.php';
 $playthroughMetadataIncomplete = (
     empty($playthroughMetadataRow['profiles_relation']) ||
     empty($playthroughMetadataRow['settings_relation']) ||
     intval($playthroughMetadataRow['clone_functions'] ?? 0) !== 3 ||
-    stripos((string)($playthroughMetadataRow['clone_function_definition'] ?? ''), 'sync_schema_sequences(dest_schema)') === false
+    !pts_clone_function_is_current($playthroughMetadataRow['clone_function_definition'] ?? null)
 );
 
 if ($checkVersion("playthrough_metadata_schema") < 20260730001 || $playthroughMetadataIncomplete) {
@@ -5073,4 +5079,78 @@ if ($checkVersion('itt_connector_defaults') < 20260731002) {
     }
 }
 
+if ($checkVersion('core_tts_pronunciation') < 20260829002) {
+    Logger::debug('Applying core_tts_pronunciation 20260829002 - add NPC name and race filters');
+    $migrationOk = dialecticEnsureTtsPronunciationDictionary();
+
+    if ($migrationOk) {
+        $updateVersion('core_tts_pronunciation', 20260829002);
+        Logger::info('Applied patch core_tts_pronunciation 20260829002');
+    } else {
+        Logger::error('Failed to apply patch core_tts_pronunciation 20260829002');
+    }
+}
+
+if ($checkVersion('core_tts_pronunciation') < 20260829003) {
+    Logger::debug('Applying core_tts_pronunciation 20260829003 - retain only the Caesar default');
+    $migrationOk = dialecticEnsureTtsPronunciationDictionary();
+    if ($migrationOk) {
+        $migrationOk = $GLOBALS['db']->execQuery(
+            "DELETE FROM public.core_tts_pronunciation
+             WHERE is_builtin = TRUE
+               AND LOWER(BTRIM(source_text)) <> 'caesar'"
+        ) !== false;
+    }
+
+    if ($migrationOk) {
+        $updateVersion('core_tts_pronunciation', 20260829003);
+        Logger::info('Applied patch core_tts_pronunciation 20260829003');
+    } else {
+        Logger::error('Failed to apply patch core_tts_pronunciation 20260829003');
+    }
+}
+
+if ($checkVersion('core_tts_pronunciation') < 20260901001) {
+    Logger::debug('Applying core_tts_pronunciation 20260901001 - edit and preserve deleted built-ins');
+    $migrationOk = dialecticEnsureTtsPronunciationDictionary();
+    if ($migrationOk) {
+        $migrationOk = dialecticUnhyphenateBuiltinTtsPronunciations();
+    }
+
+    if ($migrationOk) {
+        $updateVersion('core_tts_pronunciation', 20260901001);
+        Logger::info('Applied patch core_tts_pronunciation 20260901001');
+    } else {
+        Logger::error('Failed to apply patch core_tts_pronunciation 20260901001');
+    }
+}
+
 Logger::info(__FILE__." update file processed. This file has ".__LINE__." lines.");
+
+
+// Install durable event accounting before refreshing the snapshot schema.
+if ($GLOBALS['db']->query(file_get_contents(dirname(__DIR__) . '/lib/dynamic_profile_scheduler.sql')) === false) {
+    throw new RuntimeException('Dynamic profile migration failed.');
+}
+
+// Keep the installed snapshot functions and pgAdmin comments aligned with the current table policy.
+require_once dirname(__DIR__) . '/lib/playthrough_schema.php';
+require_once dirname(__DIR__) . '/lib/playthrough_preferences.php';
+$playthroughPolicyConn = ptp_connect();
+if ($playthroughPolicyConn) {
+    try {
+        if (!pts_update_playthrough_policy($playthroughPolicyConn)) {
+            Logger::error('Playthrough Save table policy update failed; retry the database update.');
+        }
+    } finally { pg_close($playthroughPolicyConn); }
+} else {
+    Logger::error('Cannot connect to update the Playthrough Save table policy.');
+}
+
+if ($checkColumnExists('responselog', 'interaction_generation') < 0) {
+    $db->execQuery('ALTER TABLE public.responselog ADD COLUMN IF NOT EXISTS interaction_generation bigint NOT NULL DEFAULT 0');
+}
+if ($checkVersion('responselog') < 20260912001 && $checkColumnExists('responselog', 'interaction_generation') > 0) {
+    $updateVersion('responselog', 20260912001);
+}
+?>

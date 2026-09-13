@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__) . '/lib/dialectic_interaction.php';
 
 $enginePath = dirname((__FILE__)) . DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR;
 require_once($enginePath . "lib" .DIRECTORY_SEPARATOR."tokenizer_helper_functions.php");
@@ -52,6 +53,7 @@ class google_openaijson
 
     public function open($contextData, $customParms)
     {
+        dialecticInteractionRequire();
         $url = $GLOBALS["CONNECTOR"][$this->name]["url"];
 
         $MAX_TOKENS=((isset($GLOBALS["CONNECTOR"][$this->name]["max_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["max_tokens"] : 48)+0);
@@ -378,6 +380,7 @@ class google_openaijson
 
     public function process()
     {
+        dialecticInteractionRequire();
         global $alreadysent;
 
         static $numOutputTokens=0;
@@ -468,6 +471,7 @@ class google_openaijson
     // Method to close the data processing operation
     public function processActions()
     {
+        dialecticInteractionRequire();
         global $alreadysent;
 
         if ($this->_functionName) {

@@ -4,6 +4,7 @@ if (!function_exists('dialecticParseStableFormReference')) {
     require_once(__DIR__ . DIRECTORY_SEPARATOR . "game_plugins.php");
 }
 require_once(dirname(__DIR__) . DIRECTORY_SEPARATOR . "voice_clone_resolver.php");
+require_once(__DIR__ . DIRECTORY_SEPARATOR . "tts_filter_presets.php");
 
 if (!function_exists('dialecticRolemasterStateToBool')) {
     function dialecticRolemasterStateToBool($value)
@@ -777,7 +778,22 @@ class NpcMaster
         }
 
         if (array_key_exists('metadata', $data) && $data['metadata'] !== null && $data['metadata'] !== '') {
-            $data['metadata'] = $this->encodeJsonObjectForPersistence($data['metadata'], 'metadata');
+            $metadata = $this->decodeJsonObjectForPersistence($data['metadata'], 'metadata');
+            $filterPresetValue = null;
+            foreach (array_keys($metadata) as $metadataKey) {
+                if (strcasecmp(strval($metadataKey), 'tts_filter_preset') !== 0) {
+                    continue;
+                }
+                $filterPresetValue = $metadata[$metadataKey];
+                unset($metadata[$metadataKey]);
+            }
+            if ($filterPresetValue !== null) {
+                $presetId = dialecticNormalizeTtsFilterPresetId($filterPresetValue);
+                if ($presetId !== 'none') {
+                    $metadata['tts_filter_preset'] = $presetId;
+                }
+            }
+            $data['metadata'] = $this->encodeJsonObjectForPersistence($metadata, 'metadata');
         }
 
         return $data;
@@ -1030,6 +1046,7 @@ class NpcMaster
 
     public function setOldGlobalsFromCurrentNpcData($currentNpcData, bool $resolveVoice = true)
     {
+        dialecticClearActiveTtsFilterPreset();
 
         if (isset($currentNpcData['npc_name'])) {
             $GLOBALS['DIALECTIC_NAME'] = $currentNpcData['npc_name'];
@@ -1146,6 +1163,16 @@ class NpcMaster
 
         // Decode metadata and extended_data if available
         $metadata = json_decode($currentNpcData['metadata'] ?? '{}', true);
+        $filterPreset = 'none';
+        if (is_array($metadata)) {
+            foreach ($metadata as $metadataKey => $metadataValue) {
+                if (strcasecmp(strval($metadataKey), 'tts_filter_preset') === 0) {
+                    $filterPreset = $metadataValue;
+                    break;
+                }
+            }
+        }
+        dialecticSetActiveTtsFilterPreset($filterPreset);
         $narratorManagedKeys = [
             'REMOVE_ASTERISKS_FROM_PLAYER_INPUT',
             'REMOVE_ASTERISKS_FROM_NPC_OUTPUT',
@@ -1155,6 +1182,9 @@ class NpcMaster
         ];
         if (is_array($metadata)) {
             foreach ($metadata as $key => $value) {
+                if (strcasecmp(strval($key), 'tts_filter_preset') === 0) {
+                    continue;
+                }
                 if (in_array(strtoupper((string)$key), $narratorManagedKeys, true)) {
                     continue;
                 }

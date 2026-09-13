@@ -599,7 +599,7 @@ function getHeightDescription(float $scale): string {
 }
 
 
-function DataDequeue($timestamp = 0)
+function DataDequeue($timestamp = 0, string $directorTag = '')
 {
     global $db;
     if ($timestamp !== 0) {
@@ -607,6 +607,14 @@ function DataDequeue($timestamp = 0)
     } else {
         $clause="";
     }
+    require_once __DIR__ . '/dialectic_interaction.php';
+    if (!dialecticInteractionAllowed()) return [];
+    $interactionGeneration = (int)$GLOBALS['dialectic_interaction_generation'];
+    $clause .= " AND interaction_generation={$interactionGeneration} ";
+    // Request-bound scenes must never be collected by an unrelated poll/turn.
+    $clause .= $directorTag !== ''
+        ? " AND tag='" . $db->escape($directorTag) . "' "
+        : " AND COALESCE(tag, '') NOT LIKE 'director_scene:%' ";
     // Use atomic UPDATE...RETURNING to prevent race conditions where multiple concurrent
     // requests could fetch the same dialogue before it's marked as sent
     $results = $db->fetchAll(
@@ -3904,10 +3912,12 @@ function DataLastKnownLocationHuman($region=false,$cached=false)
 
 }
 
-function buildWorldPrompt($gamets = 0)
+function buildWorldPrompt($gamets = 0, $worldPayload = null)
 {
     $worldLines = [];
-    $worldPayload = dialecticLatestWorldContextPayload();
+    if (!is_array($worldPayload)) {
+        $worldPayload = dialecticLatestWorldContextPayload();
+    }
 
     $currentWorldspace = dialecticWorldContextWorldspaceFromPayload($worldPayload);
     $currentLoc = trim(dialecticWorldContextLocationFromPayload($worldPayload));
@@ -3948,6 +3958,45 @@ function buildWorldPrompt($gamets = 0)
     }
 
     return "\n\n<world>\n" . implode("\n", $worldLines) . "\n</world>";
+}
+
+// Build transient radio context only for a speaker confirmed as a current follower.
+function buildRadioPrompt($worldPayload = null, $nearbyActorsPayload = null)
+{
+    $actorName = trim((string)($GLOBALS["DIALECTIC_NAME"] ?? ""));
+    if (!dialecticIsActorCurrentFollower($actorName, $nearbyActorsPayload)) {
+        return "";
+    }
+
+    if (!is_array($worldPayload)) {
+        $worldPayload = dialecticLatestWorldContextPayload();
+    }
+    $radio = is_array($worldPayload) ? ($worldPayload['radio'] ?? null) : null;
+    if (!is_array($radio) || !filter_var($radio['active'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        return "";
+    }
+
+    $cleanValue = static function ($value): string {
+        $value = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', trim((string)$value));
+        $value = preg_replace('/\s+/u', ' ', (string)$value);
+        if (function_exists('mb_substr')) {
+            return trim((string)mb_substr((string)$value, 0, 160, 'UTF-8'));
+        }
+        return trim(substr((string)$value, 0, 160));
+    };
+
+    $station = $cleanValue($radio['station'] ?? '');
+    if ($station === '') {
+        return "";
+    }
+
+    $lines = ["  <station>" . xml_fragment_escape_text($station) . "</station>"];
+    $song = $cleanValue($radio['song'] ?? '');
+    if ($song !== '') {
+        $lines[] = "  <song>" . xml_fragment_escape_text($song) . "</song>";
+    }
+
+    return "\n\n<radio>\n" . implode("\n", $lines) . "\n</radio>";
 }
 
 function DataLastKnownWeatherHuman()
@@ -4427,6 +4476,57 @@ function dialecticLatestNearbyActorsPayload()
 
     $payload = json_decode($rows[0]['party'] ?? '', true);
     return is_array($payload) ? $payload : null;
+}
+
+// Confirm follower status from the latest authoritative nearby-actor snapshot.
+function dialecticIsActorCurrentFollower($actorName, $payload = null)
+{
+    $actorName = trim((string)$actorName);
+    if ($actorName === '') {
+        return false;
+    }
+    if (!is_array($payload)) {
+        $payload = dialecticLatestNearbyActorsPayload();
+    }
+    if (!is_array($payload)) {
+        return false;
+    }
+
+    $speakerFormId = trim((string)($GLOBALS['DIALECTIC_RESPONSE_SPEAKER_FORMID'] ?? ''));
+    $matchesSpeaker = static function ($candidate) use ($actorName, $speakerFormId): bool {
+        if (!is_array($candidate)) {
+            return false;
+        }
+        $candidateName = trim((string)($candidate['name'] ?? ''));
+        $candidateFormId = trim((string)($candidate['refid'] ?? $candidate['formid'] ?? ''));
+        if ($speakerFormId !== '') {
+            return $candidateFormId !== '' && strcasecmp($candidateFormId, $speakerFormId) === 0;
+        }
+        return $candidateName !== '' && strcasecmp($candidateName, $actorName) === 0;
+    };
+
+    $partyMembers = $payload['party_members'] ?? [];
+    if (is_array($partyMembers)) {
+        foreach ($partyMembers as $member) {
+            if ($matchesSpeaker($member)) {
+                return true;
+            }
+        }
+    }
+    $actors = $payload['actors'] ?? [];
+    if (is_array($actors)) {
+        foreach ($actors as $actor) {
+            if (!is_array($actor) ||
+                !filter_var($actor['is_player_teammate'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                continue;
+            }
+            if ($matchesSpeaker($actor)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 function dialecticPeoplePipeFromNearbyActorsPayload($excludeFarAway = false)
@@ -7974,4 +8074,3 @@ function getBaseDataForNpcFromLog($npcname) {
 
     return $currentNpcData;
 }
-

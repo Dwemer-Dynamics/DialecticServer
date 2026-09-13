@@ -1,5 +1,7 @@
 <?php
 
+require_once(__DIR__ . DIRECTORY_SEPARATOR . 'tts_filter_presets.php');
+
 class Narrator
 {
     public const CANONICAL_NAME = 'The Narrator';
@@ -306,6 +308,7 @@ class Narrator
     public function loadCharacterIntoGlobals(): void
     {
         $allSettings = $this->getAll();
+        dialecticSetActiveTtsFilterPreset($allSettings['tts_filter_preset'] ?? 'none');
         
         // Routing always uses the canonical name; prompts may use the roleplay alias.
         $GLOBALS['DIALECTIC_NAME'] = self::CANONICAL_NAME;
@@ -392,6 +395,7 @@ class Narrator
             'roleplay_name' => $this->getRoleplayName(),
             'profile_id' => $this->getProfileId(),
             'voiceid' => $allSettings['voiceid'] ?? 'TheNarrator',
+            'tts_filter_preset' => dialecticNormalizeTtsFilterPresetId($allSettings['tts_filter_preset'] ?? 'none'),
             'core' => $allSettings['core'] ?? '',
             'npc_static_bio' => $allSettings['background'] ?? '',
             'personality' => $allSettings['personality'] ?? '',

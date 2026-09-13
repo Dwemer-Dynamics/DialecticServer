@@ -318,6 +318,14 @@ $PROMPTS=array(
         "cue"=>["{$gameRequest[3]} Write {$GLOBALS["DIALECTIC_NAME"]}'s dialogue lines. CHARACTER MUST FOLLOW NARRATOR INSTRUCTION"],
         "player_request"=>["The Narrator: {$gameRequest[3]}"],
     ],
+    "external_comment"=>[
+        "cue"=>["Write one brief, natural, in-character observation from {$GLOBALS["DIALECTIC_NAME"]}, grounded in the current location, world state, and nearby audience. Output spoken dialogue only. Do not narrate stage directions. {$GLOBALS["TEMPLATE_DIALOG"]}"],
+        "player_request"=>["The Narrator: {$GLOBALS["DIALECTIC_NAME"]} makes a brief contextual observation about the current scene."],
+    ],
+    "external_reaction"=>[
+        "cue"=>["Follow this scene direction and write one brief, natural, in-character reaction from {$GLOBALS["DIALECTIC_NAME"]}: " . (string)($GLOBALS["DIALECTIC_EXTERNAL_REQUEST"]["instruction"] ?? "") . " Output spoken dialogue only. Do not repeat or narrate the direction. {$GLOBALS["TEMPLATE_DIALOG"]}"],
+        "player_request"=>["The Narrator: " . (string)($GLOBALS["DIALECTIC_EXTERNAL_REQUEST"]["instruction"] ?? "")],
+    ],
     "suggestion"=>[ 
         "cue"=>["Write {$GLOBALS["DIALECTIC_NAME"]}'s dialogue lines. "],
         "player_request"=>["The Narrator: {$gameRequest[3]}"],

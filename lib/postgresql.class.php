@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/playthrough_runtime.php';
 require_once("logger.php");
 
 if (class_exists('sql', false)) {
@@ -14,6 +15,7 @@ class sql
     
     public function __construct()
     {
+        ptr_runtime_enter();
         if (!function_exists('pg_connect')) {
             throw new \RuntimeException("PHP PostgreSQL extension is not loaded; pg_connect() is unavailable.");
         }
@@ -175,6 +177,13 @@ class sql
 
     public function insert($table, $data)
     {
+        require_once __DIR__ . '/dialectic_interaction.php';
+        if ($table === 'responselog') {
+            if (!dialecticInteractionAllowed()) return false;
+            $data['interaction_generation'] = $GLOBALS['dialectic_interaction_generation'];
+        }
+        if ($table === 'eventlog' && !empty($GLOBALS['dialectic_interaction_generated'])
+            && !dialecticInteractionAllowed()) return false;
         $startTime = microtime(true);
         $this->re_connect();
         $i=0;

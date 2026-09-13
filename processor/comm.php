@@ -1,7 +1,7 @@
 <?php
 require_once($GLOBALS["ENGINE_PATH"]."/lib/dynamic_update_util.php");
 require_once($GLOBALS["ENGINE_PATH"]."/lib/utils_game_timestamp.php");
-require_once($GLOBALS["ENGINE_PATH"]."/lib/playthrough_snapshot.php");
+require_once($GLOBALS["ENGINE_PATH"]."/lib/playthrough_autosave.php");
 require_once($GLOBALS["ENGINE_PATH"]."/lib/save_rollback.php");
 require_once($GLOBALS["ENGINE_PATH"]."/lib/core/game_plugins.php");
 require_once($GLOBALS["ENGINE_PATH"]."/lib/player_tts_helpers.php");
@@ -811,16 +811,16 @@ if ($gameRequest[0] == "wipe") { // Reset reponses if init sent (Think about thi
 } elseif ($gameRequest[0] == "playerdied") {
     
     
-    // Timeline Break autosnapshot: detect large rollback and snapshot before pruning
+    // Timeline Break automatic playthrough save: detect a large rollback and save before pruning.
     try {
         $prevGamets = DataLastKnownGameTS();
         $incomingGamets = intval($gameRequest[2]);
-        $snapshotId = timeline_break_snapshot_if_needed($prevGamets, $incomingGamets);
-        if ($snapshotId > 0) {
-            Logger::info("TimelineBreak: Created snapshot id {$snapshotId} prior to death rollback prune");
+        $playthroughId = timeline_break_playthrough_if_needed($prevGamets, $incomingGamets);
+        if ($playthroughId > 0) {
+            Logger::info("TimelineBreak: Created playthrough id {$playthroughId} prior to death rollback prune");
         }
     } catch (Exception $e) {
-        Logger::warn("TimelineBreak: Snapshot attempt (playerdied) failed: ".$e->getMessage());
+        Logger::warn("TimelineBreak: Playthrough attempt (playerdied) failed: ".$e->getMessage());
     }
 
     $lastSaveHistory=$db->fetchAll("select gamets from eventlog where type='infosave' order by ts desc limit 1 offset 0");
@@ -1007,7 +1007,10 @@ if ($gameRequest[0] == "wipe") { // Reset reponses if init sent (Think about thi
     
 } elseif (strpos($gameRequest[0], "updateprofiles_batch_async")===0) {
     
-    // Async batch processing for timer-based dynamic profile updates.
+    // Automatic scheduling belongs to the server; only explicit manual batches queue work.
+    if ($gameRequest[0] !== 'updateprofiles_batch_async_manual') terminate();
+
+    // Explicit manual profile updates.
     // Payload must be JSON: {"schema":"dialectic.profile_update_batch.v1","npcs":["NPC1","NPC2"]}.
     
     if (!isset($gameRequest[3]) || empty($gameRequest[3])) {
