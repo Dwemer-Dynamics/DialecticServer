@@ -5,6 +5,48 @@ outbound requests. The host uploads the WAV already being played; the service ne
 connects back to a player's PC, uses their AI credentials, or generates AI/TTS requests.
 It does not need a DialecticServer database or a running local game server.
 
+## Railway deployment
+
+Deploy this as a separate service named `Dialectic-Relay`. The container includes only
+the relay endpoint and its shared library; the game server, database and AI credentials
+are not deployed. Use one replica with a private volume mounted at
+`/var/lib/dialectic-relay`, without backups. Keep service sleeping disabled so cleanup
+continues when no players are connected.
+
+- Build from the repository root with `relay/Dockerfile`. Configure the service's
+  Dockerfile path explicitly; Railway no longer accepts new `railway.json` configs.
+  The image starts Nginx, PHP-FPM and a supervised cleanup worker. It listens on
+  Railway's `PORT` (8080 by default).
+- Generate a Railway HTTPS domain on port 8080. Add `relay.dwemerdynamics.com` as a
+  custom domain and copy Railway's exact DNS records into the domain's DNS provider.
+  If using Cloudflare, use DNS-only mode so Railway receives the player's address.
+- `/health` checks PHP, writable private storage and a successful cleanup within
+  three minutes. `/index.php` is the POST protocol endpoint. Other paths return 404.
+- Railway's internal proxy supplies `X-Real-IP`; Nginx trusts only private proxy peer
+  ranges and ignores arbitrary forwarded chains. Verify header spoofing resistance
+  through the generated HTTPS domain before making it the plugin default.
+- Cleanup runs every 60 seconds in the same container and volume as PHP. Railway's
+  separate cron services are not used. Failed cleanup does not advance health state.
+- Access logs contain only method, status, byte count and duration for failed requests.
+  PHP's existing hashed session/line diagnostics remain available in Railway logs.
+- After HTTPS and protocol validation, ship
+  `PublicRelayURL=https://relay.dwemerdynamics.com/index.php`. Until custom DNS is ready,
+  the generated Railway domain can be used for testing.
+
+For a CLI deployment, upload a scratch directory containing only `relay/` and
+`lib/multiplayer_relay.php`. Do not upload local configuration, logs, media or the
+full working checkout. CLI uploads
+do not enable GitHub autodeploys; deploy reviewed updates explicitly.
+
+Set the service instance's `dockerfilePath` to `relay/Dockerfile`, `healthcheckPath`
+to `/health`, `healthcheckTimeout` to 120, `sleepApplication` to false,
+`numReplicas` to 1, and `restartPolicyMaxRetries` to 5. These can be set through
+Railway's `serviceInstanceUpdate` API, scoped to the exact service and environment.
+Upload with `railway up <scratch-directory> --path-as-root --service <service-id>`.
+
+The beta limits below cap stored audio, not total monthly network transfer. Check
+Railway usage as more players join. No change to the plugin's Off behavior is needed.
+
 ## Deploy once as the operator
 
 Use PHP 8.1+ with the standard JSON/hash/file extensions, a PHP-FPM web server and TLS.
@@ -35,7 +77,8 @@ The files to install are `relay/index.php` and `lib/multiplayer_relay.php`:
 
 6. Set `PublicRelayURL=https://YOUR-RELAY-HOST/index.php` in the shipped plugin default
    INI's `[Multiplayer]` section. This is operator/release configuration, not something
-   each player edits. No real domain has been selected or deployed in this PR.
+   each player edits. The Railway setup above uses `relay.dwemerdynamics.com` once
+   its DNS and HTTPS checks pass.
 7. Verify create/join, upload/playback and expiry through the actual HTTPS proxy before
    distributing that build. PHP's development server is for local verification only.
 
@@ -86,10 +129,14 @@ outbound WAV upload, once-only playback dispatch, end/revocation and idle Off. E
 probes cover roles, session isolation, upload limits, cancellation, join throttling and
 scheduled cleanup. Game/audio/TaskManager boundaries in those probes are stubs.
 
-Actual game UI/input and XAudio2 playback, two-PC NVMP, WAN delay, TLS proxy forwarding,
-real concurrent-user load and hosting cost remain unverified. This service has not been
-publicly deployed. The original local `multiplayer.php` remains separate and unchanged
-except for an internal server-selected state-directory option in its shared library.
+The Railway deployment at `https://dialectic-relay-production.up.railway.app/index.php`
+has passed the two-native-client flow over public HTTPS, maximum 4 MiB WAV round-trip,
+private-path rejection, request-size limits and client-IP header spoofing probes.
+The configured custom domain `relay.dwemerdynamics.com` still requires DNS verification.
+Actual game UI/input and XAudio2 playback, two-PC NVMP, adverse WAN conditions,
+real concurrent-user load and hosting cost remain unverified. The original local
+`multiplayer.php` remains separate and unchanged except for an internal server-selected
+state-directory option in its shared library.
 
 ## Operator diagnostics
 

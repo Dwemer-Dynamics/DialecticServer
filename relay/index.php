@@ -32,14 +32,15 @@ function relay_allow(array &$rates, string $bucket, int $limit, int $window): bo
 }
 
 $lock = null;
+$clean = PHP_SAPI === 'cli' && in_array('--clean', $argv ?? [], true);
 try {
     $storage = getenv('DIALECTIC_RELAY_STORAGE') ?: '';
     if (!$storage || !is_dir($storage) || is_link($storage) || is_link("$storage/rooms.json")
         || is_link("$storage/rooms.lock") || is_link("$storage/rooms.tmp")) {
         http_response_code(503);
+        if ($clean) exit(1);
         exit('Public relay is not configured.');
     }
-    $clean = PHP_SAPI === 'cli' && in_array('--clean', $argv ?? [], true);
     $input = [];
     $audio = '';
     if (!$clean) {
@@ -64,6 +65,7 @@ try {
     }
     $lock = fopen("$storage/rooms.lock", 'c+');
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+        if ($clean) exit(1);
         http_response_code(503); exit('Relay is busy. Try again.');
     }
     chmod("$storage/rooms.lock", 0600);
@@ -204,6 +206,7 @@ try {
     } else echo $reply;
 } catch (Throwable $error) {
     error_log('[public-relay] Request failed: ' . get_class($error));
+    if ($clean) exit(1);
     http_response_code(503); echo 'Relay is unavailable.';
 } finally {
     if (is_resource($lock)) { flock($lock, LOCK_UN); fclose($lock); }
