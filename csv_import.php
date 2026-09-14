@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/lib/playthrough_switching.php';
+pas_http_guard();
 
 /* CSV Import entry point - handles automatic CSV uploads from the Dialectic plugin. */
 
