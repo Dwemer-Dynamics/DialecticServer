@@ -1,5 +1,103 @@
 <?php
 
+// Constrain the scene to the current cast and each action's existing parameter contract.
+function dialecticDirectorResponseFormat(array $actors, array $catalog, string $player): array
+{
+    $speakers = array_values(array_diff(array_keys($actors), [$player, 'The Narrator']));
+    $actionSchemas = [];
+    foreach ($catalog as $code => $definition) {
+        $parameters = $definition['parameters'] ?? [];
+        $properties = $parameters['properties'] ?? [];
+        foreach ($properties as $key => &$property) {
+            // Strict schemas require every property; null represents an omitted optional argument.
+            if (!in_array($key, $parameters['required'] ?? [], true)) {
+                $property = ['anyOf' => [$property, ['type' => 'null']]];
+            }
+        }
+        unset($property);
+        $actionSchemas[] = ['type' => 'object', 'additionalProperties' => false,
+            'properties' => [
+                'speaker' => ['type' => 'string', 'enum' => array_values($definition['speakers'])],
+                'after_line' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 5],
+                'command_name' => ['type' => 'string', 'enum' => [$code]],
+                'parameters' => ['type' => 'object', 'additionalProperties' => false,
+                    'properties' => (object)$properties, 'required' => array_keys($properties)],
+            ], 'required' => ['speaker', 'after_line', 'command_name', 'parameters']];
+    }
+    return ['type' => 'json_schema', 'json_schema' => [
+        'name' => 'director_scene', 'strict' => true,
+        'schema' => ['type' => 'object', 'additionalProperties' => false,
+            'properties' => [
+                'lines' => ['type' => 'array', 'minItems' => 1, 'maxItems' => 5,
+                    'items' => ['type' => 'object', 'additionalProperties' => false,
+                        'properties' => [
+                            'speaker' => ['type' => 'string', 'enum' => $speakers],
+                            'listener' => ['type' => 'string', 'enum' => array_values(array_unique([...$speakers, $player])),
+                                'description' => 'If the listener is the player, this must be the final line.'],
+                            'text' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 600],
+                        ], 'required' => ['speaker', 'listener', 'text']]],
+                'actions' => ['type' => 'array', 'maxItems' => $actionSchemas ? 3 : 0,
+                    'items' => $actionSchemas ? ['anyOf' => $actionSchemas]
+                        : ['type' => 'object', 'properties' => new stdClass(), 'additionalProperties' => false]],
+            ], 'required' => ['lines', 'actions']],
+    ]];
+}
+
+// Scope the existing JSON connectors' templates and dialogue-only options to this scene request.
+function dialecticRequestDirectorScene($connection, array $prompt, array $actors, array $catalog, string $player): array
+{
+    require_once __DIR__ . '/../functions/json_response.php';
+    $keys = ['responseTemplate', 'structuredOutputTemplate', 'CONNECTOR', 'PATCH', 'DIALECTIC_NO_EXAMPLES',
+        'FUNCTIONS_ARE_ENABLED', 'PATCH_PROMPT_ENFORCE_ACTIONS', 'DIRECT_NARRATOR_DIALOGUE',
+        'DIALECTIC_NAME', 'DIALECTIC_PERS', 'DIALECTIC_SPEECHSTYLE', 'TTSFUNCTION'];
+    $saved = [];
+    foreach ($keys as $key) {
+        if (array_key_exists($key, $GLOBALS)) $saved[$key] = $GLOBALS[$key];
+    }
+    try {
+        $GLOBALS['responseTemplate'] = ['lines' => [['speaker' => 'Eligible NPC name',
+            'listener' => 'Present NPC or player name', 'text' => 'Exact spoken words']], 'actions' => []];
+        if ($catalog) {
+            $GLOBALS['responseTemplate']['actions'][] = ['speaker' => 'Eligible action speaker',
+                'after_line' => 1, 'command_name' => 'Catalog code', 'parameters' => new stdClass()];
+        }
+        $GLOBALS['structuredOutputTemplate'] = dialecticDirectorResponseFormat($actors, $catalog, $player);
+        $GLOBALS['FUNCTIONS_ARE_ENABLED'] = false;
+        $GLOBALS['PATCH_PROMPT_ENFORCE_ACTIONS'] = false;
+        $GLOBALS['DIRECT_NARRATOR_DIALOGUE'] = false;
+        $GLOBALS['DIALECTIC_NAME'] = 'Director';
+        $GLOBALS['DIALECTIC_PERS'] = '';
+        $GLOBALS['DIALECTIC_SPEECHSTYLE'] = '';
+        $GLOBALS['TTSFUNCTION'] = '';
+        $GLOBALS['DIALECTIC_NO_EXAMPLES'] = true;
+        unset($GLOBALS['PATCH']['PREAPPEND']);
+        $driver = $GLOBALS['CURRENT_CONNECTOR'];
+        $GLOBALS['CONNECTOR'][$driver]['PREFILL_JSON'] = false;
+        $GLOBALS['CONNECTOR'][$driver]['ENFORCE_JSON'] = true;
+        // Preserve the connector's schema opt-in; JSON-only connectors still receive the scene template.
+        $format = ['type' => 'json_object'];
+        if (!empty($GLOBALS['CONNECTOR'][$driver]['json_schema'])) {
+            $format = $GLOBALS['structuredOutputTemplate'];
+        }
+        $connection->open($prompt, ['response_format' => $format, 'MAX_TOKENS' => 4000]);
+        do { $connection->process(); } while (!$connection->isDone());
+        $raw = $connection->close('director_scene');
+        try {
+            $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $error) {
+            throw new RuntimeException('Director did not return JSON: ' . $error->getMessage(), 0, $error);
+        }
+        if (!is_array($decoded)) throw new RuntimeException('Director did not return a scene object');
+        return dialecticValidateDirectorScene($decoded, $actors, $catalog, $player);
+    } finally {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $saved)) $GLOBALS[$key] = $saved[$key];
+            else unset($GLOBALS[$key]);
+        }
+    }
+}
+
+
 // Build one catalog for the scene, retaining each actor's availability and requirements.
 function dialecticDirectorActionCatalog(array $actors, NpcMaster $npcMaster): array
 {
@@ -57,20 +155,26 @@ function dialecticValidateDirectorScene(array $scene, array $actors, array $acti
     }
     $cast = [];
     $result = ['schema' => 'dialectic.director_scene.v2', 'id' => bin2hex(random_bytes(16)), 'lines' => [], 'actions' => []];
-    foreach ($lines as $line) {
+    foreach ($lines as $index => $line) {
+        $lineNumber = $index + 1;
         if (!is_array($line) || !is_string($line['speaker'] ?? null)
             || !is_string($line['listener'] ?? null) || !is_string($line['text'] ?? null)) {
-            throw new RuntimeException('Director returned an invalid dialogue line');
+            throw new RuntimeException("Director line {$lineNumber}: invalid speaker, listener or text field");
         }
         $speaker = trim($line['speaker']);
         $listener = trim($line['listener']);
         $text = trim($line['text']);
+        if ($speaker === $player || $speaker === 'The Narrator') {
+            throw new RuntimeException("Director line {$lineNumber}: player or narrator cannot speak");
+        }
         if (!isset($actors[$speaker]) || ($listener !== $player && !isset($actors[$listener]))
             || $speaker === $listener || $text === '' || mb_strlen($text) > 600) {
-            throw new RuntimeException('Director returned an unavailable actor or invalid dialogue');
+            throw new RuntimeException("Director line {$lineNumber}: unavailable actor, self-listener or invalid text");
         }
         $cast[$speaker] = true;
         $result['lines'][] = ['speaker' => $speaker, 'listener' => $listener, 'text' => $text];
+        // Leave the reply to the human even if the model authored additional turns.
+        if ($listener === $player) break;
     }
     foreach ($sceneActions as $action) {
         if (!is_array($action) || !is_string($action['speaker'] ?? null)
@@ -80,6 +184,7 @@ function dialecticValidateDirectorScene(array $scene, array $actors, array $acti
         $speaker = trim($action['speaker']);
         $command = trim($action['command_name']);
         $afterLine = $action['after_line'] ?? null;
+        if (is_int($afterLine) && $afterLine > count($result['lines']) && $afterLine <= count($lines)) continue;
         if (!is_int($afterLine) || $afterLine < 1 || $afterLine > count($lines)
             || ($speaker !== 'The Narrator' && $speaker !== $result['lines'][$afterLine - 1]['speaker'])) {
             throw new RuntimeException('Director action must follow a line spoken by its actor');
@@ -96,6 +201,11 @@ function dialecticValidateDirectorScene(array $scene, array $actors, array $acti
         $schema = $definition['parameters'];
         foreach ($parameters as $key => &$value) {
             $property = $schema['properties'][$key] ?? null;
+            if ($value === null && $property && !in_array($key, $schema['required'] ?? [], true)
+                && in_array($key, ['target', 'item', 'amount', 'location', 'speed', 'id_quest'], true)) {
+                unset($parameters[$key]);
+                continue;
+            }
             $type = $property['type'] ?? 'string';
             if (!in_array($key, ['target', 'item', 'amount', 'location', 'speed', 'id_quest'], true)
                 || !$property || !is_scalar($value)
@@ -204,6 +314,8 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
         . 'include the addressed eligible NPC answering and further relevant back-and-forth toward a natural stopping point. '
         . 'Do not stop at an unanswered opening question or greeting when an eligible NPC can reply. '
         . 'These replies are part of this script, not later generated follow-ups. A single line is valid for a one-way remark or action request. '
+        . 'When a line addresses the player as listener, end the scene after that line and its attached actions. '
+        . 'Leave the reply to the human player: never generate a player turn or any later NPC lines or actions. '
         . 'after_line is the 1-based line number after which the action starts. NPC actions must follow their own spoken line. '
         . 'Each line finishes, its attached actions are dispatched in listed order, then the next actor speaks. '
         . 'Do not wait for actions to finish: long-running actions continue during later dialogue. '
@@ -225,17 +337,7 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
             . "\n# Player name\n" . $player],
         ['role' => 'user', 'content' => $instruction],
     ];
-    $GLOBALS['CONNECTOR'][$GLOBALS['CURRENT_CONNECTOR']]['json_schema'] = false;
-    $connection->open($prompt, ['response_format' => ['type' => 'json_object'], 'MAX_TOKENS' => 4000]);
-    do {
-        $connection->process();
-    } while (!$connection->isDone());
-    $raw = $connection->close('director_scene');
-    $decoded = json_decode($raw, true);
-    if (!is_array($decoded)) {
-        throw new RuntimeException('Director did not return a JSON scene');
-    }
-    $scene = dialecticValidateDirectorScene($decoded, $actors, $actions, $player);
+    $scene = dialecticRequestDirectorScene($connection, $prompt, $actors, $actions, $player);
     // Resolve arguments before audio; each action waits only for its attached spoken line.
     foreach ($scene['actions'] as &$action) {
         $parameters = $action['parameters'];

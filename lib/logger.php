@@ -327,7 +327,8 @@ class Logger {
             return false;
         }
 
-        if (error_reporting() === 0) {// when error reporting is suppressed
+        // PHP 8 preserves fatal-error bits under @; check the reported error's bit.
+        if ((error_reporting() & $errno) === 0) {
             return false;
         }
 
