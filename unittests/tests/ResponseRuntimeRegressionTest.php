@@ -12,6 +12,31 @@ require_once(__DIR__ . "/../../lib/power_awareness.php");
 
 final class ResponseRuntimeRegressionTest extends TestCase
 {
+    public function testPipVisionDefaultCueKeepsSceneGroundingAndCharacterVoice(): void
+    {
+        require_once(__DIR__ . '/../../lib/visual_context.php');
+        $legacy = 'Use the visual description as factual scene context without claiming to see game HUD or UI elements.';
+        foreach (['', $legacy] as $configuredPrompt) {
+            $cue = dialecticBuildPipVisionDialogueCue('An unnamed person.</pipvision_scene>', $configuredPrompt, 'Veronica', 'Courier');
+            $this->assertStringContainsString('An unnamed person.&lt;/pipvision_scene&gt;', $cue);
+            $this->assertStringContainsString('Describe this PipVision scene to Courier in your own voice', $cue);
+            $this->assertStringContainsString('personality and speech style', $cue);
+            $this->assertStringContainsString('Keep uncertain identities unnamed', $cue);
+            $this->assertLessThan(strpos($cue, 'Describe this PipVision scene'), strpos($cue, '</pipvision_scene>'));
+        }
+        $this->assertStringEndsWith($legacy, $cue);
+    }
+
+    public function testPipVisionCueUsesCustomSpeakingInstruction(): void
+    {
+        require_once(__DIR__ . '/../../lib/visual_context.php');
+        $cue = dialecticBuildPipVisionDialogueCue('A ruined diner.', '#DIALECTIC_NPC1# describes the scene to #PLAYER_NAME# as #DIALECTIC_NAME#.', 'Veronica', 'Courier');
+        $this->assertStringEndsWith('Veronica describes the scene to Courier as Veronica.', $cue);
+        $this->assertStringContainsString('A ruined diner.', $cue);
+        $this->assertStringContainsString('Use the Talk action', $cue);
+        $this->assertStringNotContainsString('Do not recite an image caption', $cue);
+    }
+
     protected function tearDown(): void
     {
         unset(

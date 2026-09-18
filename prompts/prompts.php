@@ -34,7 +34,16 @@ function shouldTriggerRPGComment($eventType) {
     return (rand(1, 100) <= $chance);
 }
 
-$dialecticVisionPrompt = "Give one or two short, in-character sentences about what stands out to you in the current scene and what you think or feel about it. Do not list everything visible. Stay grounded in the provided scene context.";
+$dialecticVisionPrompt = '';
+if (($gameRequest[0] ?? '') === 'vision') {
+    require_once(__DIR__ . '/../lib/visual_context.php');
+    $dialecticVisionPrompt = dialecticBuildPipVisionDialogueCue(
+        strval($gameRequest[3] ?? ''),
+        strval($GLOBALS["ITT"][$GLOBALS["ITTFUNCTION"] ?? '']["AI_PROMPT"] ?? ''),
+        function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : strval($GLOBALS["DIALECTIC_NAME"] ?? ''),
+        strval($GLOBALS["PLAYER_NAME"] ?? '')
+    );
+}
 
 $PROMPTS=array(
     "narration"=>[ 
@@ -289,10 +298,9 @@ $PROMPTS=array(
         "extra"=>["force_tokens_max"=>0]
     ],
     // Database Prompt (Vision)
-    "vision"=>[ 
-        "cue"=>["{$dialecticVisionPrompt} "],
-        "player_request"=>["The Narrator: {$GLOBALS["DIALECTIC_NAME"]} considers what stands out in the current scene: '{$gameRequest[3]}'"],
-        "extra"=>["force_tokens_max"=>256]
+    "vision"=>[
+        "cue"=>[$dialecticVisionPrompt],
+        "extra"=>["force_tokens_max"=>512]
     ],
     "im_alive"=> [
         "cue"=> ["{$GLOBALS["DIALECTIC_NAME"]} talks about they are feeling more real. Write {$GLOBALS["DIALECTIC_NAME"]} dialogue. {$GLOBALS["TEMPLATE_DIALOG"]}"],
