@@ -317,7 +317,7 @@
         $inlineNarrationEnabled = $inlineNarrationMode !== 'disabled';
         $messageDescription = "lines of dialogue";
         if (dialecticIsVisionRequest()) {
-            $messageDescription = "One or two short, in-character sentences about what stands out to {$promptCharacterName} in the current scene and what they think or feel about it. Do not list everything visible. Stay grounded in what is visible through {$GLOBALS["PLAYER_NAME"]}'s eyes, do not continue unrelated conversation, do not answer stale dialogue, and do not invent unseen details.";
+            $messageDescription = "{$promptCharacterName}'s spoken response to the current PipVision scene, in their own personality and speech style. Use the final PipVision scene description for visible details and conversation context for natural reactions. Do not invent unseen details or answer an older conversation turn.";
         } elseif ($inlineNarrationEnabled) {
             $messageDescription = "If needed, start with one brief third-person narration block in single asterisks, then put {$promptCharacterName}'s spoken text after it. Example: *She smiles* It's good to see you again, my friend! Do not wrap the entire reply in asterisks, and keep spoken dialogue outside the asterisks.";
         } elseif (dialecticIsDirectNarratorDialogue()) {
@@ -414,7 +414,7 @@
         $inlineNarrationEnabled = $inlineNarrationMode !== 'disabled';
         $messageDescription = "lines of {$promptCharacterName}'s dialogue";
         if (dialecticIsVisionRequest()) {
-            $messageDescription = "One or two short, in-character sentences about what stands out to {$promptCharacterName} in the current scene and what they think or feel about it. Do not list everything visible. Stay grounded in what is visible through {$GLOBALS["PLAYER_NAME"]}'s eyes, do not continue unrelated conversation, do not answer stale dialogue, and do not invent unseen details.";
+            $messageDescription = "{$promptCharacterName}'s spoken response to the current PipVision scene, in their own personality and speech style. Use the final PipVision scene description for visible details and conversation context for natural reactions. Do not invent unseen details or answer an older conversation turn.";
         } elseif ($inlineNarrationEnabled) {
             $messageDescription = "If needed, start with one brief third-person narration block in single asterisks, then put {$promptCharacterName}'s spoken text after it. Example: *She smiles* It's good to see you again, my friend! Do not wrap the entire reply in asterisks, and keep spoken dialogue outside the asterisks.";
         } elseif (dialecticIsDirectNarratorDialogue()) {
