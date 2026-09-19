@@ -356,6 +356,7 @@ class Narrator
             $GLOBALS['TTS']['CHATTERBOX']['voiceid']   = $allSettings['voiceid'];
             $GLOBALS['TTS']['POCKETTTS']['voiceid']    = $allSettings['voiceid'];
             $GLOBALS['TTS']['OMNIVOICE']['voiceid']    = $allSettings['voiceid'];
+            $GLOBALS['TTS']['HIGGS']['voiceid']    = $allSettings['voiceid'];
             $GLOBALS['TTS']['PIPERTTS']['voiceid']     = $allSettings['voiceid'];
             $GLOBALS['TTS']['ELEVEN_LABS']['voice_id'] = $allSettings['voiceid'];
             $GLOBALS['TTS']['KOKORO']['voiceid']       = $allSettings['voiceid'];

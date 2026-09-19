@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/lib/playthrough_switching.php';
+pas_http_guard();
 
 // Only this endpoint and its session-scoped audio need to be reachable by listeners.
 require_once __DIR__ . '/lib/multiplayer_relay.php';

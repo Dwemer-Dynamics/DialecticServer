@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . "/core/tts_filter_presets.php";
 
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'game_plugins.php';
 
@@ -431,7 +432,8 @@ function dialectic_fetch_bio_template(object $db, string $npcName, string $refid
         voiceid,
         gender,
         race,
-        refid
+        refid,
+        tts_filter_preset
     ";
 
     $fetchMappedTemplate = static function (array $identity, bool $reference) use ($db): ?array {
@@ -651,6 +653,7 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
     ];
     if (is_array($bioTemplate) && !empty($bioTemplate['npc_name'])) {
         $metadataPayload['bio_template'] = $bioTemplate['npc_name'];
+        $metadataPayload['tts_filter_preset'] = dialecticNormalizeTtsFilterPresetId($bioTemplate['tts_filter_preset'] ?? 'none');
     }
 
     $metadata = dialectic_db_escape($db, json_encode($metadataPayload, JSON_UNESCAPED_SLASHES));
@@ -742,7 +745,7 @@ function dialectic_ensure_npc(object $db, string $npcName, string $refid = '', a
             refid = COALESCE(NULLIF(EXCLUDED.refid, ''), public.core_npc_master.refid),
             base = COALESCE(NULLIF(EXCLUDED.base, ''), public.core_npc_master.base),
             profile_id = COALESCE(public.core_npc_master.profile_id, EXCLUDED.profile_id),
-            metadata = COALESCE(public.core_npc_master.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+            metadata = COALESCE(public.core_npc_master.metadata, '{}'::jsonb) || (EXCLUDED.metadata - 'tts_filter_preset'),
             extended_data = COALESCE(public.core_npc_master.extended_data, '{}'::jsonb) || EXCLUDED.extended_data,
             gamets_last_updated = EXCLUDED.gamets_last_updated
     ");

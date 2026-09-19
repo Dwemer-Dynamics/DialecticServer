@@ -187,3 +187,14 @@ function dialecticApplyActiveTtsFilterPresetToOutput(mixed $ttsOutput): mixed
     }
     return $ttsOutput;
 }
+
+/** Validate authored biography presets; null means an older import omitted the field. */
+function dialecticBiographyVoiceFilter($value): ?string
+{
+    if ($value === null) return null;
+    if (!is_string($value)) throw new InvalidArgumentException('Invalid biography Voice Filter.');
+    $id = strtolower(trim($value));
+    if ($id === '') $id = 'none';
+    if (!isset(dialecticTtsFilterPresetOptions()[$id])) throw new InvalidArgumentException('Unknown biography Voice Filter: ' . $id);
+    return $id;
+}
