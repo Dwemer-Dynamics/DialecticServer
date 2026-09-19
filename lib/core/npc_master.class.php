@@ -988,6 +988,17 @@ class NpcMaster
             $rowData['voiceid'] = $FORCE_PARMS['voice'];
         }
 
+        // Biography filters seed new actors only; explicit metadata and existing NPC choices win.
+        if (!$existing && isset($voiceData['tts_filter_preset'])) {
+            $metadata = $rowData['metadata'] ?? [];
+            if (!is_array($metadata)) $metadata = json_decode((string)$metadata, true) ?: [];
+            $hasFilter = false;
+            foreach (array_keys($metadata) as $key) if (strcasecmp((string)$key, 'tts_filter_preset') === 0) $hasFilter = true;
+            if (!$hasFilter) $metadata['tts_filter_preset'] = dialecticNormalizeTtsFilterPresetId($voiceData['tts_filter_preset']);
+            $rowData['metadata'] = json_encode((object)$metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        unset($rowData['tts_filter_preset']);
+
         // Insert or update into DB
         if ($existing) {
             $this->update($existing['id'], $rowData);
@@ -1039,7 +1050,7 @@ class NpcMaster
     private function fetchVoiceData($codename)
     {
         $escCode         = $this->db->escape($codename);
-        $voiceRow        = $this->db->fetchOne("SELECT voiceid FROM combined_bio_templates WHERE lower(npc_name) = lower('{$escCode}')");
+        $voiceRow        = $this->db->fetchOne("SELECT voiceid, tts_filter_preset FROM combined_bio_templates WHERE lower(npc_name) = lower('{$escCode}')");
 
         return array_merge($voiceRow ?: [], ['voicetype' => '']);
     }

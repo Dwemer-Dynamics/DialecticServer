@@ -8,6 +8,8 @@ $webRoot = rtrim($webRoot, '/');
 require_once(__DIR__.DIRECTORY_SEPARATOR."profile_loader.php");
 require_once(dirname(__DIR__) . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "db_connection_settings.php");
 
+require_once dirname(__DIR__) . '/lib/core/tts_filter_presets.php';
+
 $TITLE = "DIALECTIC - NPC Biography";
 
 ob_start();
@@ -75,8 +77,8 @@ if (!function_exists('dialecticNormalizeBiographyRelationshipSeed')) {
 // INDIVIDUAL UPLOAD
 //
 //
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual'])) {
- $npc_name = strtolower(trim($_POST['npc_name'] ?? ''));
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['submit_individual']) || ($_POST['action'] ?? '') === 'update_single')) {
+ $npc_name = strtolower(trim(($_POST['action'] ?? '') === 'update_single' ? ($_POST['npc_name_original'] ?? '') : ($_POST['npc_name'] ?? '')));
  $core = $_POST['npc_pers'] ?? '';
  $worldknowledge_tags = (isset($_POST['npc_misc']) && trim($_POST['npc_misc']) !== '') ? trim($_POST['npc_misc']) : '';
  $voiceid = (!empty($_POST['voiceid'])) ? trim($_POST['voiceid']) : null;
@@ -90,20 +92,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
  $appearance = (!empty($_POST['npc_appearance'])) ? trim($_POST['npc_appearance']) : null;
  $relationshipError = '';
  $relationships = dialecticNormalizeBiographyRelationshipSeed($_POST['npc_relationships'] ?? null, $relationshipError);
+    try { $biographyFilter = dialecticBiographyVoiceFilter($_POST['tts_filter_preset'] ?? null); }
+    catch (InvalidArgumentException $e) { $relationships = false; $relationshipError = $e->getMessage(); }
  $occupation = (!empty($_POST['npc_occupation'])) ? trim($_POST['npc_occupation']) : null;
  $skills = (!empty($_POST['npc_skills'])) ? trim($_POST['npc_skills']) : null;
  $speechstyle = (!empty($_POST['npc_speechstyle'])) ? trim($_POST['npc_speechstyle']) : null;
  $goals = (!empty($_POST['npc_goals'])) ? trim($_POST['npc_goals']) : null;
 
  if ($relationships === false) {
- $message .= "<p style='color:#ff6464;'>Relationships must be a valid JSON object seed. "
+ $message .= "<p style='color:#ff6464;'>Invalid biography fields. "
  . htmlspecialchars($relationshipError, ENT_QUOTES, 'UTF-8')
  . ".</p>";
  } elseif (!empty($npc_name) && !empty($core)) {
  $query = "
  INSERT INTO {$schema}.bio_templates_custom
- (npc_name, core, worldknowledge_tags, npc_static_bio, personality, appearance, relationships, occupation, skills, speechstyle, goals, voiceid, gender, race, refid)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+ (npc_name, core, worldknowledge_tags, npc_static_bio, personality, appearance, relationships, occupation, skills, speechstyle, goals, voiceid, gender, race, refid, tts_filter_preset)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, COALESCE($16, (SELECT tts_filter_preset FROM {$schema}.combined_bio_templates WHERE npc_name=$1)))
  ON CONFLICT (npc_name)
  DO UPDATE SET
  core = EXCLUDED.core,
@@ -119,7 +123,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
  voiceid = EXCLUDED.voiceid,
  gender = EXCLUDED.gender,
  race = EXCLUDED.race,
- refid = EXCLUDED.refid
+ refid = EXCLUDED.refid,
+                tts_filter_preset = COALESCE(EXCLUDED.tts_filter_preset, bio_templates_custom.tts_filter_preset)
  ";
 
  $params = [
@@ -137,7 +142,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_individual']))
  $voiceid,
  $gender,
  $race,
- $refid
+ $refid,
+            $biographyFilter
  ];
 
  $result = pg_query_params($conn, $query, $params);
@@ -295,6 +301,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
  $gender = $getValue(12);
  $race = $getValue(13);
  $refid = $getValue(14);
+                            try { $biographyFilter = dialecticBiographyVoiceFilter(array_key_exists(15, $data) ? (string)$data[15] : null); }
+                            catch (InvalidArgumentException $e) { $errors[] = $e->getMessage(); $errorCount++; continue; }
 
  $relationshipError = '';
  $relationships = dialecticNormalizeBiographyRelationshipSeed($relationships, $relationshipError);
@@ -308,8 +316,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
  $query = "
  INSERT INTO $schema.bio_templates_custom
  (npc_name, core, worldknowledge_tags, npc_static_bio, personality, appearance,
- relationships, occupation, skills, speechstyle, goals, voiceid, gender, race, refid)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+ relationships, occupation, skills, speechstyle, goals, voiceid, gender, race, refid, tts_filter_preset)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, COALESCE($16, (SELECT tts_filter_preset FROM {$schema}.combined_bio_templates WHERE npc_name=$1)))
  ON CONFLICT (npc_name)
  DO UPDATE SET
  core = EXCLUDED.core,
@@ -325,7 +333,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
  voiceid = EXCLUDED.voiceid,
  gender = EXCLUDED.gender,
  race = EXCLUDED.race,
- refid = EXCLUDED.refid
+ refid = EXCLUDED.refid,
+                tts_filter_preset = COALESCE(EXCLUDED.tts_filter_preset, bio_templates_custom.tts_filter_preset)
  ";
 
  $params = [
@@ -343,7 +352,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_csv'])) {
  $voiceid,
  $gender,
  $race,
- $refid
+ $refid,
+            $biographyFilter
  ];
 
  $result = pg_query_params($conn, $query, $params);
@@ -451,7 +461,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_custom_npcs') {
  npc_name, core, worldknowledge_tags,
  npc_static_bio, personality, appearance,
  relationships, occupation, skills,
- speechstyle, goals, voiceid, gender, race, refid
+ speechstyle, goals, voiceid, gender, race, refid, tts_filter_preset
  FROM {$schema}.bio_templates_custom
  ORDER BY npc_name ASC
  ";
@@ -479,7 +489,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_custom_npcs') {
  'npc_name', 'core', 'worldknowledge_tags',
  'npc_static_bio', 'personality', 'appearance',
  'relationships', 'occupation', 'skills',
- 'speechstyle', 'goals', 'voiceid', 'gender', 'race', 'refid'
+ 'speechstyle', 'goals', 'voiceid', 'gender', 'race', 'refid', 'tts_filter_preset'
  ];
  fputcsv($output, $csv_headers);
 
@@ -500,7 +510,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_custom_npcs') {
  $row['voiceid'] ?? '',
  $row['gender'] ?? '',
  $row['race'] ?? '',
- $row['refid'] ?? ''
+ $row['refid'] ?? '',
+                $row['tts_filter_preset'] ?? ''
  ];
  fputcsv($output, $csv_row);
  }
@@ -1019,7 +1030,8 @@ $formAction = $currentLetter ? "?letter={$currentLetter}#table" : "?#table";
  'VoiceID' => $row['voiceid'] ?? '',
  'Gender' => $row['gender'] ?? '',
  'Race' => $row['race'] ?? '',
- 'RefID' => $row['refid'] ?? ''
+ 'RefID' => $row['refid'] ?? '',
+                'Voice Filter' => $row['tts_filter_preset'] ?? 'none'
  ];
  echo ' <td style="font-size: 0.85em; line-height: 1.4;">';
  foreach ($voiceFields as $type => $voice) {
@@ -1053,6 +1065,7 @@ $formAction = $currentLetter ? "?letter={$currentLetter}#table" : "?#table";
  'npc_dynamic' => '',
  'npc_misc' => $row['worldknowledge_tags'] ?? '',
  'voiceid' => $row['voiceid'] ?? '',
+                'tts_filter_preset' => $row['tts_filter_preset'] ?? 'none',
  'gender' => $row['gender'] ?? '',
  'race' => $row['race'] ?? '',
  'refid' => $row['refid'] ?? '',
@@ -1089,7 +1102,21 @@ $formAction = $currentLetter ? "?letter={$currentLetter}#table" : "?#table";
  }
 
  echo '</div>';
- ?></main><div id="editModal" class="modal-backdrop" style="display: none;"><div class="modal-container"><div class="modal-header"><h2 class="modal-title">Edit NPC Entry</h2></div><div class="modal-body"><form action="<?php echo $formAction; ?>" method="post"><input type="hidden" name="action" value="update_single"><input type="hidden" name="npc_name_original" id="edit_npc_name_original"><label for="edit_npc_name">NPC Name:</label><small>NPC names cannot be changed after creation. If you need to change a name, create a new entry.</small><input type="text" name="npc_name" id="edit_npc_name" readonly style="background-color: #2a2a2a; cursor: not-allowed;" required><label for="edit_npc_misc">Knowledge Tags:</label><small>Optional: Knowledge Tags. Make sure to seperate with commas. <a href="https://dwemerdynamics.com/dialectic/roleplay-settings.html#WorldKnowledgeInfinium" target="_blank" rel="noopener">Read more here!</a></small><input type="text" name="npc_misc" id="edit_npc_misc"><label for="edit_npc_pers">Core:</label><small>1-2 sentences about the character.</small><textarea name="npc_pers" id="edit_npc_pers" rows="3" required></textarea><!-- Extended Profile Fields --><h3 style="color: rgb(255, 182, 65); margin-top: 25px; margin-bottom: 15px; border-bottom: 1px solid #444;">Extended Profile</h3><label for="edit_npc_background">Static (Details):</label><small>Detailed history, origins, and past experiences that shaped this character.</small><textarea name="npc_background" id="edit_npc_background" rows="4"></textarea><label for="edit_npc_appearance">Appearance:</label><small>Detailed description of physical features and distinguishing characteristics.</small><textarea name="npc_appearance" id="edit_npc_appearance" rows="4"></textarea><label for="edit_npc_personality">Personality:</label><small>Detailed character traits, behavioral patterns, and psychological characteristics.</small><textarea name="npc_personality" id="edit_npc_personality" rows="4"></textarea><label for="edit_npc_relationships">Relationships:</label><small>Must be a JSON object seed. New NPC imports copy this into <code>extended_data.relationships</code> for the relationship affinity system.</small><textarea name="npc_relationships" id="edit_npc_relationships" rows="4"></textarea><label for="edit_npc_occupation">Occupation:</label><small>Current job, profession, duties, and position in society or organizations.</small><textarea name="npc_occupation" id="edit_npc_occupation" rows="3"></textarea><label for="edit_npc_skills">Skills:</label><small>Special talents, combat abilities, technical knowledge, survival skills, and areas of expertise.</small><textarea name="npc_skills" id="edit_npc_skills" rows="3"></textarea><label for="edit_npc_speechstyle">Speech Style:</label><small>How this character speaks, including vocabulary, accent, mannerisms, and communication patterns.</small><textarea name="npc_speechstyle" id="edit_npc_speechstyle" rows="3"></textarea><label for="edit_npc_goals">Goals:</label><small>Long-term objectives, personal ambitions, and life goals</small><textarea name="npc_goals" id="edit_npc_goals" rows="3"></textarea><!-- Voice & Meta Section --><h3 style="color: rgb(255, 182, 65); margin-top: 25px; margin-bottom: 15px; border-bottom: 1px solid #444;">Voice & Meta</h3><label for="edit_voiceid">Voice ID:</label><small>Optional: Unified voice identifier.</small><input type="text" name="voiceid" id="edit_voiceid"><label for="edit_gender">Gender:</label><small>Optional: Gender for reference.</small><input type="text" name="gender" id="edit_gender"><label for="edit_race">Race:</label><small>Optional: Race for reference.</small><input type="text" name="race" id="edit_race"><label for="edit_refid">RefID:</label><small>Optional: In-game reference ID.</small><input type="text" name="refid" id="edit_refid"><div class="modal-footer"><button type="submit" name="submit_individual" value="1" class="btn-save">Save Changes</button><button type="button" onclick="closeEditModal()" class="btn-base btn-cancel">Cancel</button></div></form></div></div></div><div id="newEntryModal" class="modal-backdrop" style="display: none;"><div class="modal-container"><div class="modal-header"><h2 class="modal-title">Add New NPC Entry</h2></div><div class="modal-body"><form action="<?php echo $formAction; ?>" method="post"><input type="hidden" name="submit_individual" value="1"><label for="new_npc_name">NPC Name:</label><small>Please use underscores instead of spaces.</small><input type="text" name="npc_name" id="new_npc_name" required><label for="new_npc_misc">Knowledge Tags:</label><small>Optional: Knowledge Tags. Make sure to seperate with commas. <a href="https://docs.google.com/spreadsheets/d/1dcfctU-iOqprwy2BOc7___4Awteczgdlv8886KalPsQ/edit?pli=1&gid=338893641#gid=338893641" target="_blank" rel="noopener">Read more here!</a></small><input type="text" name="npc_misc" id="new_npc_misc"><label for="new_npc_pers">Core:</label><small>1-2 sentences about the character.</small><textarea name="npc_pers" id="new_npc_pers" rows="3" required></textarea><!-- Removed dynamic bio field --><!-- Extended Profile Fields --><h3 style="color: rgb(255, 182, 65); margin-top: 25px; margin-bottom: 15px; border-bottom: 1px solid #444;">Extended Profile</h3><label for="new_npc_background">Static (Details):</label><small>Detailed history, origins, and past experiences that shaped this character.</small><textarea name="npc_background" id="new_npc_background" rows="4"></textarea><label for="new_npc_appearance">Appearance:</label><small>Detailed description of physical features and distinguishing characteristics.</small><textarea name="npc_appearance" id="new_npc_appearance" rows="4"></textarea><label for="new_npc_personality">Personality:</label><small>Detailed character traits, behavioral patterns, and psychological characteristics.</small><textarea name="npc_personality" id="new_npc_personality" rows="4"></textarea><label for="new_npc_relationships">Relationships:</label><small>Must be a JSON object seed. New NPC imports copy this into <code>extended_data.relationships</code> for the relationship affinity system.</small><textarea name="npc_relationships" id="new_npc_relationships" rows="4"></textarea><label for="new_npc_occupation">Occupation & Role:</label><small>Current job, profession, duties, and position in society or organizations.</small><textarea name="npc_occupation" id="new_npc_occupation" rows="3"></textarea><label for="new_npc_skills">Skills & Abilities:</label><small>Special talents, combat abilities, technical knowledge, survival skills, and areas of expertise.</small><textarea name="npc_skills" id="new_npc_skills" rows="3"></textarea><label for="new_npc_speechstyle">Speech Style:</label><small>How this character speaks, including vocabulary, accent, mannerisms, and communication patterns.</small><textarea name="npc_speechstyle" id="new_npc_speechstyle" rows="3"></textarea><label for="new_npc_goals">Goals & Aspirations:</label><small>Long-term objectives, personal ambitions, and life goals</small><textarea name="npc_goals" id="new_npc_goals" rows="3"></textarea><!-- Voice & Meta Section --><h3 style="color: rgb(255, 182, 65); margin-top: 25px; margin-bottom: 15px; border-bottom: 1px solid #444;">Voice & Meta</h3><label for="new_voiceid">Voice ID:</label><small>Optional: Unified voice identifier.</small><input type="text" name="voiceid" id="new_voiceid"><label for="new_gender">Gender:</label><small>Optional: Gender for reference.</small><input type="text" name="gender" id="new_gender"><label for="new_race">Race:</label><small>Optional: Race for reference.</small><input type="text" name="race" id="new_race"><label for="new_refid">RefID:</label><small>Optional: In-game reference ID.</small><input type="text" name="refid" id="new_refid"><div class="modal-footer"><button type="submit" name="submit_individual" value="1" class="btn-save">Save</button><button type="button" onclick="closeNewEntryModal()" class="btn-base btn-cancel">Cancel</button></div></form></div></div></div><!-- Extended Profile View Modal --><div id="extendedProfileModal" class="modal-backdrop" style="display: none;"><div class="modal-container"><div class="modal-header"><h2 class="modal-title">Extended Profiles: <span id="extended-profile-npc-name"></span></h2></div><div class="modal-body"><div class="extended-profile-grid" style="display: grid; gap: 20px;"><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Static</h4><div id="profile-background" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Personality</h4><div id="profile-personality" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Appearance</h4><div id="profile-appearance" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Relationships</h4><div id="profile-relationships" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Occupation & Role</h4><div id="profile-occupation" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Skills & Abilities</h4><div id="profile-skills" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Speech Style</h4><div id="profile-speechstyle" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Goals & Aspirations</h4><div id="profile-goals" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div></div><div class="modal-footer"><button type="button" onclick="closeExtendedProfileModal()" class="btn-base btn-cancel">Close</button></div></div></div></div><script>
+ ?></main><div id="editModal" class="modal-backdrop" style="display: none;"><div class="modal-container"><div class="modal-header"><h2 class="modal-title">Edit NPC Entry</h2></div><div class="modal-body"><form action="<?php echo $formAction; ?>" method="post"><input type="hidden" name="action" value="update_single"><input type="hidden" name="npc_name_original" id="edit_npc_name_original"><label for="edit_npc_name">NPC Name:</label><small>NPC names cannot be changed after creation. If you need to change a name, create a new entry.</small><input type="text" name="npc_name" id="edit_npc_name" readonly style="background-color: #2a2a2a; cursor: not-allowed;" required><label for="edit_npc_misc">Knowledge Tags:</label><small>Optional: Knowledge Tags. Make sure to seperate with commas. <a href="https://dwemerdynamics.com/dialectic/roleplay-settings.html#WorldKnowledgeInfinium" target="_blank" rel="noopener">Read more here!</a></small><input type="text" name="npc_misc" id="edit_npc_misc"><label for="edit_npc_pers">Core:</label><small>1-2 sentences about the character.</small><textarea name="npc_pers" id="edit_npc_pers" rows="3" required></textarea><!-- Extended Profile Fields --><h3 style="color: rgb(255, 182, 65); margin-top: 25px; margin-bottom: 15px; border-bottom: 1px solid #444;">Extended Profile</h3><label for="edit_npc_background">Static (Details):</label><small>Detailed history, origins, and past experiences that shaped this character.</small><textarea name="npc_background" id="edit_npc_background" rows="4"></textarea><label for="edit_npc_appearance">Appearance:</label><small>Detailed description of physical features and distinguishing characteristics.</small><textarea name="npc_appearance" id="edit_npc_appearance" rows="4"></textarea><label for="edit_npc_personality">Personality:</label><small>Detailed character traits, behavioral patterns, and psychological characteristics.</small><textarea name="npc_personality" id="edit_npc_personality" rows="4"></textarea><label for="edit_npc_relationships">Relationships:</label><small>Must be a JSON object seed. New NPC imports copy this into <code>extended_data.relationships</code> for the relationship affinity system.</small><textarea name="npc_relationships" id="edit_npc_relationships" rows="4"></textarea><label for="edit_npc_occupation">Occupation:</label><small>Current job, profession, duties, and position in society or organizations.</small><textarea name="npc_occupation" id="edit_npc_occupation" rows="3"></textarea><label for="edit_npc_skills">Skills:</label><small>Special talents, combat abilities, technical knowledge, survival skills, and areas of expertise.</small><textarea name="npc_skills" id="edit_npc_skills" rows="3"></textarea><label for="edit_npc_speechstyle">Speech Style:</label><small>How this character speaks, including vocabulary, accent, mannerisms, and communication patterns.</small><textarea name="npc_speechstyle" id="edit_npc_speechstyle" rows="3"></textarea><label for="edit_npc_goals">Goals:</label><small>Long-term objectives, personal ambitions, and life goals</small><textarea name="npc_goals" id="edit_npc_goals" rows="3"></textarea><!-- Voice & Meta Section --><h3 style="color: rgb(255, 182, 65); margin-top: 25px; margin-bottom: 15px; border-bottom: 1px solid #444;">Voice & Meta</h3><label for="edit_voiceid">Voice ID:</label><small>Optional: Unified voice identifier.</small><input type="text" name="voiceid" id="edit_voiceid">
+                <label for="edit_tts_filter_preset">Voice Filter:</label>
+                <small>Applies to new NPCs. Existing NPC choices stay unchanged.</small>
+                <select name="tts_filter_preset" id="edit_tts_filter_preset">
+                <?php foreach (dialecticTtsFilterPresetOptions() as $presetId => $preset): ?>
+                <option value="<?= htmlspecialchars($presetId, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($preset['label'], ENT_QUOTES, 'UTF-8') ?></option>
+                <?php endforeach; ?>
+                </select><label for="edit_gender">Gender:</label><small>Optional: Gender for reference.</small><input type="text" name="gender" id="edit_gender"><label for="edit_race">Race:</label><small>Optional: Race for reference.</small><input type="text" name="race" id="edit_race"><label for="edit_refid">RefID:</label><small>Optional: In-game reference ID.</small><input type="text" name="refid" id="edit_refid"><div class="modal-footer"><button type="submit" name="submit_individual" value="1" class="btn-save">Save Changes</button><button type="button" onclick="closeEditModal()" class="btn-base btn-cancel">Cancel</button></div></form></div></div></div><div id="newEntryModal" class="modal-backdrop" style="display: none;"><div class="modal-container"><div class="modal-header"><h2 class="modal-title">Add New NPC Entry</h2></div><div class="modal-body"><form action="<?php echo $formAction; ?>" method="post"><input type="hidden" name="submit_individual" value="1"><label for="new_npc_name">NPC Name:</label><small>Please use underscores instead of spaces.</small><input type="text" name="npc_name" id="new_npc_name" required><label for="new_npc_misc">Knowledge Tags:</label><small>Optional: Knowledge Tags. Make sure to seperate with commas. <a href="https://docs.google.com/spreadsheets/d/1dcfctU-iOqprwy2BOc7___4Awteczgdlv8886KalPsQ/edit?pli=1&gid=338893641#gid=338893641" target="_blank" rel="noopener">Read more here!</a></small><input type="text" name="npc_misc" id="new_npc_misc"><label for="new_npc_pers">Core:</label><small>1-2 sentences about the character.</small><textarea name="npc_pers" id="new_npc_pers" rows="3" required></textarea><!-- Removed dynamic bio field --><!-- Extended Profile Fields --><h3 style="color: rgb(255, 182, 65); margin-top: 25px; margin-bottom: 15px; border-bottom: 1px solid #444;">Extended Profile</h3><label for="new_npc_background">Static (Details):</label><small>Detailed history, origins, and past experiences that shaped this character.</small><textarea name="npc_background" id="new_npc_background" rows="4"></textarea><label for="new_npc_appearance">Appearance:</label><small>Detailed description of physical features and distinguishing characteristics.</small><textarea name="npc_appearance" id="new_npc_appearance" rows="4"></textarea><label for="new_npc_personality">Personality:</label><small>Detailed character traits, behavioral patterns, and psychological characteristics.</small><textarea name="npc_personality" id="new_npc_personality" rows="4"></textarea><label for="new_npc_relationships">Relationships:</label><small>Must be a JSON object seed. New NPC imports copy this into <code>extended_data.relationships</code> for the relationship affinity system.</small><textarea name="npc_relationships" id="new_npc_relationships" rows="4"></textarea><label for="new_npc_occupation">Occupation & Role:</label><small>Current job, profession, duties, and position in society or organizations.</small><textarea name="npc_occupation" id="new_npc_occupation" rows="3"></textarea><label for="new_npc_skills">Skills & Abilities:</label><small>Special talents, combat abilities, technical knowledge, survival skills, and areas of expertise.</small><textarea name="npc_skills" id="new_npc_skills" rows="3"></textarea><label for="new_npc_speechstyle">Speech Style:</label><small>How this character speaks, including vocabulary, accent, mannerisms, and communication patterns.</small><textarea name="npc_speechstyle" id="new_npc_speechstyle" rows="3"></textarea><label for="new_npc_goals">Goals & Aspirations:</label><small>Long-term objectives, personal ambitions, and life goals</small><textarea name="npc_goals" id="new_npc_goals" rows="3"></textarea><!-- Voice & Meta Section --><h3 style="color: rgb(255, 182, 65); margin-top: 25px; margin-bottom: 15px; border-bottom: 1px solid #444;">Voice & Meta</h3><label for="new_voiceid">Voice ID:</label><small>Optional: Unified voice identifier.</small><input type="text" name="voiceid" id="new_voiceid">
+                <label for="new_tts_filter_preset">Voice Filter:</label>
+                <small>Applies to new NPCs. Existing NPC choices stay unchanged.</small>
+                <select name="tts_filter_preset" id="new_tts_filter_preset">
+                <?php foreach (dialecticTtsFilterPresetOptions() as $presetId => $preset): ?>
+                <option value="<?= htmlspecialchars($presetId, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($preset['label'], ENT_QUOTES, 'UTF-8') ?></option>
+                <?php endforeach; ?>
+                </select><label for="new_gender">Gender:</label><small>Optional: Gender for reference.</small><input type="text" name="gender" id="new_gender"><label for="new_race">Race:</label><small>Optional: Race for reference.</small><input type="text" name="race" id="new_race"><label for="new_refid">RefID:</label><small>Optional: In-game reference ID.</small><input type="text" name="refid" id="new_refid"><div class="modal-footer"><button type="submit" name="submit_individual" value="1" class="btn-save">Save</button><button type="button" onclick="closeNewEntryModal()" class="btn-base btn-cancel">Cancel</button></div></form></div></div></div><!-- Extended Profile View Modal --><div id="extendedProfileModal" class="modal-backdrop" style="display: none;"><div class="modal-container"><div class="modal-header"><h2 class="modal-title">Extended Profiles: <span id="extended-profile-npc-name"></span></h2></div><div class="modal-body"><div class="extended-profile-grid" style="display: grid; gap: 20px;"><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Static</h4><div id="profile-background" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Personality</h4><div id="profile-personality" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Appearance</h4><div id="profile-appearance" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Relationships</h4><div id="profile-relationships" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Occupation & Role</h4><div id="profile-occupation" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Skills & Abilities</h4><div id="profile-skills" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Speech Style</h4><div id="profile-speechstyle" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div><div class="profile-field"><h4 style="color: rgb(255, 182, 65); margin: 0 0 8px 0; border-bottom: 1px solid #444; padding-bottom: 4px;">Goals & Aspirations</h4><div id="profile-goals" style="background: #2a2a2a; padding: 12px; border-radius: 4px; min-height: 40px; white-space: pre-wrap;"></div></div></div><div class="modal-footer"><button type="button" onclick="closeExtendedProfileModal()" class="btn-base btn-cancel">Close</button></div></div></div></div><script>
 function showToast(message, duration = 5000) {
  const toast = document.getElementById('toast');
  const messageSpan = toast.querySelector('.message');
@@ -1127,7 +1154,8 @@ function openEditModal(data) {
  document.getElementById("edit_npc_goals").value = decodeHTML(data.npc_goals || '');
 
  // Voice & Meta
- const vEl = document.getElementById("edit_voiceid"); if (vEl) vEl.value = decodeHTML(data.voiceid || '');
+ document.getElementById("edit_tts_filter_preset").value = data.tts_filter_preset || "none";
+        const vEl = document.getElementById("edit_voiceid"); if (vEl) vEl.value = decodeHTML(data.voiceid || '');
  const gEl = document.getElementById("edit_gender"); if (gEl) gEl.value = decodeHTML(data.gender || '');
  const rEl = document.getElementById("edit_race"); if (rEl) rEl.value = decodeHTML(data.race || '');
  const refEl = document.getElementById("edit_refid"); if (refEl) refEl.value = decodeHTML(data.refid || '');

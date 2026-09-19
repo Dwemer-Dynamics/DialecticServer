@@ -1514,6 +1514,8 @@ try {
         );
     ");
 
+    $db->execQuery("ALTER TABLE public.bio_templates ADD COLUMN IF NOT EXISTS tts_filter_preset TEXT");
+    $db->execQuery("ALTER TABLE public.bio_templates_custom ADD COLUMN IF NOT EXISTS tts_filter_preset TEXT");
     $db->execQuery("DROP VIEW IF EXISTS public.combined_bio_templates CASCADE;");
     $db->execQuery("
         CREATE VIEW public.combined_bio_templates AS
@@ -1531,7 +1533,7 @@ try {
                c.voiceid,
                c.gender,
                c.race,
-               c.refid
+               c.refid, c.tts_filter_preset
           FROM public.bio_templates_custom c
         UNION ALL
         SELECT b.npc_name,
@@ -1548,7 +1550,7 @@ try {
                b.voiceid,
                b.gender,
                b.race,
-               b.refid
+               b.refid, b.tts_filter_preset
           FROM (public.bio_templates b
                 LEFT JOIN public.bio_templates_custom c
                   ON ((b.npc_name)::text = (c.npc_name)::text))
