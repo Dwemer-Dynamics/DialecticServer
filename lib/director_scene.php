@@ -1,4 +1,106 @@
 <?php
+require_once __DIR__ . '/chat_helper_functions.php';
+// Rolemaster runs outside main.php, which normally sets the dialogue chunk sizes.
+if (!defined('MAXIMUM_SENTENCE_SIZE')) define('MAXIMUM_SENTENCE_SIZE', 125);
+if (!defined('MINIMUM_SENTENCE_SIZE')) define('MINIMUM_SENTENCE_SIZE', 15);
+
+// Constrain the scene to the current cast and each action's existing parameter contract.
+function dialecticDirectorResponseFormat(array $actors, array $catalog, string $player): array
+{
+    $speakers = array_values(array_diff(array_keys($actors), [$player, 'The Narrator']));
+    $actionSchemas = [];
+    foreach ($catalog as $code => $definition) {
+        $parameters = $definition['parameters'] ?? [];
+        $properties = $parameters['properties'] ?? [];
+        foreach ($properties as $key => &$property) {
+            // Strict schemas require every property; null represents an omitted optional argument.
+            if (!in_array($key, $parameters['required'] ?? [], true)) {
+                $property = ['anyOf' => [$property, ['type' => 'null']]];
+            }
+        }
+        unset($property);
+        $actionSchemas[] = ['type' => 'object', 'additionalProperties' => false,
+            'properties' => [
+                'speaker' => ['type' => 'string', 'enum' => array_values($definition['speakers'])],
+                'after_line' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 5],
+                'command_name' => ['type' => 'string', 'enum' => [$code]],
+                'parameters' => ['type' => 'object', 'additionalProperties' => false,
+                    'properties' => (object)$properties, 'required' => array_keys($properties)],
+            ], 'required' => ['speaker', 'after_line', 'command_name', 'parameters']];
+    }
+    return ['type' => 'json_schema', 'json_schema' => [
+        'name' => 'director_scene', 'strict' => true,
+        'schema' => ['type' => 'object', 'additionalProperties' => false,
+            'properties' => [
+                'lines' => ['type' => 'array', 'minItems' => 1, 'maxItems' => 5,
+                    'items' => ['type' => 'object', 'additionalProperties' => false,
+                        'properties' => [
+                            'speaker' => ['type' => 'string', 'enum' => $speakers],
+                            'listener' => ['type' => 'string', 'enum' => array_values(array_unique([...$speakers, $player])),
+                                'description' => 'If the listener is the player, this must be the final line.'],
+                            'text' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 600],
+                        ], 'required' => ['speaker', 'listener', 'text']]],
+                'actions' => ['type' => 'array', 'maxItems' => $actionSchemas ? 3 : 0,
+                    'items' => $actionSchemas ? ['anyOf' => $actionSchemas]
+                        : ['type' => 'object', 'properties' => new stdClass(), 'additionalProperties' => false]],
+            ], 'required' => ['lines', 'actions']],
+    ]];
+}
+
+// Scope the existing JSON connectors' templates and dialogue-only options to this scene request.
+function dialecticRequestDirectorScene($connection, array $prompt, array $actors, array $catalog, string $player): array
+{
+    require_once __DIR__ . '/../functions/json_response.php';
+    $keys = ['responseTemplate', 'structuredOutputTemplate', 'CONNECTOR', 'PATCH', 'DIALECTIC_NO_EXAMPLES',
+        'FUNCTIONS_ARE_ENABLED', 'PATCH_PROMPT_ENFORCE_ACTIONS', 'DIRECT_NARRATOR_DIALOGUE',
+        'DIALECTIC_NAME', 'DIALECTIC_PERS', 'DIALECTIC_SPEECHSTYLE', 'TTSFUNCTION'];
+    $saved = [];
+    foreach ($keys as $key) {
+        if (array_key_exists($key, $GLOBALS)) $saved[$key] = $GLOBALS[$key];
+    }
+    try {
+        $GLOBALS['responseTemplate'] = ['lines' => [['speaker' => 'Eligible NPC name',
+            'listener' => 'Present NPC or player name', 'text' => 'Exact spoken words']], 'actions' => []];
+        if ($catalog) {
+            $GLOBALS['responseTemplate']['actions'][] = ['speaker' => 'Eligible action speaker',
+                'after_line' => 1, 'command_name' => 'Catalog code', 'parameters' => new stdClass()];
+        }
+        $GLOBALS['structuredOutputTemplate'] = dialecticDirectorResponseFormat($actors, $catalog, $player);
+        $GLOBALS['FUNCTIONS_ARE_ENABLED'] = false;
+        $GLOBALS['PATCH_PROMPT_ENFORCE_ACTIONS'] = false;
+        $GLOBALS['DIRECT_NARRATOR_DIALOGUE'] = false;
+        $GLOBALS['DIALECTIC_NAME'] = 'Director';
+        $GLOBALS['DIALECTIC_PERS'] = '';
+        $GLOBALS['DIALECTIC_SPEECHSTYLE'] = '';
+        $GLOBALS['TTSFUNCTION'] = '';
+        $GLOBALS['DIALECTIC_NO_EXAMPLES'] = true;
+        unset($GLOBALS['PATCH']['PREAPPEND']);
+        $driver = $GLOBALS['CURRENT_CONNECTOR'];
+        $GLOBALS['CONNECTOR'][$driver]['PREFILL_JSON'] = false;
+        $GLOBALS['CONNECTOR'][$driver]['ENFORCE_JSON'] = true;
+        // Preserve the connector's schema opt-in; JSON-only connectors still receive the scene template.
+        $format = ['type' => 'json_object'];
+        if (!empty($GLOBALS['CONNECTOR'][$driver]['json_schema'])) {
+            $format = $GLOBALS['structuredOutputTemplate'];
+        }
+        $connection->open($prompt, ['response_format' => $format, 'MAX_TOKENS' => 4000]);
+        do { $connection->process(); } while (!$connection->isDone());
+        $raw = $connection->close('director_scene');
+        try {
+            $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $error) {
+            throw new RuntimeException('Director did not return JSON: ' . $error->getMessage(), 0, $error);
+        }
+        if (!is_array($decoded)) throw new RuntimeException('Director did not return a scene object');
+        return dialecticValidateDirectorScene($decoded, $actors, $catalog, $player);
+    } finally {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $saved)) $GLOBALS[$key] = $saved[$key];
+            else unset($GLOBALS[$key]);
+        }
+    }
+}
+
 
 // Constrain the scene to the current cast and each action's existing parameter contract.
 function dialecticDirectorResponseFormat(array $actors, array $catalog, string $player): array
@@ -354,6 +456,13 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
         $action = array_merge($action, $parameters);
     }
     unset($action);
+    $scene = dwemerSplitDirectorScene($scene, static function (array $line) use ($actors, $profiles, $npcMaster): array {
+        $actor = $actors[$line['speaker']];
+        $profiles->setOldGlobals($actor['profile']);
+        $npcMaster->setOldGlobalsFromCurrentNpcData($actor['npc']);
+        return split_sentences_stream(cleanResponse($line['text']));
+    });
+    $scene['schema'] = 'dialectic.director_scene.v3';
     foreach ($scene['lines'] as $index => &$line) {
         $actor = $actors[$line['speaker']];
         $profiles->setOldGlobals($actor['profile']);
@@ -408,4 +517,28 @@ function dialecticQueueTrackedDirectorScene(array $scene, string $tag): void
         $db->query('ROLLBACK');
         throw $error;
     }
+}
+
+
+// Expand playback chunks after scene validation; actions still follow their complete authored turn.
+function dwemerSplitDirectorScene(array $scene, callable $split): array
+{
+    $chunks = [];
+    $lastChunk = [];
+    foreach ($scene['lines'] as $index => $line) {
+        $texts = $split($line);
+        if (!is_array($texts) || !$texts) throw new RuntimeException('Director turn has no speech');
+        foreach ($texts as $text) {
+            if (!is_string($text) || trim($text) === '') throw new RuntimeException('Director speech chunk is empty');
+            $chunks[] = array_replace($line, ['text' => trim($text), 'turn' => $index + 1]);
+            if (count($chunks) > 128) throw new RuntimeException('Director exceeds 128 speech chunks');
+        }
+        $lastChunk[$index + 1] = count($chunks);
+    }
+    foreach ($scene['actions'] as &$action) {
+        $action['after_line'] = $lastChunk[$action['after_line']];
+    }
+    unset($action);
+    $scene['lines'] = $chunks;
+    return $scene;
 }

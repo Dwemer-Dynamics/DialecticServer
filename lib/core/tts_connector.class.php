@@ -9,6 +9,7 @@ class TTSConnector
         'pockettts' => 'POCKETTTS',
         'chatterbox' => 'CHATTERBOX',
         'xtts-fastapi' => 'XTTSFASTAPI',
+        'higgs' => 'HIGGS',
         'omnivoice' => 'OMNIVOICE',
         'inworld' => 'INWORLD',
         'cartesia' => 'CARTESIA',
@@ -22,6 +23,7 @@ class TTSConnector
         'pockettts' => 'PocketTTS',
         'chatterbox' => 'Chatterbox',
         'xtts-fastapi' => 'XTTS',
+        'higgs' => 'Higgs TTS 3',
         'omnivoice' => 'OmniVoice',
         'inworld' => 'Inworld',
         'cartesia' => 'Cartesia',
@@ -34,6 +36,7 @@ class TTSConnector
         'pockettts' => 'voiceid',
         'chatterbox' => 'voiceid',
         'xtts-fastapi' => 'voiceid',
+        'higgs' => 'voiceid',
         'omnivoice' => 'voiceid',
         'inworld' => 'voiceid',
         'cartesia' => 'voiceid',
@@ -52,6 +55,7 @@ class TTSConnector
         'pockettts' => 'http://127.0.0.1:8024',
         'chatterbox' => 'http://127.0.0.1:8023',
         'xtts-fastapi' => 'http://127.0.0.1:8020',
+        'higgs' => 'http://127.0.0.1:8025',
         'omnivoice' => 'http://127.0.0.1:8021',
         'piper-tts' => 'http://127.0.0.1:5000',
         'kokoro' => 'http://127.0.0.1:8880',
@@ -77,6 +81,7 @@ class TTSConnector
             'PARALINGUISTIC_TAGS_PROMPT' => '',
             'PARALINGUISTIC_TAGS_LIST' => '[clear throat],[sigh],[shush],[cough],[groan],[sniff],[gasp],[chuckle],[laugh]',
         ],
+        'higgs' => ['model' => 'higgs-v3', 'voicelogic' => 'voicetype'],
         'omnivoice' => [
             'language' => '',
             'voicelogic' => 'voicetype',
@@ -317,7 +322,7 @@ class TTSConnector
         $driver = $this->normalizeDriver($driver);
         $metadata = $this->mergeMissingMetadataDefaults($metadata, self::$sharedMetadataDefaultMap);
         $metadata = $this->mergeMissingMetadataDefaults($metadata, self::$metadataDefaultMap[$driver] ?? []);
-        if (in_array($driver, ['xtts-fastapi', 'chatterbox', 'pockettts', 'omnivoice'], true)) {
+        if (in_array($driver, ['xtts-fastapi', 'chatterbox', 'pockettts', 'omnivoice', 'higgs'], true)) {
             $metadata['voicelogic'] = 'voicetype';
         }
 

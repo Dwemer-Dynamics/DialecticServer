@@ -126,3 +126,8 @@ from `unstable` to `dev`, then from `dev` to the default release branch
 ## Planning Docs
 
 - [JSON data transfer audit](docs/json-data-transfer-audit.md)
+
+### Biography voice filters
+
+Biography imports and exports accept an optional `tts_filter_preset` column. Choose a trusted preset from the biography editor's Voice Filter list; custom audio filter expressions are not accepted. The preset seeds newly created NPCs only and does not overwrite existing NPC choices. Use `none` to disable filtering explicitly. Older imports without the column preserve saved presets.
+Append the column after refid (column 16) in biography CSV files. An explicitly blank value is treated as none.

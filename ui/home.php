@@ -905,6 +905,12 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
     <div class="home-heading">
         <h1>DIALECTIC Dashboard</h1>
         <div class="home-heading-actions">
+            <a href="https://docs.google.com/spreadsheets/d/1UtAR_r18wskmTMMsg8IlhVvr1Fn9tHvRJT8drH6RuzY/edit?gid=1257158105#gid=1257158105" target="_blank" rel="noopener noreferrer" class="home-action-btn">
+                <span aria-hidden="true">&#x1F947;</span><span>AI/LLM Tier List</span>
+            </a>
+            <a href="<?php echo dialectic_home_h($webRoot . '/ui/quickstart.php'); ?>" class="home-action-btn">
+                <span aria-hidden="true">&#x1F680;</span><span>Go to Quickstart</span>
+            </a>
             <div class="player-pill">
                 <i class="bi bi-person-circle"></i>
                 <span><?php echo dialectic_home_h($playerName); ?></span>
