@@ -24,6 +24,8 @@ ALTER TABLE dialectic_meta.playthrough_profiles ADD COLUMN IF NOT EXISTS last_ga
 ALTER TABLE dialectic_meta.playthrough_profiles ADD COLUMN IF NOT EXISTS schema_name TEXT;
 ALTER TABLE dialectic_meta.playthrough_profiles ADD COLUMN IF NOT EXISTS storage_type TEXT DEFAULT 'schema';
 ALTER TABLE dialectic_meta.playthrough_profiles ALTER COLUMN storage_type SET DEFAULT 'schema';
+ALTER TABLE dialectic_meta.playthrough_profiles ADD COLUMN IF NOT EXISTS retention_kind TEXT NOT NULL DEFAULT 'unclassified';
+ALTER TABLE dialectic_meta.playthrough_profiles ADD COLUMN IF NOT EXISTS retention_pinned BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS dialectic_meta.settings (
     key TEXT PRIMARY KEY,
