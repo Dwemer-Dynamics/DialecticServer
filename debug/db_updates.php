@@ -4056,6 +4056,20 @@ if ($checkVersion("playthrough_metadata_schema") < 20260730001 || $playthroughMe
     }
 }
 
+// Install retention metadata before the first save or import, including upgraded installs.
+if ($checkVersion("playthrough_retention_metadata") < 20260919001) {
+    try {
+        $metadataSql = file_get_contents(__DIR__ . '/../lib/core/database_schema/playthrough_metadata.sql');
+        if ($metadataSql === false || trim($metadataSql) === '' || !$db->execQuery($metadataSql)) {
+            throw new RuntimeException('Could not install Playthrough Save retention metadata');
+        }
+        $updateVersion("playthrough_retention_metadata", 20260919001);
+        Logger::info("Applied patch playthrough_retention_metadata 20260919001");
+    } catch (Throwable $e) {
+        Logger::error("Error installing Playthrough Save retention metadata: " . $e->getMessage());
+    }
+}
+
 $relationshipQueueRow = $db->fetchOne("
     SELECT COUNT(*) AS total
       FROM information_schema.tables
