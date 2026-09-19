@@ -1,4 +1,8 @@
 <?php
+require_once __DIR__ . '/chat_helper_functions.php';
+// Rolemaster runs outside main.php, which normally sets the dialogue chunk sizes.
+if (!defined('MAXIMUM_SENTENCE_SIZE')) define('MAXIMUM_SENTENCE_SIZE', 125);
+if (!defined('MINIMUM_SENTENCE_SIZE')) define('MINIMUM_SENTENCE_SIZE', 15);
 
 // Constrain the scene to the current cast and each action's existing parameter contract.
 function dialecticDirectorResponseFormat(array $actors, array $catalog, string $player): array
@@ -354,6 +358,13 @@ function dialecticGenerateDirectorScene($connection, string $instruction, string
         $action = array_merge($action, $parameters);
     }
     unset($action);
+    $scene = dwemerSplitDirectorScene($scene, static function (array $line) use ($actors, $profiles, $npcMaster): array {
+        $actor = $actors[$line['speaker']];
+        $profiles->setOldGlobals($actor['profile']);
+        $npcMaster->setOldGlobalsFromCurrentNpcData($actor['npc']);
+        return split_sentences_stream(cleanResponse($line['text']));
+    });
+    $scene['schema'] = 'dialectic.director_scene.v3';
     foreach ($scene['lines'] as $index => &$line) {
         $actor = $actors[$line['speaker']];
         $profiles->setOldGlobals($actor['profile']);
@@ -408,4 +419,28 @@ function dialecticQueueTrackedDirectorScene(array $scene, string $tag): void
         $db->query('ROLLBACK');
         throw $error;
     }
+}
+
+
+// Expand playback chunks after scene validation; actions still follow their complete authored turn.
+function dwemerSplitDirectorScene(array $scene, callable $split): array
+{
+    $chunks = [];
+    $lastChunk = [];
+    foreach ($scene['lines'] as $index => $line) {
+        $texts = $split($line);
+        if (!is_array($texts) || !$texts) throw new RuntimeException('Director turn has no speech');
+        foreach ($texts as $text) {
+            if (!is_string($text) || trim($text) === '') throw new RuntimeException('Director speech chunk is empty');
+            $chunks[] = array_replace($line, ['text' => trim($text), 'turn' => $index + 1]);
+            if (count($chunks) > 128) throw new RuntimeException('Director exceeds 128 speech chunks');
+        }
+        $lastChunk[$index + 1] = count($chunks);
+    }
+    foreach ($scene['actions'] as &$action) {
+        $action['after_line'] = $lastChunk[$action['after_line']];
+    }
+    unset($action);
+    $scene['lines'] = $chunks;
+    return $scene;
 }
