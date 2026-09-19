@@ -1,5 +1,24 @@
 # DialecticServer Agent Notes
 
+## Start here
+
+This repository owns the PHP/PostgreSQL backend for Fallout: New Vegas and TTW.
+The independent xNVSE client is [Dialectic](https://github.com/Dwemer-Dynamics/Dialectic).
+Read [the runtime and extension guide](docs/agent-guide.md) and
+[development setup and checks](docs/building.md) before changing the server.
+
+- Confirm the remote, branch, dirty work and overlapping PRs. Preserve unrelated
+  changes; normal draft PRs target `unstable` per [CONTRIBUTING.md](CONTRIBUTING.md).
+- Distinguish source checkout, deployed application and active playthrough.
+  Preserve local configuration, credentials, databases, profiles, voices,
+  uploads, backups and extension state during diagnosis and updates.
+- Read client and server code together for protocol changes. Inspect sibling
+  products independently; never assume their schema or runtime is identical.
+- Use existing focused checks and disposable data. Report source validation,
+  deployment and in-game evidence separately. A PR does not authorize release.
+- Ship this file and `docs/` with the server. Keep the detailed playthrough
+  rules below; the linked guide does not replace them.
+
 ## Playthrough Saves
 
 ### Table policy and comments
