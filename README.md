@@ -2,6 +2,10 @@
 
 DialecticServer is the Fallout: New Vegas backend for Dialectic.
 
+For AI assistants and coding agents, start with [AGENTS.md](AGENTS.md),
+[the runtime and custom-plugin guide](docs/agent-guide.md), and
+[development setup](docs/building.md). Keep these files with installed servers.
+
 This server owns the Fallout: New Vegas runtime, UI, database schema, prompts, and connector configuration used by the Dialectic xNVSE plugin.
 
 ## Current State

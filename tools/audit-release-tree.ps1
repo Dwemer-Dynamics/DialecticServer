@@ -50,6 +50,9 @@ try {
     }
 
     $requiredFiles = @(
+        'AGENTS.md',
+        'docs/agent-guide.md',
+        'docs/building.md',
         'main.php',
         'main_dialectic_pipeline.php',
         'gamedata.php',
