@@ -2525,7 +2525,7 @@ function dialecticShouldExcludeEventFromPromptContext(array $row): bool
     return false;
 }
 
-function buildHistoricContext($actor, $lastNelements = -10,$sqlfilter="") {
+function buildHistoricContext($actor, $lastNelements = -10,$sqlfilter="", bool $filterByActor = true) {
 
     global $db;
 
@@ -2547,7 +2547,8 @@ function buildHistoricContext($actor, $lastNelements = -10,$sqlfilter="") {
     $ext_sqlfilter2 = $GLOBALS["EXT_CONTEXT_SQL_FILTER2"] ?? "";
 
     $lastDialogFull = array();
-    $b_actor = (strlen($actor) > 0);
+    // Scoped callers can supply their exact audience predicate without changing speaker identity.
+    $b_actor = $filterByActor && (strlen($actor) > 0);
     if ($b_actor)
         $actorEscaped=$db->escape($actor);
     else
@@ -3227,12 +3228,12 @@ function replaceRoles($lastDialogFull,$actor,$lastNelements) {
 
 }
 
-function DataLastDataExpandedFor($actor, $lastNelements = -10,$sqlfilter="")
+function DataLastDataExpandedFor($actor, $lastNelements = -10,$sqlfilter="", bool $filterByActor = true)
 {
 
     $localStartTime=microtime(true);
 
-    $ctx1=buildHistoricContext($actor, $lastNelements ,$sqlfilter);    
+    $ctx1=buildHistoricContext($actor, $lastNelements ,$sqlfilter,$filterByActor);
     error_log("[buildHistoricContext] Elapsed time: " . (microtime(true) - $localStartTime) . " seconds");
 
 
