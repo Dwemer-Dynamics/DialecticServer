@@ -158,6 +158,37 @@ function dps_context($conn, array $npc, int $gamets): string {
     $params = [];
     $audience = dps_audience($npc,$params);
     $limit = dps_context_limit($npc);
+    // Format the same bounded, delivered history through Dialectic's dialogue context builder.
+    $keys = ['DIALECTIC_NAME','gameRequest','CONTEXT_BUILDING_DATA','CONTEXT_WINDOW_FLOOR'];
+    $saved = [];
+    foreach ($keys as $key) {
+        if (array_key_exists($key,$GLOBALS)) $saved[$key] = $GLOBALS[$key];
+    }
+    try {
+        require_once __DIR__ . '/data_functions.php';
+        require_once __DIR__ . '/chat_helper_functions.php';
+        $GLOBALS['DIALECTIC_NAME'] = $npc['name'];
+        $GLOBALS['gameRequest'] = ['updateprofile',0,$gamets,''];
+        $filter = ' AND rowid IN (SELECT rowid FROM public.eventlog WHERE '
+            . dps_event_filter(false) . " AND ($audience) AND gamets <= $gamets ORDER BY rowid DESC LIMIT $limit)";
+        // Narrator profiles retain global history; NPC profiles retain their recorded audience.
+        $context = DataLastDataExpandedFor($npc['name'],-$limit,$filter,false);
+        return implode("\n",array_map(static function ($entry) use ($npc) {
+            // Dialogue compaction removes the active speaker's name; plain profile history needs it.
+            $text = (string)$entry['content'];
+            if ($entry['role'] === 'assistant' && !str_starts_with($text,$npc['name'].':')) {
+                $text = $npc['name'].': '.$text;
+            }
+            return mb_substr($text,0,2000);
+        },$context));
+    } catch (Throwable $e) {
+        dps_log($npc,'context_fallback',['error_type'=>get_class($e)]);
+    } finally {
+        foreach ($keys as $key) {
+            if (array_key_exists($key,$saved)) $GLOBALS[$key] = $saved[$key];
+            else unset($GLOBALS[$key]);
+        }
+    }
     $rows = pg_fetch_all(dps_query($conn,'SELECT type,data,gamets,location FROM public.eventlog WHERE '
         . dps_event_filter(false) . " AND ($audience) AND gamets <= $gamets ORDER BY rowid DESC LIMIT $limit",$params)) ?: [];
     return implode("\n",array_map(static fn($row)=>'['.$row['gamets'].' '.$row['type'].' '.$row['location'].'] '.mb_substr($row['data'],0,2000),array_reverse($rows)));
