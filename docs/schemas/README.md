@@ -15,7 +15,8 @@ contracts for tests, docs, and future endpoint validation.
 - `dialectic.action.v1.schema.json` - server-side action representation before emission.
 - `dialectic.gamedata.v1.schema.json` - shared gamedata endpoint payload family.
 - `dialectic.gamedata.response.v1.schema.json` - gamedata ACK/error response.
-- `dialectic.media.v1.schema.json` - STT, voice sample, and player TTS media payloads.
+- `dialectic.media.v1.schema.json` - STT, voice sample, player TTS, and exact NPC TTS media payloads.
+- `dialectic.external_request.v1.schema.json` - actor-bound contextual comment and reaction requests from public xNVSE events.
 - `dialectic.common.v1.schema.json` - shared actor/audience definitions.
 
 ## Versioning Rule

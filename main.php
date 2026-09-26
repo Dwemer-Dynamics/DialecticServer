@@ -1,4 +1,15 @@
 <?php
+require_once __DIR__ . '/lib/dialectic_interaction.php';
+require_once __DIR__ . '/lib/request.php';
+$interactionRequest = dialectic_decode_json_body();
+if (isset($interactionRequest['interaction_generation'])) {
+    $GLOBALS['dialectic_interaction_generation'] = (int)$interactionRequest['interaction_generation'];
+}
+if (!empty($interactionRequest['interaction_passive'])) $_SERVER['HTTP_X_DIALECTIC_PASSIVE'] = '1';
+if (dialecticInteractionIsTrigger(strval($interactionRequest['type'] ?? ''))) dialecticInteractionRequire();
+
+require_once __DIR__ . "/lib/playthrough_guard.php";
+pgr_http_preflight("main");
 
 error_reporting(E_ALL);
 ini_set("display_errors", "0");

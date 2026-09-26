@@ -73,4 +73,55 @@ final class RequestStreamingTest extends TestCase
             dialectic_build_combat_prompt_from_event($event)
         );
     }
+
+    public function testExternalReactionRequestRequiresExactActorAndInstruction(): void
+    {
+        $request = dialectic_decode_external_actor_request(json_encode([
+            'schema' => 'dialectic.external_request.v1',
+            'request' => 'reaction',
+            'npc' => 'Veronica',
+            'npc_id' => '0x000e32a9',
+            'instruction' => "  React to the explosion.  ",
+            'game' => 'fnv',
+        ], JSON_THROW_ON_ERROR), 'dialectic.external_request.v1', 'reaction');
+
+        $this->assertTrue($request['ok']);
+        $this->assertSame('0x000E32A9', $request['npc_id']);
+        $this->assertSame('React to the explosion.', $request['instruction']);
+    }
+
+    public function testExternalRequestRejectsPlayerFormId(): void
+    {
+        $request = dialectic_decode_external_actor_request(json_encode([
+            'schema' => 'dialectic.external_request.v1',
+            'request' => 'comment',
+            'npc' => 'Courier',
+            'npc_id' => '0x00000014',
+            'game' => 'fnv',
+        ], JSON_THROW_ON_ERROR), 'dialectic.external_request.v1', 'comment');
+
+        $this->assertFalse($request['ok']);
+    }
+
+    public function testExternalExactTtsPreservesInternalWhitespaceAndRejectsOverlengthText(): void
+    {
+        $valid = dialectic_decode_external_actor_request(json_encode([
+            'schema' => 'dialectic.npc_tts.v1',
+            'npc' => 'Veronica',
+            'npc_id' => '0x000E32A9',
+            'text' => "  Keep   this spacing.  ",
+            'game' => 'fnv',
+        ], JSON_THROW_ON_ERROR), 'dialectic.npc_tts.v1', 'tts');
+        $this->assertTrue($valid['ok']);
+        $this->assertSame('Keep   this spacing.', $valid['text']);
+
+        $invalid = dialectic_decode_external_actor_request(json_encode([
+            'schema' => 'dialectic.npc_tts.v1',
+            'npc' => 'Veronica',
+            'npc_id' => '0x000E32A9',
+            'text' => str_repeat('x', 1001),
+            'game' => 'fnv',
+        ], JSON_THROW_ON_ERROR), 'dialectic.npc_tts.v1', 'tts');
+        $this->assertFalse($invalid['ok']);
+    }
 }

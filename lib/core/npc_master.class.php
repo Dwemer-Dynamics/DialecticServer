@@ -4,6 +4,7 @@ if (!function_exists('dialecticParseStableFormReference')) {
     require_once(__DIR__ . DIRECTORY_SEPARATOR . "game_plugins.php");
 }
 require_once(dirname(__DIR__) . DIRECTORY_SEPARATOR . "voice_clone_resolver.php");
+require_once(__DIR__ . DIRECTORY_SEPARATOR . "tts_filter_presets.php");
 
 if (!function_exists('dialecticRolemasterStateToBool')) {
     function dialecticRolemasterStateToBool($value)
@@ -341,6 +342,64 @@ class NpcMaster
         $this->db = $GLOBALS["db"];
     }
 
+    // Plugin state uses NPC IDs and a separate namespace from core profile data.
+    private function validatePluginDataTarget(int $npcId, string $pluginId): void
+    {
+        if ($npcId <= 0 || !preg_match('/^[a-z][a-z0-9_-]{0,63}$/D', $pluginId)) {
+            throw new InvalidArgumentException('A positive NPC ID and a lowercase plugin ID are required.');
+        }
+    }
+
+    public function getPluginData(int $npcId, string $pluginId): ?array
+    {
+        $this->validatePluginDataTarget($npcId, $pluginId);
+        $row = $this->db->fetchOne(
+            'SELECT plugin_extended_data -> $2::text AS plugin_data
+             FROM core_npc_master WHERE id = $1',
+            [$npcId, $pluginId]
+        );
+        if (!isset($row['plugin_data'])) {
+            return null;
+        }
+        $data = json_decode($row['plugin_data'], false, 512, JSON_THROW_ON_ERROR);
+        if (!$data instanceof stdClass) {
+            throw new UnexpectedValueException('Stored plugin data must be a JSON object.');
+        }
+        // Preserve nested JSON objects and arrays when callers read and write a namespace.
+        return get_object_vars($data);
+    }
+
+    // Replace only this plugin's object in one UPDATE; concurrent plugins retain their keys.
+    public function setPluginData(int $npcId, string $pluginId, array $data): bool
+    {
+        $this->validatePluginDataTarget($npcId, $pluginId);
+        foreach (array_keys($data) as $key) {
+            if (!is_string($key)) {
+                throw new InvalidArgumentException('Plugin data must have string object keys.');
+            }
+        }
+        $json = json_encode((object) $data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $row = $this->db->fetchOne(
+            'UPDATE core_npc_master
+             SET plugin_extended_data = jsonb_set(plugin_extended_data, ARRAY[$2::text], $3::jsonb, true)
+             WHERE id = $1 RETURNING id',
+            [$npcId, $pluginId, $json]
+        );
+        return isset($row['id']);
+    }
+
+    public function deletePluginData(int $npcId, string $pluginId): bool
+    {
+        $this->validatePluginDataTarget($npcId, $pluginId);
+        $row = $this->db->fetchOne(
+            'UPDATE core_npc_master
+             SET plugin_extended_data = plugin_extended_data - $2::text
+             WHERE id = $1 RETURNING id',
+            [$npcId, $pluginId]
+        );
+        return isset($row['id']);
+    }
+
     // Create (Insert)
     public function create($data)
     {
@@ -675,6 +734,8 @@ class NpcMaster
     // Upsert using ON CONFLICT
     public function upsert($data, $conflictTarget)
     {
+        // Generic profile saves must not overwrite a plugin's newer state.
+        unset($data['plugin_extended_data']);
         return $this->db->upsertRowOnConflict($this->table, $data, $conflictTarget);
     }
 
@@ -777,7 +838,22 @@ class NpcMaster
         }
 
         if (array_key_exists('metadata', $data) && $data['metadata'] !== null && $data['metadata'] !== '') {
-            $data['metadata'] = $this->encodeJsonObjectForPersistence($data['metadata'], 'metadata');
+            $metadata = $this->decodeJsonObjectForPersistence($data['metadata'], 'metadata');
+            $filterPresetValue = null;
+            foreach (array_keys($metadata) as $metadataKey) {
+                if (strcasecmp(strval($metadataKey), 'tts_filter_preset') !== 0) {
+                    continue;
+                }
+                $filterPresetValue = $metadata[$metadataKey];
+                unset($metadata[$metadataKey]);
+            }
+            if ($filterPresetValue !== null) {
+                $presetId = dialecticNormalizeTtsFilterPresetId($filterPresetValue);
+                if ($presetId !== 'none') {
+                    $metadata['tts_filter_preset'] = $presetId;
+                }
+            }
+            $data['metadata'] = $this->encodeJsonObjectForPersistence($metadata, 'metadata');
         }
 
         return $data;
@@ -972,6 +1048,17 @@ class NpcMaster
             $rowData['voiceid'] = $FORCE_PARMS['voice'];
         }
 
+        // Biography filters seed new actors only; explicit metadata and existing NPC choices win.
+        if (!$existing && isset($voiceData['tts_filter_preset'])) {
+            $metadata = $rowData['metadata'] ?? [];
+            if (!is_array($metadata)) $metadata = json_decode((string)$metadata, true) ?: [];
+            $hasFilter = false;
+            foreach (array_keys($metadata) as $key) if (strcasecmp((string)$key, 'tts_filter_preset') === 0) $hasFilter = true;
+            if (!$hasFilter) $metadata['tts_filter_preset'] = dialecticNormalizeTtsFilterPresetId($voiceData['tts_filter_preset']);
+            $rowData['metadata'] = json_encode((object)$metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        unset($rowData['tts_filter_preset']);
+
         // Insert or update into DB
         if ($existing) {
             $this->update($existing['id'], $rowData);
@@ -1023,13 +1110,14 @@ class NpcMaster
     private function fetchVoiceData($codename)
     {
         $escCode         = $this->db->escape($codename);
-        $voiceRow        = $this->db->fetchOne("SELECT voiceid FROM combined_bio_templates WHERE lower(npc_name) = lower('{$escCode}')");
+        $voiceRow        = $this->db->fetchOne("SELECT voiceid, tts_filter_preset FROM combined_bio_templates WHERE lower(npc_name) = lower('{$escCode}')");
 
         return array_merge($voiceRow ?: [], ['voicetype' => '']);
     }
 
     public function setOldGlobalsFromCurrentNpcData($currentNpcData, bool $resolveVoice = true)
     {
+        dialecticClearActiveTtsFilterPreset();
 
         if (isset($currentNpcData['npc_name'])) {
             $GLOBALS['DIALECTIC_NAME'] = $currentNpcData['npc_name'];
@@ -1146,6 +1234,16 @@ class NpcMaster
 
         // Decode metadata and extended_data if available
         $metadata = json_decode($currentNpcData['metadata'] ?? '{}', true);
+        $filterPreset = 'none';
+        if (is_array($metadata)) {
+            foreach ($metadata as $metadataKey => $metadataValue) {
+                if (strcasecmp(strval($metadataKey), 'tts_filter_preset') === 0) {
+                    $filterPreset = $metadataValue;
+                    break;
+                }
+            }
+        }
+        dialecticSetActiveTtsFilterPreset($filterPreset);
         $narratorManagedKeys = [
             'REMOVE_ASTERISKS_FROM_PLAYER_INPUT',
             'REMOVE_ASTERISKS_FROM_NPC_OUTPUT',
@@ -1155,6 +1253,9 @@ class NpcMaster
         ];
         if (is_array($metadata)) {
             foreach ($metadata as $key => $value) {
+                if (strcasecmp(strval($key), 'tts_filter_preset') === 0) {
+                    continue;
+                }
                 if (in_array(strtoupper((string)$key), $narratorManagedKeys, true)) {
                     continue;
                 }
@@ -1423,14 +1524,14 @@ class NpcMaster
                 npc_id, npc_name, npc_favorite, lock_profile, prompt_head, npc_static_bio,
                 worldknowledge_tags, emote_moods, personality, relationships,
                 occupation, skills, speechstyle, goals, voiceid, metadata,
-                gender, race, refid, profile_id, dynamic_profile, extended_data,
+                gender, race, refid, profile_id, dynamic_profile, plugin_extended_data, extended_data,
                 md5, gamets_last_updated, core, base, tags, appearance, created
             )
             SELECT
                 id, npc_name, npc_favorite, lock_profile, prompt_head, npc_static_bio,
                 worldknowledge_tags, emote_moods, personality, relationships,
                 occupation, skills, speechstyle, goals, voiceid, metadata,
-                gender, race, refid, profile_id, dynamic_profile,
+                gender, race, refid, profile_id, dynamic_profile, plugin_extended_data,
                 jsonb_set(COALESCE(extended_data, '{}'::jsonb), '{_dialectic_history_source}', '\"infosave\"'::jsonb, true),
                 md5, $timestamp, core, base, tags, appearance, '{$createdTimestamp}'
             FROM core_npc_master
@@ -1515,6 +1616,7 @@ restore AS (
         h.refid,
         h.profile_id,
         h.dynamic_profile,
+        h.plugin_extended_data,
         (
             (COALESCE(h.extended_data, '{}'::jsonb) - '_dialectic_history_source') - ARRAY[
                 'individual_memory_enabled',
@@ -1561,14 +1663,14 @@ INSERT INTO core_npc_master (
     id, npc_name, npc_favorite, lock_profile, prompt_head, npc_static_bio,
     worldknowledge_tags, emote_moods, personality, relationships,
     occupation, skills, speechstyle, goals, voiceid, metadata,
-    gender, race, refid, profile_id, dynamic_profile, extended_data,
+    gender, race, refid, profile_id, dynamic_profile, plugin_extended_data, extended_data,
     md5, gamets_last_updated, core, base, tags, appearance
 )
 SELECT
     id, npc_name, npc_favorite, lock_profile, prompt_head, npc_static_bio,
     worldknowledge_tags, emote_moods, personality, relationships,
     occupation, skills, speechstyle, goals, voiceid, metadata,
-    gender, race, refid, profile_id, dynamic_profile, extended_data,
+    gender, race, refid, profile_id, dynamic_profile, plugin_extended_data, extended_data,
     md5, gamets_last_updated, core, base, tags, appearance
 FROM restore
 ";
@@ -1894,6 +1996,7 @@ FROM restore
         $GLOBALS['TTS']['CHATTERBOX']['voiceid'] = $voiceReference;
         $GLOBALS['TTS']['POCKETTTS']['voiceid'] = $voiceReference;
         $GLOBALS['TTS']['OMNIVOICE']['voiceid'] = $voiceReference;
+        $GLOBALS['TTS']['HIGGS']['voiceid'] = $voiceReference;
         $GLOBALS['TTS']['PIPERTTS']['voiceid'] = $voiceId;
         $GLOBALS['TTS']['ELEVEN_LABS']['voice_id'] = $voiceId;
         $GLOBALS['TTS']['KOKORO']['voiceid'] = $voiceId;

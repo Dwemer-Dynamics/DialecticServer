@@ -321,11 +321,14 @@ class Logger {
     // write uncaught errors to the DIALECTIC log in addition to the apache log
     public static function errorHandler(int $errno, string $errstr, string $errfile, int $errline): bool
     {
+        // Bootstrap may replace the preflight handler; keep suppressed SQL failures blocking.
+        if (!empty($GLOBALS['pgr_operation']) && str_contains($errstr, 'pg_')) $GLOBALS['pgr_sql_failed'] = true;
         if (self::$HANDLING_PHP_ERROR) {
             return false;
         }
 
-        if (error_reporting() === 0) {// when error reporting is suppressed
+        // PHP 8 preserves fatal-error bits under @; check the reported error's bit.
+        if ((error_reporting() & $errno) === 0) {
             return false;
         }
 

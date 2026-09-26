@@ -37,6 +37,20 @@
         "game": { "const": "fnv" }
       },
       "additionalProperties": true
+    },
+    {
+      "title": "NPC TTS Request",
+      "type": "object",
+      "required": ["schema", "npc", "npc_id", "text", "game"],
+      "properties": {
+        "schema": { "const": "dialectic.npc_tts.v1" },
+        "npc": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "npc_id": { "type": "string", "pattern": "^0x[0-9A-Fa-f]{8}$" },
+        "player": { "type": "string" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "game": { "const": "fnv" }
+      },
+      "additionalProperties": true
     }
   ]
 }

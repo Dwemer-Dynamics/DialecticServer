@@ -9,6 +9,33 @@ define("_MAX_SUBTITLE_LENGTH", 1000);
 require_once(__DIR__."/utils_game_timestamp.php");
 require_once(__DIR__."/emote_moods.php");
 require_once(__DIR__."/npc_tts_status.php");
+require_once(__DIR__."/tts_pronunciation.php");
+require_once(__DIR__."/core/tts_filter_presets.php");
+
+/** Run connector synthesis without sharing text-only cache entries between filter presets. */
+function dialecticRunTtsWithActiveFilter(callable $callback)
+{
+    $activePreset = dialecticGetActiveTtsFilterPresetId();
+    $hadAvoidCache = array_key_exists('AVOID_TTS_CACHE', $GLOBALS);
+    $oldAvoidCache = $GLOBALS['AVOID_TTS_CACHE'] ?? null;
+    if ($activePreset !== 'none') {
+        $GLOBALS['AVOID_TTS_CACHE'] = true;
+    }
+
+    try {
+        $output = $callback();
+    } finally {
+        if ($activePreset !== 'none') {
+            if ($hadAvoidCache) {
+                $GLOBALS['AVOID_TTS_CACHE'] = $oldAvoidCache;
+            } else {
+                unset($GLOBALS['AVOID_TTS_CACHE']);
+            }
+        }
+    }
+
+    return dialecticApplyActiveTtsFilterPresetToOutput($output);
+}
 
 function dialecticBuildLatestDiaryContextBlock(string $npcName, array $profileData): string
 {
@@ -60,6 +87,8 @@ function dialecticBuildLatestDiaryContextBlock(string $npcName, array $profileDa
 
 function callConfiguredTts($textString, $mood, $stringforhash)
 {
+    require_once __DIR__ . '/dialectic_interaction.php';
+    if (!dialecticInteractionAllowed()) return false;
     $ttsFunction = strval($GLOBALS["TTSFUNCTION"] ?? '');
     if ($ttsFunction === '') {
         return false;
@@ -79,7 +108,9 @@ function callConfiguredTts($textString, $mood, $stringforhash)
         return false;
     }
 
-    return $GLOBALS["TTS_IN_USE"]($textString, $mood, $stringforhash);
+    return dialecticRunTtsWithActiveFilter(
+        static fn() => $GLOBALS["TTS_IN_USE"]($textString, $mood, $stringforhash)
+    );
 }
 
 function dialecticTtsCacheKeyForLine(string $speaker, string $text): string
@@ -91,41 +122,68 @@ function dialecticTtsCacheKeyForLine(string $speaker, string $text): string
     return $text;
 }
 
-// Apply Fallout faction-specific pronunciation without changing subtitles or stored dialogue.
-function dialecticApplyLegionTtsPronunciation(string $text, ?array $npcData = null): string
+// Resolve the current speaker identity and preserve the existing Legion faction fallback.
+function dialecticTtsPronunciationCurrentSpeakerScope(string $text, ?array $npcData = null): array
 {
-    if (stripos($text, 'Caesar') === false) {
-        return $text;
-    }
-
+    $emptyScope = ['knowledge_tags' => [], 'npc_name' => '', 'race' => ''];
     $npcData = $npcData ?? ($GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA'] ?? null);
     $speaker = trim(strval($GLOBALS['DIALECTIC_NAME'] ?? ''));
     $npcName = is_array($npcData) ? trim(strval($npcData['npc_name'] ?? '')) : '';
     if (!is_array($npcData) || $speaker === '' || $npcName === '' || strcasecmp($speaker, $npcName) !== 0) {
-        return $text;
+        return $emptyScope;
     }
 
-    if (!class_exists('NpcMaster')) {
-        require_once(__DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'npc_master.class.php');
-    }
-
-    $npcMaster = new NpcMaster();
-    $caesarsLegionFaction = '0x000EE68A';
     $knowledgeTags = preg_split(
         '/[,|\s]+/u',
         strtolower(strval($npcData['worldknowledge_tags'] ?? '')),
         -1,
         PREG_SPLIT_NO_EMPTY
     );
-    $isLegionNpc = $npcMaster->isNpcInFaction($npcData, $caesarsLegionFaction)
-        || $npcMaster->isNpcInFaction($npcData, substr($caesarsLegionFaction, 2))
-        || in_array('caesars_legion', is_array($knowledgeTags) ? $knowledgeTags : [], true);
-    if (!$isLegionNpc) {
-        return $text;
+    $knowledgeTags = is_array($knowledgeTags) ? $knowledgeTags : [];
+
+    if (stripos($text, 'Caesar') !== false && !in_array('caesars_legion', $knowledgeTags, true)) {
+        if (!class_exists('NpcMaster')) {
+            require_once(__DIR__ . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'npc_master.class.php');
+        }
+
+        $npcMaster = new NpcMaster();
+        $caesarsLegionFaction = '0x000EE68A';
+        if ($npcMaster->isNpcInFaction($npcData, $caesarsLegionFaction)
+            || $npcMaster->isNpcInFaction($npcData, substr($caesarsLegionFaction, 2))) {
+            $knowledgeTags[] = 'caesars_legion';
+        }
     }
 
-    $pronounced = preg_replace('/\bCaesar\b/iu', 'Kaiser', $text);
-    return is_string($pronounced) ? $pronounced : $text;
+    return [
+        'knowledge_tags' => array_values(array_unique($knowledgeTags)),
+        'npc_name' => $npcName,
+        'race' => trim(strval($npcData['race'] ?? '')),
+    ];
+}
+
+function dialecticTtsPronunciationCurrentSpeakerTags(string $text, ?array $npcData = null): array
+{
+    $scope = dialecticTtsPronunciationCurrentSpeakerScope($text, $npcData);
+    return $scope['knowledge_tags'];
+}
+
+// Preserve the public Legion pronunciation seam used by response regression checks.
+function dialecticApplyLegionTtsPronunciation(string $text, ?array $npcData = null): string
+{
+    $scope = dialecticTtsPronunciationCurrentSpeakerScope($text, $npcData);
+    return dialecticApplyTtsPronunciationDictionary(
+        $text,
+        [[
+            'source_text' => 'Caesar',
+            'spoken_text' => 'Kaiser',
+            'oghma_tags' => 'caesars_legion',
+            'is_builtin' => true,
+            'enabled' => true,
+        ]],
+        $scope['knowledge_tags'],
+        $scope['npc_name'],
+        $scope['race']
+    );
 }
 
 function canRetryNpcTtsWithFallback(): bool
@@ -274,6 +332,7 @@ function cleanResponse($rawResponse)
             'xtts-fastapi' => 'XTTSFASTAPI',
             'chatterbox' => 'CHATTERBOX',
             'pockettts' => 'POCKETTTS',
+            'higgs' => 'HIGGS',
             'omnivoice' => 'OMNIVOICE',
             '11labs' => 'ELEVEN_LABS',
             'kokoro' => 'KOKORO',
@@ -369,10 +428,24 @@ function cleanResponse($rawResponse)
     return $sentenceXX;
 }
 
+// Keep radio-style speakers in one uninterrupted TTS and subtitle line.
+function shouldPreserveWholeDialogueLineForCurrentSpeaker(): bool
+{
+    $speaker = trim((string)($GLOBALS['DIALECTIC_NAME'] ?? ''));
+    $speaker = preg_replace('/\s*\[[^\]]*\]\s*$/u', '', $speaker);
+    $speaker = strtolower(trim((string)preg_replace('/[^a-z0-9]+/i', ' ', $speaker)));
+
+    return in_array($speaker, ['mr house', 'mister house', 'mr new vegas', 'mister new vegas'], true);
+}
+
 // replace findDotPosition with first EOS split detection - same logic as split_at_end_of_sentence
     // This sentence will never be split: "It is, Courier. The desert air here beats the smoke in town. I've been checking my rifle since dawn."
 
 function findFastSentencePosition($s_string,$min_sentence_size=0) {
+    if (shouldPreserveWholeDialogueLineForCurrentSpeaker()) {
+        return false;
+    }
+
     // Find the position of the first sentence-ending punctuation followed by a space
     // This preserves ellipsis (...) because we require a space after the punctuation
     $eosPunc = preg_quote(getEndOfSentencePunctuation(), '/'); // .?! plus Japanese sentence punctuation
@@ -502,6 +575,10 @@ function split_sentences($paragraph)
 
 function split_sentences_stream($paragraph)
 {
+    if (shouldPreserveWholeDialogueLineForCurrentSpeaker()) {
+        return [$paragraph];
+    }
+
     if (strlen($paragraph) <= MAXIMUM_SENTENCE_SIZE) {
         return [$paragraph];
     }
@@ -1038,6 +1115,8 @@ function saveCurrentVoiceSettings() {
         'patch_override_tts_language' => $GLOBALS['PATCH_OVERRIDE_TTS_LANGUAGE'] ?? null,
         'has_patch_override_tts_options' => array_key_exists('PATCH_OVERRIDE_TTS_OPTIONS', $GLOBALS),
         'patch_override_tts_options' => $GLOBALS['PATCH_OVERRIDE_TTS_OPTIONS'] ?? null,
+        'has_active_tts_filter_preset' => array_key_exists('DIALECTIC_TTS_FILTER_PRESET_ID', $GLOBALS),
+        'active_tts_filter_preset' => $GLOBALS['DIALECTIC_TTS_FILTER_PRESET_ID'] ?? null,
     ];
 }
 
@@ -1055,6 +1134,7 @@ function applyVoiceIdToTtsGlobals(string $voiceid): void
     $GLOBALS['TTS']['CHATTERBOX']['voiceid']   = $voiceReference;
     $GLOBALS['TTS']['POCKETTTS']['voiceid']    = $voiceReference;
     $GLOBALS['TTS']['OMNIVOICE']['voiceid']    = $voiceReference;
+    $GLOBALS['TTS']['HIGGS']['voiceid']    = $voiceReference;
     $GLOBALS['TTS']['PIPERTTS']['voiceid']     = $voiceid;
     $GLOBALS['TTS']['ELEVEN_LABS']['voice_id'] = $voiceid;
     $GLOBALS['TTS']['KOKORO']['voiceid']       = $voiceid;
@@ -1071,6 +1151,7 @@ function loadNarratorVoiceSettings() {
     require_once(__DIR__ . "/core/tts_connector.class.php");
 
     $narrator = new Narrator();
+    dialecticSetActiveTtsFilterPreset($narrator->get('tts_filter_preset') ?? 'none');
     $profileId = $narrator->getProfileId();
     if ($profileId) {
         $profileManager = new CoreProfile();
@@ -1150,6 +1231,12 @@ function restoreVoiceSettings($savedSettings) {
         $GLOBALS['PATCH_OVERRIDE_TTS_OPTIONS'] = $savedSettings['patch_override_tts_options'];
     } else {
         unset($GLOBALS['PATCH_OVERRIDE_TTS_OPTIONS']);
+    }
+
+    if (!empty($savedSettings['has_active_tts_filter_preset'])) {
+        dialecticSetActiveTtsFilterPreset($savedSettings['active_tts_filter_preset']);
+    } else {
+        dialecticClearActiveTtsFilterPreset();
     }
 }
 
@@ -1251,7 +1338,9 @@ function dialectic_generate_deferred_tts(): void
         ]);
         $ttsOutput = callNpcTtsWithFallback($text, (string)($entry["mood"] ?? "default"), $cacheSeed);
         if (!$ttsOutput && isset($GLOBALS["TTS_FALLBACK_FNCT"])) {
-            $ttsOutput = $GLOBALS["TTS_FALLBACK_FNCT"]($text, (string)($entry["mood"] ?? "default"), $cacheSeed);
+            $ttsOutput = dialecticRunTtsWithActiveFilter(
+                static fn() => $GLOBALS["TTS_FALLBACK_FNCT"]($text, (string)($entry["mood"] ?? "default"), $cacheSeed)
+            );
         }
 
         $cachePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . "soundcache" . DIRECTORY_SEPARATOR . $cacheKey . ".wav";
@@ -1317,6 +1406,9 @@ function dialectic_npc_tts_php_binary(): string
 
 function dialectic_spawn_deferred_npc_tts_worker(array $entry): bool
 {
+    require_once __DIR__ . '/dialectic_interaction.php';
+    if (!dialecticInteractionAllowed()) return false;
+    $entry['interaction_generation'] = $GLOBALS['dialectic_interaction_generation'];
     $root = dirname(__DIR__);
     $worker = $root . DIRECTORY_SEPARATOR . 'processor' . DIRECTORY_SEPARATOR . 'npc_tts_worker.php';
     if (!is_file($worker)) {
@@ -1653,8 +1745,11 @@ function returnLines($lines,$writeOutput=true)
                             Logger::info("[INLINE_NARRATION] Switched to Narrator, voice settings loaded");
 
                             // Prepare narration for TTS (with asterisks for subtitle display)
-                            $narrationForTTS = $narrationText;
+                            $narrationForTTS = dialecticApplyTtsPronunciationDictionary($narrationText, null, []);
                             $narrationForSubtitles = formatNarrationSubtitleText($narrationText);
+                            $narrationCacheText = $narrationForTTS !== $narrationText
+                                ? $narrationForTTS
+                                : $narrationForSubtitles;
 
                             Logger::info("[INLINE_NARRATION] Generating TTS with function: " . $GLOBALS["TTSFUNCTION"]);
 
@@ -1662,7 +1757,7 @@ function returnLines($lines,$writeOutput=true)
                             $narratorTtsOutput = callConfiguredTts(
                                 $narrationForTTS,
                                 "default",
-                                dialecticTtsCacheKeyForLine("The Narrator", $narrationForSubtitles)
+                                dialecticTtsCacheKeyForLine("The Narrator", $narrationCacheText)
                             );
 
                             // Track narrator TTS output
@@ -1683,7 +1778,7 @@ function returnLines($lines,$writeOutput=true)
                                         $narratorExpression,
                                         $narratorListener,
                                         $narratorAnimation,
-                                        $narrationText
+                                        $narrationForTTS
                                     );
                                     Logger::info("[INLINE_NARRATION] Narrator speech sent to game: " . $narrationForSubtitles);
                                 }
@@ -1721,7 +1816,14 @@ function returnLines($lines,$writeOutput=true)
             }
 
             if ($shouldEmitNpcLine && trim((string)$responseForTTS) !== "") {
-                $pendingNpcTtsText = dialecticApplyLegionTtsPronunciation((string)$responseForTTS);
+                $pronunciationScope = dialecticTtsPronunciationCurrentSpeakerScope((string)$responseForTTS);
+                $pendingNpcTtsText = dialecticApplyTtsPronunciationDictionary(
+                    (string)$responseForTTS,
+                    null,
+                    $pronunciationScope['knowledge_tags'],
+                    $pronunciationScope['npc_name'],
+                    $pronunciationScope['race']
+                );
                 $pendingNpcTtsMood = $mood;
                 $pendingNpcTtsPronunciationApplied = $pendingNpcTtsText !== $responseForTTS;
                 $ttsCacheText = $pendingNpcTtsPronunciationApplied ? $pendingNpcTtsText : $responseForSubtitles;
@@ -1924,7 +2026,9 @@ function returnLines($lines,$writeOutput=true)
                     ]);
                     $ttsOutput = callNpcTtsWithFallback($pendingNpcTtsText, $pendingNpcTtsMood, $pendingNpcTtsCacheKey);
                     if (!$ttsOutput && isset($GLOBALS["TTS_FALLBACK_FNCT"])) {
-                        $ttsOutput = $GLOBALS["TTS_FALLBACK_FNCT"]($pendingNpcTtsText, $pendingNpcTtsMood, $pendingNpcTtsCacheKey);
+                        $ttsOutput = dialecticRunTtsWithActiveFilter(
+                            static fn() => $GLOBALS["TTS_FALLBACK_FNCT"]($pendingNpcTtsText, $pendingNpcTtsMood, $pendingNpcTtsCacheKey)
+                        );
                     }
 
                     if ($ttsOutput) {
@@ -2054,7 +2158,9 @@ function returnLines($lines,$writeOutput=true)
             ]);
             $ttsOutput = callNpcTtsWithFallback($pendingNpcTtsText, $pendingNpcTtsMood, $pendingNpcTtsCacheKey);
             if (!$ttsOutput && isset($GLOBALS["TTS_FALLBACK_FNCT"])) {
-                $ttsOutput = $GLOBALS["TTS_FALLBACK_FNCT"]($pendingNpcTtsText, $pendingNpcTtsMood, $pendingNpcTtsCacheKey);
+                $ttsOutput = dialecticRunTtsWithActiveFilter(
+                    static fn() => $GLOBALS["TTS_FALLBACK_FNCT"]($pendingNpcTtsText, $pendingNpcTtsMood, $pendingNpcTtsCacheKey)
+                );
             }
 
             if ($ttsOutput) {

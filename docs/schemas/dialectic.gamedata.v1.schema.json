@@ -38,6 +38,17 @@
     "speaker_formid": { "type": "string" },
     "text": { "type": "string" },
     "people": { "type": "string" },
+    "radio": {
+      "type": "object",
+      "required": ["active", "station", "station_formid", "song"],
+      "properties": {
+        "active": { "type": "boolean" },
+        "station": { "type": "string", "maxLength": 160 },
+        "station_formid": { "type": "string" },
+        "song": { "type": "string", "maxLength": 160 }
+      },
+      "additionalProperties": false
+    },
     "eligible_actors": {
       "type": "array",
       "items": {

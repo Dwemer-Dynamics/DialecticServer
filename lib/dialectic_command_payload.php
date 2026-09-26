@@ -14,7 +14,7 @@ function dialecticCommandPayloadOrderedArgs(string $commandName, array $args = [
         'renamenpc' => ['refid', 'name'],
         'scriptproxy' => ['payload'],
         'impersonateplayer' => ['speech', 'request_type'],
-        'instruction' => ['character', 'instruction', 'task_id'],
+        'instruction' => ['character', 'instruction', 'task_id', 'target'],
         'suggestion' => ['character', 'instruction', 'task_id'],
         'teleportactor' => ['target', 'location'],
     ];
@@ -166,7 +166,7 @@ function dialecticDecodeCommandAction(string $command, array $args = []): array
     ];
 }
 
-function dialecticQueueCommandResponse(string $speaker, string $commandName, array $args = [], string $text = ''): void
+function dialecticQueueCommandResponse(string $speaker, string $commandName, array $args = [], string $text = '', string $tag = ''): void
 {
     if (!isset($GLOBALS['db']) || !is_object($GLOBALS['db'])) {
         return;
@@ -185,7 +185,7 @@ function dialecticQueueCommandResponse(string $speaker, string $commandName, arr
             'actor' => $speaker,
             'text' => $text,
             'action' => $payload,
-            'tag' => '',
+            'tag' => $tag,
         ]
     );
 }

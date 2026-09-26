@@ -144,7 +144,7 @@ $CORE_CONNECTOR_DIRECTOR=1;
 $CORE_CONNECTOR_PLAYER=2;
 $CORE_CONNECTOR_SUMMARY=4;
 $CORE_CONNECTOR_MEDIUMTERM=4;
-$CORE_CONNECTOR_SCENECLASSIFIER=7; // Gemma 3N E4B
+$CORE_CONNECTOR_SCENECLASSIFIER=7; // Gemma 3 4B
 $SCENE_CLASSIFIER_ENABLED=true; // Enable post-request scene tone/genre classification.
 $CORE_CONNECTOR_PROFILES=1;
 $RELLLM_CONNECTOR=5; // Relationship Management default (Mistral Small 3.2 24B)
@@ -242,6 +242,11 @@ $TTS["CHATTERBOX"]["voicelogic"]='voicetype';
 $TTS["CHATTERBOX"]["PARALINGUISTIC_TAGS_ENABLED"]=false; //Enable paralinguistic tags like [laugh], [sigh] for expressive TTS output.
 $TTS["CHATTERBOX"]["PARALINGUISTIC_TAGS_PROMPT"]=''; //Prompt snippet for instructing LLM to use paralinguistic tags.
 $TTS["CHATTERBOX"]["PARALINGUISTIC_TAGS_LIST"]='[clear throat],[sigh],[shush],[cough],[groan],[sniff],[gasp],[chuckle],[laugh]'; //Comma-separated list of supported tags.
+//Higgs TTS 3
+$TTS["HIGGS"]["endpoint"]='http://127.0.0.1:8025';
+$TTS["HIGGS"]["model"]='higgs-v3';
+$TTS["HIGGS"]["voiceid"]='TheNarrator';
+$TTS["HIGGS"]["voicelogic"]='voicetype';
 //OmniVoice
 $TTS["OMNIVOICE"]["endpoint"]='http://127.0.0.1:8021'; //API endpoint.
 $TTS["OMNIVOICE"]["language"]='en'; //Active OmniVoice language profile.
@@ -285,7 +290,8 @@ $TTS["PIPERTTS"]["speaker_id"]=0; //id of speaker for multi-speaker voices; over
 $TTS["CARTESIA"]["API_KEY"]=''; //API key.
 $TTS["CARTESIA"]["voiceid"]=''; //Voice file name. Works like XTTS voiceid.
 $TTS["CARTESIA"]["language"]='en'; //Language (en, fr, de, es, etc.).
-$TTS["CARTESIA"]["model_id"]='sonic-3'; //Model (sonic-3, sonic-english, sonic-multilingual).
+$TTS["CARTESIA"]["model_id"]='sonic-3'; //Model (sonic-3, sonic-3.5, sonic-3.6, or a dated snapshot).
+$TTS["CARTESIA"]["accent"]=''; //Optional Sonic 3.6 accent ID supported by the selected multilingual voice.
 $TTS["CARTESIA"]["speed"]='normal'; //Speed (slowest, slow, normal, fast, fastest).
 
 //Inworld TTS

@@ -220,6 +220,98 @@ function dialectic_event_to_game_request(array $event): array
     return $request;
 }
 
+// Validates an actor reference before an external request can bind a profile.
+function dialectic_normalize_external_formid(string $value): string
+{
+    $value = trim($value);
+    if (preg_match('/^0x([0-9a-f]{8})$/i', $value, $matches) !== 1) {
+        return "";
+    }
+
+    $normalized = "0x" . strtoupper($matches[1]);
+    if ($normalized === "0x00000000" || $normalized === "0x00000014") {
+        return "";
+    }
+
+    return $normalized;
+}
+
+// Decodes the fixed public xNVSE request contract without accepting arbitrary event types.
+function dialectic_decode_external_actor_request(
+    string $payload,
+    string $expectedSchema,
+    string $mode
+): array {
+    $result = [
+        "ok" => false,
+        "error" => "Invalid external request",
+        "request" => "",
+        "npc" => "",
+        "npc_id" => "",
+        "player" => "",
+        "text" => "",
+        "instruction" => "",
+        "payload" => [],
+    ];
+
+    $decoded = json_decode($payload, true);
+    if (!is_array($decoded)) {
+        $result["error"] = "Payload must be a JSON object";
+        return $result;
+    }
+
+    if (trim(strval($decoded["schema"] ?? "")) !== $expectedSchema) {
+        $result["error"] = "Unsupported external request schema";
+        return $result;
+    }
+    if (strtolower(trim(strval($decoded["game"] ?? ""))) !== "fnv") {
+        $result["error"] = "External request must target fnv";
+        return $result;
+    }
+
+    $mode = strtolower(trim($mode));
+    $request = strtolower(trim(strval($decoded["request"] ?? $mode)));
+    if ($request !== $mode || !in_array($mode, ["comment", "reaction", "tts"], true)) {
+        $result["error"] = "External request type does not match endpoint";
+        return $result;
+    }
+
+    $npc = preg_replace('/\s+/u', ' ', trim(strval($decoded["npc"] ?? $decoded["actor_name"] ?? "")));
+    if (!is_string($npc) || $npc === "" || strlen($npc) > 160) {
+        $result["error"] = "NPC name is missing or too long";
+        return $result;
+    }
+
+    $npcId = dialectic_normalize_external_formid(strval(
+        $decoded["npc_id"] ?? $decoded["speaker_formid"] ?? $decoded["refid"] ?? ""
+    ));
+    if ($npcId === "") {
+        $result["error"] = "NPC FormID must be a non-player 0xXXXXXXXX reference";
+        return $result;
+    }
+
+    $textKey = $mode === "reaction" ? "instruction" : ($mode === "tts" ? "text" : "");
+    $text = $textKey !== "" ? trim(strval($decoded[$textKey] ?? "")) : "";
+    if ($mode === "reaction" && $text !== "") {
+        $text = preg_replace('/\s+/u', ' ', $text);
+    }
+    if ($textKey !== "" && (!is_string($text) || $text === "" || strlen($text) > 1000)) {
+        $result["error"] = ucfirst($textKey) . " must contain 1 to 1000 bytes";
+        return $result;
+    }
+
+    $result["ok"] = true;
+    $result["error"] = "";
+    $result["request"] = $request;
+    $result["npc"] = $npc;
+    $result["npc_id"] = $npcId;
+    $result["player"] = trim(strval($decoded["player"] ?? ""));
+    $result["text"] = $mode === "tts" ? $text : "";
+    $result["instruction"] = $mode === "reaction" ? $text : "";
+    $result["payload"] = $decoded;
+    return $result;
+}
+
 // Renders the native combat snapshot supplied with a combat-bark event.
 function dialectic_build_combat_prompt_from_event(array $event): string
 {
@@ -397,8 +489,19 @@ function dialectic_adapt_json_input_payload_for_pipeline(array &$gameRequest): a
     $text = dialectic_sanitize_pipeline_input_fragment($text);
     $target = dialectic_sanitize_pipeline_input_fragment(str_replace(["(", ")"], " ", $target));
 
+    $isDirectorInstruction = dialectic_payload_bool_value($fields["director_instruction"] ?? false);
     $display = $player !== "" ? "{$player}: {$text}" : $text;
-    if ($target !== "" && strcasecmp($target, "The Narrator") !== 0) {
+    if ($isDirectorInstruction) {
+        $listener = dialectic_sanitize_pipeline_input_fragment(
+            is_scalar($fields["director_target"] ?? null) ? strval($fields["director_target"]) : ''
+        );
+        $display = "Director instruction for {$target}";
+        if ($listener !== '') {
+            $display .= " (listener: {$listener})";
+        }
+        $display .= ": {$text}";
+        $result["skip_player_tts"] = true;
+    } elseif ($target !== "" && strcasecmp($target, "The Narrator") !== 0) {
         $display .= " (Talking to {$target})";
     }
 
@@ -412,6 +515,7 @@ function dialectic_adapt_json_input_payload_for_pipeline(array &$gameRequest): a
     }
 
     $GLOBALS["DIALECTIC_STRUCTURED_INPUT_FIELDS"] = $fields;
+    $GLOBALS["DIALECTIC_DIRECTOR_INPUT"] = $isDirectorInstruction;
     $GLOBALS["DIALECTIC_PLAYER_INPUT_TEXT"] = $text;
     $GLOBALS["DIALECTIC_INPUT_TARGET"] = $target;
     $GLOBALS["DIALECTIC_SKIP_PLAYER_TTS"] = $result["skip_player_tts"];

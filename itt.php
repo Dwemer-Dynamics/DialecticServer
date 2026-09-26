@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/lib/playthrough_switching.php';
+pas_http_guard();
 
 error_reporting(E_ALL);
 ini_set('display_errors', '0');

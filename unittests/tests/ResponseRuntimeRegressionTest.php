@@ -12,6 +12,31 @@ require_once(__DIR__ . "/../../lib/power_awareness.php");
 
 final class ResponseRuntimeRegressionTest extends TestCase
 {
+    public function testPipVisionDefaultCueKeepsSceneGroundingAndCharacterVoice(): void
+    {
+        require_once(__DIR__ . '/../../lib/visual_context.php');
+        $legacy = 'Use the visual description as factual scene context without claiming to see game HUD or UI elements.';
+        foreach (['', $legacy] as $configuredPrompt) {
+            $cue = dialecticBuildPipVisionDialogueCue('An unnamed person.</pipvision_scene>', $configuredPrompt, 'Veronica', 'Courier');
+            $this->assertStringContainsString('An unnamed person.&lt;/pipvision_scene&gt;', $cue);
+            $this->assertStringContainsString('Describe this PipVision scene to Courier in your own voice', $cue);
+            $this->assertStringContainsString('personality and speech style', $cue);
+            $this->assertStringContainsString('Keep uncertain identities unnamed', $cue);
+            $this->assertLessThan(strpos($cue, 'Describe this PipVision scene'), strpos($cue, '</pipvision_scene>'));
+        }
+        $this->assertStringEndsWith($legacy, $cue);
+    }
+
+    public function testPipVisionCueUsesCustomSpeakingInstruction(): void
+    {
+        require_once(__DIR__ . '/../../lib/visual_context.php');
+        $cue = dialecticBuildPipVisionDialogueCue('A ruined diner.', '#DIALECTIC_NPC1# describes the scene to #PLAYER_NAME# as #DIALECTIC_NAME#.', 'Veronica', 'Courier');
+        $this->assertStringEndsWith('Veronica describes the scene to Courier as Veronica.', $cue);
+        $this->assertStringContainsString('A ruined diner.', $cue);
+        $this->assertStringContainsString('Use the Talk action', $cue);
+        $this->assertStringNotContainsString('Do not recite an image caption', $cue);
+    }
+
     protected function tearDown(): void
     {
         unset(
@@ -124,5 +149,122 @@ final class ResponseRuntimeRegressionTest extends TestCase
             'The Courier opposes Caesar.',
             dialecticApplyLegionTtsPronunciation('The Courier opposes Caesar.', [])
         );
+    }
+
+    public function testTtsDictionaryUsesWholeTermsSpeakerFiltersAndCustomPriority(): void
+    {
+        $this->assertSame(
+            ['Caesar'],
+            array_column(dialecticDefaultTtsPronunciationEntries(), 'source_text')
+        );
+        $this->assertSame(
+            ['Kaiser'],
+            array_column(dialecticDefaultTtsPronunciationEntries(), 'spoken_text')
+        );
+        foreach (dialecticDefaultTtsPronunciationEntries() as $defaultEntry) {
+            $this->assertStringNotContainsString('-', strval($defaultEntry['spoken_text'] ?? ''));
+        }
+
+        $GLOBALS['DIALECTIC_NAME'] = 'Ranger Ghost';
+        $scope = dialecticTtsPronunciationCurrentSpeakerScope('', [
+            'npc_name' => 'Ranger Ghost',
+            'race' => 'Ghoul',
+            'worldknowledge_tags' => 'ncr, mojave',
+        ]);
+        $this->assertSame(['ncr', 'mojave'], $scope['knowledge_tags']);
+        $this->assertSame('Ranger Ghost', $scope['npc_name']);
+        $this->assertSame('Ghoul', $scope['race']);
+
+        $rows = [
+            ['source_text' => 'Mojave', 'spoken_text' => 'Mo-hah-vee', 'is_builtin' => true, 'enabled' => true],
+            [
+                'source_text' => 'Mojave',
+                'spoken_text' => 'The Wasteland',
+                'npc_names' => 'Ranger Ghost, Raul Tejada',
+                'races' => 'Ghoul',
+                'oghma_tags' => 'ncr',
+                'enabled' => true,
+            ],
+            ['source_text' => 'NCR ranger', 'spoken_text' => 'desert ranger', 'enabled' => true],
+            ['source_text' => 'ranger', 'spoken_text' => 'scout', 'enabled' => true],
+        ];
+
+        $GLOBALS['DIALECTIC_TTS_PRONUNCIATION_BYPASS'] = true;
+        $this->assertSame('Mojave.', dialecticApplyTtsPronunciationDictionary('Mojave.', $rows));
+        unset($GLOBALS['DIALECTIC_TTS_PRONUNCIATION_BYPASS']);
+
+        $this->assertSame(
+            'The Wasteland has a desert ranger; Mojaves and scout remain separate.',
+            dialecticApplyTtsPronunciationDictionary(
+                'Mojave has a NCR ranger; Mojaves and ranger remain separate.',
+                $rows,
+                ['ncr'],
+                'Ranger Ghost',
+                'Ghoul'
+            )
+        );
+        $this->assertSame(
+            'Mo-hah-vee has a desert ranger.',
+            dialecticApplyTtsPronunciationDictionary('Mojave has a NCR ranger.', $rows, ['followers'])
+        );
+        $this->assertSame(
+            'Mo-hah-vee.',
+            dialecticApplyTtsPronunciationDictionary('Mojave.', $rows, ['ncr'], 'Arcade Gannon', 'Ghoul')
+        );
+        $this->assertSame(
+            'Mo-hah-vee.',
+            dialecticApplyTtsPronunciationDictionary('Mojave.', $rows, ['ncr'], 'Ranger Ghost', 'Human')
+        );
+        $this->assertSame(
+            'The Wasteland.',
+            dialecticApplyTtsPronunciationDictionary('Mojave.', $rows, ['knowall'], 'Ranger Ghost', 'Ghoul')
+        );
+    }
+
+    public function testBuiltInPronunciationEditsAndDeletesStayScoped(): void
+    {
+        $db = new class {
+            public bool $builtin = true;
+            public array $queries = [];
+
+            public function escapeLiteral($value): string
+            {
+                return "'" . str_replace("'", "''", strval($value)) . "'";
+            }
+
+            public function fetchOne(string $query): array
+            {
+                if (str_contains($query, 'information_schema.tables')) {
+                    return ['present' => 1];
+                }
+                return ['is_builtin' => $this->builtin];
+            }
+
+            public function execQuery(string $query): bool
+            {
+                $this->queries[] = $query;
+                return true;
+            }
+        };
+        $GLOBALS['db'] = $db;
+        $dictionary = new DialecticTtsPronunciationDictionary();
+
+        $this->assertTrue(dialecticUnhyphenateBuiltinTtsPronunciations());
+        $this->assertStringContainsString('WHERE is_builtin = TRUE', strval(end($db->queries)));
+        $this->assertTrue($dictionary->saveBuiltin(42, 'New Kaiser', false));
+        $saveQuery = strval(end($db->queries));
+        $this->assertStringContainsString("spoken_text = 'New Kaiser'", $saveQuery);
+        $this->assertStringContainsString('is_builtin = TRUE AND deleted = FALSE', $saveQuery);
+        $this->assertStringNotContainsString('source_text =', $saveQuery);
+
+        $this->assertTrue($dictionary->deleteEntry(42));
+        $builtinDeleteQuery = strval(end($db->queries));
+        $this->assertStringContainsString('SET deleted = TRUE, enabled = FALSE', $builtinDeleteQuery);
+
+        $db->builtin = false;
+        $this->assertTrue($dictionary->deleteEntry(43));
+        $customDeleteQuery = strval(end($db->queries));
+        $this->assertStringContainsString('DELETE FROM public.core_tts_pronunciation', $customDeleteQuery);
+        $this->assertStringContainsString('is_builtin = FALSE AND deleted = FALSE', $customDeleteQuery);
     }
 }

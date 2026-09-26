@@ -26,6 +26,9 @@ require_once("{$enginePath}/lib/core/npc_master.class.php");
 //function include from below file
 include(__DIR__."/tmpl/ui_utils.php");
 
+// Loads the server-owned TTS filter preset catalog (lib/core/tts_filter_presets.php) on demand.
+require_once(__DIR__."/tmpl/voice_filter_field.php");
+
 // Determine web root and include site chrome like worldknowledge_upload
 $scriptPath = $_SERVER['SCRIPT_NAME'];
 $uiPos = strpos($scriptPath, '/ui/');
@@ -41,7 +44,7 @@ require_once(__DIR__.DIRECTORY_SEPARATOR."../profile_loader.php");
 $TITLE = "DIALECTIC - NPC Master";
 ob_start();
 include(__DIR__.DIRECTORY_SEPARATOR."../tmpl/head.html");
-?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/npc_event_history.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/relationship_timeline.css"><style>
+?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/npc_event_history.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/relationship_timeline.css"><?php echo dialecticVoiceFilterAssetTags($webRoot); ?><style>
 /* Core styling alignment */
 @font-face {
  font-family: 'Gothic821';
@@ -490,6 +493,7 @@ if (!function_exists('dialecticResolveNpcIdAfterCreate')) {
 // Handle Create
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create"])) {
  dialecticMergePostedRelationshipsIntoExtendedData($_POST);
+ dialecticMergePostedVoiceFilterIntoMetadata($_POST, $npc, 0);
  if (dialecticUiAutoLockProfileEnabled()) {
   $_POST['lock_profile'] = 1;
  }
@@ -514,6 +518,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["update"])) {
   $_POST['lock_profile'] = 1;
  }
  $_POST["md5"]=md5($_POST["npc_name"]);
+ dialecticMergePostedVoiceFilterIntoMetadata($_POST, $npc, (int)($_POST["id"] ?? 0));
  $updated = $npc->update($_POST["id"], $_POST);
  if ($updated === false) {
   throw new RuntimeException($npc->getLastError());
@@ -601,6 +606,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["inline_update_npc"]))
  if (dialecticUiAutoLockProfileEnabled()) {
   $_POST['lock_profile'] = 1;
  }
+ dialecticMergePostedVoiceFilterIntoMetadata($_POST, $npc, $id);
  if ($id <= 0) {
  $created = $npc->create($_POST);
  if ($created === false) { echo json_encode(["ok"=>false, "error"=>$npc->getLastError()]); exit; }
@@ -1626,7 +1632,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['import_from_bio'])) {
  }
  exit;
 }
-?><?php if ($editItem): ?><h2>Edit NPC (ID: <?= htmlspecialchars($editItem["id"]) ?>)</h2><?php endif; ?><?php if (isset($_GET['partial']) && $_GET['partial']=='1') { ob_end_clean(); ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/npc_event_history.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/relationship_timeline.css"><style>html,body{background:#2a2a2a;margin-bottom:50px;margin-right:5px;} main{background:#2a2a2a; padding:12px;} .form-container{background:#2a2a2a; border:1px solid #4a4a4a; border-radius:8px;}
+?><?php if ($editItem): ?><h2>Edit NPC (ID: <?= htmlspecialchars($editItem["id"]) ?>)</h2><?php endif; ?><?php if (isset($_GET['partial']) && $_GET['partial']=='1') { ob_end_clean(); ?><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/main.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/npc_event_history.css"><link rel="stylesheet" href="<?php echo $webRoot; ?>/ui/css/relationship_timeline.css"><?php echo dialecticVoiceFilterAssetTags($webRoot); ?><style>html,body{background:#2a2a2a;margin-bottom:50px;margin-right:5px;} main{background:#2a2a2a; padding:12px;} .form-container{background:#2a2a2a; border:1px solid #4a4a4a; border-radius:8px;}
 .modal-inline-actions{display:flex; gap:6px; align-items:center; justify-content:flex-end; margin-bottom:8px;}
 .modal-inline-actions .btn-toggle{background:transparent; border:none; padding:6px; color:#e9efff; font-size:22px; line-height:1; text-decoration:none; cursor:pointer;}
 .modal-inline-actions .btn-toggle:hover{color: rgb(255, 182, 65); text-decoration:none;}
@@ -1869,7 +1875,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 (function(){
     const fieldSections = {
-        general: new Set(['npc_name','profile_id','lock_profile','npc_favorite','gender','race','base','refid','oghma_knowledge_tags','worldknowledge_tags','world_knowledge_tags','voiceid','faction','dynamic_profile','middle_term_enabled','individual_memory_enabled','auto_diary_enabled','auto_diary_wait_enabled','salutation_after_a_while','prompt_head']),
+        general: new Set(['npc_name','profile_id','lock_profile','npc_favorite','gender','race','base','refid','oghma_knowledge_tags','worldknowledge_tags','world_knowledge_tags','voiceid','tts_filter_preset','faction','dynamic_profile','middle_term_enabled','individual_memory_enabled','auto_diary_enabled','auto_diary_wait_enabled','salutation_after_a_while','prompt_head']),
         bios: new Set(['core','npc_static_bio','appearance','personality','occupation','skills','speechstyle','goals']),
         relationships: new Set(['relationships','relationships_jsonb','middle_term_latest']),
         actions: new Set([]),
@@ -2075,6 +2081,20 @@ document.addEventListener('DOMContentLoaded', () => {
 <div class="form-grid"><div class="form-item span-2"><label for="npc_name">NPC Name</label><input type="text" id="npc_name" name="npc_name" placeholder="e.g. NCR Ranger" value="<?= htmlspecialchars($editItem["npc_name"] ?? "") ?>"><small class="hint">The character's name. Must match their Fallout in-game name!</small></div><div class="form-item"><label for="profile_id">Profile</label><select id="profile_id" name="profile_id"><option value="">Use Default NPC Profile</option><?php foreach (($profileRows ?? []) as $pr): $pid=(string)($pr['id']??''); $lbl=$pr['label']??('Profile #'.$pid); $sel = ((string)($editItem['profile_id'] ?? '') === $pid) ? ' selected' : ((empty($editItem) && $firstProfileId === $pid) ? ' selected' : ''); ?><option value="<?= htmlspecialchars($pid) ?>"<?= $sel ?>><?= htmlspecialchars($lbl) ?></option><?php endforeach; ?></select><small class="hint">Select which profile the NPC uses.</small></div><div class="form-item"><label for="lock_profile" class="label-with-toggle">Lock This NPC
  <input type="hidden" name="lock_profile" value="0"><input type="checkbox" id="lock_profile" name="lock_profile" value="1" <?= !empty($editItem["lock_profile"]) ? "checked" : "" ?>></label><small class="hint">Prevents dynamic systems from modifying this NPC's profile.</small></div><div class="form-item" style='<?= (isset($_GET['partial']) && $_GET['partial']=='1')?"display:none":"" ?>'><label for="npc_favorite" class="label-with-toggle">Favorite
  <input type="checkbox" id="npc_favorite" name="npc_favorite" value="1" <?= !empty($editItem["npc_favorite"]) ? "checked" : "" ?>></label><small class="hint">Pin this NPC for quick access.</small></div><div class="form-item"><label for="gender">Gender</label><input type="text" id="gender" name="gender" placeholder="female, male" value="<?= htmlspecialchars($editItem["gender"] ?? "") ?>"><small class="hint">Used for prompts.</small></div><div class="form-item"><label for="race">Race</label><input type="text" id="race" name="race" placeholder="human, ghoul, super mutant" value="<?= htmlspecialchars($editItem["race"] ?? "") ?>"><small class="hint">Lore-accurate race label used in prompts.</small></div><div class="form-item"><label for="base">Base</label><input type="text" id="base" name="base" placeholder="Bandit Reaver" value="<?= htmlspecialchars($editItem["base"] ?? "") ?>"><small class="hint">Optional: base form identifier or template this NPC derives from.</small></div><div class="form-item"><label for="refid">Ref ID</label><input type="text" id="refid" name="refid" placeholder="Game reference ID (000A2C94)" value="<?= htmlspecialchars($editItem["refid"] ?? "") ?>"><small class="hint">Fallout reference ID for in-game linkage.</small></div><div class="form-item"><label for="worldknowledge_tags">Knowledge Tags</label><input type="text" id="worldknowledge_tags" name="worldknowledge_tags" placeholder="Comma-separated knowledge tags" value="<?= htmlspecialchars($editItem["worldknowledge_tags"] ?? "") ?>"><small class="hint">Used by knowledge systems for lookup restrictions.</small></div><div class="form-item"><label for="voiceid">Voice ID</label><input type="text" id="voiceid" name="voiceid" placeholder="Optional TTS voice id" value="<?= htmlspecialchars($editItem["voiceid"] ?? "") ?>"><small class="hint">Voice ID for TTS.</small></div><?php
+ // Stored in metadata.tts_filter_preset; every other metadata key is left untouched on save.
+ $npcVoiceFilterMetadata = json_decode((string)($editItem["metadata"] ?? "{}"), true);
+ echo dialecticRenderVoiceFilterField([
+  'id' => 'tts_filter_preset',
+  'value' => is_array($npcVoiceFilterMetadata) ? ($npcVoiceFilterMetadata['tts_filter_preset'] ?? '') : '',
+  'scope' => 'npc',
+  'profile_source' => '#profile_id',
+  'voice_source' => '#voiceid',
+  'npc_id' => (string)($editItem['id'] ?? ''),
+  'hint_tag' => 'small',
+  'wrap_form_item' => true,
+  'hint' => 'Fixed audio filter applied to this NPC voice. The play button uses the profile, Voice ID, and filter currently selected above, including unsaved changes.',
+ ]);
+
  // Check profile-level settings for these features
  $profileDynEnabled = false;
  $profileMtmEnabled = false;

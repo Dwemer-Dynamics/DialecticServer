@@ -34,7 +34,16 @@ function shouldTriggerRPGComment($eventType) {
     return (rand(1, 100) <= $chance);
 }
 
-$dialecticVisionPrompt = "Give one or two short, in-character sentences about what stands out to you in the current scene and what you think or feel about it. Do not list everything visible. Stay grounded in the provided scene context.";
+$dialecticVisionPrompt = '';
+if (($gameRequest[0] ?? '') === 'vision') {
+    require_once(__DIR__ . '/../lib/visual_context.php');
+    $dialecticVisionPrompt = dialecticBuildPipVisionDialogueCue(
+        strval($gameRequest[3] ?? ''),
+        strval($GLOBALS["ITT"][$GLOBALS["ITTFUNCTION"] ?? '']["AI_PROMPT"] ?? ''),
+        function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : strval($GLOBALS["DIALECTIC_NAME"] ?? ''),
+        strval($GLOBALS["PLAYER_NAME"] ?? '')
+    );
+}
 
 $PROMPTS=array(
     "narration"=>[ 
@@ -289,10 +298,9 @@ $PROMPTS=array(
         "extra"=>["force_tokens_max"=>0]
     ],
     // Database Prompt (Vision)
-    "vision"=>[ 
-        "cue"=>["{$dialecticVisionPrompt} "],
-        "player_request"=>["The Narrator: {$GLOBALS["DIALECTIC_NAME"]} considers what stands out in the current scene: '{$gameRequest[3]}'"],
-        "extra"=>["force_tokens_max"=>256]
+    "vision"=>[
+        "cue"=>[$dialecticVisionPrompt],
+        "extra"=>["force_tokens_max"=>512]
     ],
     "im_alive"=> [
         "cue"=> ["{$GLOBALS["DIALECTIC_NAME"]} talks about they are feeling more real. Write {$GLOBALS["DIALECTIC_NAME"]} dialogue. {$GLOBALS["TEMPLATE_DIALOG"]}"],
@@ -317,6 +325,14 @@ $PROMPTS=array(
     "instruction"=>[ 
         "cue"=>["{$gameRequest[3]} Write {$GLOBALS["DIALECTIC_NAME"]}'s dialogue lines. CHARACTER MUST FOLLOW NARRATOR INSTRUCTION"],
         "player_request"=>["The Narrator: {$gameRequest[3]}"],
+    ],
+    "external_comment"=>[
+        "cue"=>["Write one brief, natural, in-character observation from {$GLOBALS["DIALECTIC_NAME"]}, grounded in the current location, world state, and nearby audience. Output spoken dialogue only. Do not narrate stage directions. {$GLOBALS["TEMPLATE_DIALOG"]}"],
+        "player_request"=>["The Narrator: {$GLOBALS["DIALECTIC_NAME"]} makes a brief contextual observation about the current scene."],
+    ],
+    "external_reaction"=>[
+        "cue"=>["Follow this scene direction and write one brief, natural, in-character reaction from {$GLOBALS["DIALECTIC_NAME"]}: " . (string)($GLOBALS["DIALECTIC_EXTERNAL_REQUEST"]["instruction"] ?? "") . " Output spoken dialogue only. Do not repeat or narrate the direction. {$GLOBALS["TEMPLATE_DIALOG"]}"],
+        "player_request"=>["The Narrator: " . (string)($GLOBALS["DIALECTIC_EXTERNAL_REQUEST"]["instruction"] ?? "")],
     ],
     "suggestion"=>[ 
         "cue"=>["Write {$GLOBALS["DIALECTIC_NAME"]}'s dialogue lines. "],

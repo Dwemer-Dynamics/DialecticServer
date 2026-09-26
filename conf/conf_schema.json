@@ -167,7 +167,7 @@
  "url": {"type":"url","description":"Player2 should be running on the same machine as DwemerDistro! Will connect automatically so do not change the URL. Does not currently support Chat Assist/Creation.","helpurl":"https://dwemerdynamics.com/dialectic/llm.html#Player2Service"}
  }
  },
- "TTSFUNCTION": {"type":"select","values":["omnivoice","pockettts","chatterbox","xtts-fastapi","inworld","cartesia","piper-tts","none","11labs","kokoro"],"description":"Text-to-Speech service options. Used to generate AI NPC voice.","_title":"Text-to-Speech Service"},
+ "TTSFUNCTION": {"type":"select","values":["omnivoice","higgs","pockettts","chatterbox","xtts-fastapi","inworld","cartesia","piper-tts","none","11labs","kokoro"],"description":"Text-to-Speech service options. Used to generate AI NPC voice.","_title":"Text-to-Speech Service"},
 
  "TTS": {
  "_title":"Text-to-Speech Service",
@@ -191,7 +191,14 @@
  "PARALINGUISTIC_TAGS_PROMPT":{"type":"longstring","description":"Prompt snippet instructing the LLM to use paralinguistic tags. Added to system prompt when enabled.","scope":"global"},
  "PARALINGUISTIC_TAGS_LIST":{"type":"string","description":"Comma-separated list of supported paralinguistic tags (e.g., [laugh],[sigh],[gasp]). Tags are case-insensitive.","scope":"global"}
  },
- "OMNIVOICE": {
+ "HIGGS": {
+      "_title":"Higgs TTS 3",
+      "endpoint":{"type":"url","description":"Higgs service address. DwemerDistro uses port 8025."},
+      "model":{"type":"string","description":"Model ID exposed by the Higgs service. Default: higgs-v3."},
+      "voiceid":{"type":"string","description":"Reference voice name."},
+      "voicelogic":{"type":"select","values":["voicetype","name"],"description":"Select the NPC voice type or name.","scope":"global"}
+    },
+    "OMNIVOICE": {
  "_title":"OmniVoice",
  "endpoint":{"type":"url","description":"OmniVoice endpoint. DwemerDistro default is 8021. Click[HOST PC IP] or [WSL IP] to configure.", "helpurl":"https://github.com/Dwemer-Dynamics/omnivoice-tts"},
         "language":{"type":"select","values":["cs","de","en","es","fr","hu","it","ja","ko","pl","pt","pt-br","ro","ru","sk","uk","yue","zh"],"description":"Active OmniVoice language profile."},
@@ -241,8 +248,9 @@
  "_title": "Cartesia TTS",
  "API_KEY": {"type":"apikey","description":"Cartesia API key.","code":"CARTESIA_API_KEY"},
  "voiceid": {"type":"string","description":"Voice file name. Works the same as DIALECTIC-XTTS voiceid. Will only work with voices in your Voice Cache. Voice will be automatically cloned to Cartesia when first used.","helpurl":"xtts_clone.php"},
- "language": {"type":"select","values":["en","fr","de","es","pt","zh","ja","hi","it","ko","nl","pl","ru","sv","tr","tl","bg","ro","ar","cs","el","fi","hr","ms","sk","da","ta","uk","hu","no","vi","bn","th","he","ka","id","te","gu","kn","ml","mr","pa"],"description":"Language to use for TTS generation. Sonic 3 supports 42 languages."},
- "model_id": {"type":"select","values":["sonic-3","sonic-english","sonic-multilingual"],"description":"Cartesia model to use. sonic-3 is the latest model with 42 languages, volume/speed/emotion controls. Use sonic-3-2025-10-27 to pin a specific snapshot.","helpurl":"https://docs.cartesia.ai/"},
+ "language": {"type":"select","values":["en","fr","de","es","pt","zh","ja","hi","it","ko","nl","pl","ru","sv","tr","tl","bg","ro","ar","cs","el","fi","hr","ms","sk","da","ta","uk","hu","no","vi","bn","th","he","ka","id","te","gu","kn","ml","mr","pa"],"description":"Language to use for TTS generation. Available languages depend on the selected model."},
+ "model_id": {"type":"select","values":["sonic-3","sonic-3.5","sonic-3.6","sonic-3.5-2026-05-04","sonic-3.6-2026-08-27","sonic-english","sonic-multilingual"],"description":"Choose Sonic 3.5 or 3.6, or a dated snapshot to pin a release. Existing connectors keep their selected model.","helpurl":"https://docs.cartesia.ai/"},
+ "accent": {"type":"string","description":"Optional, Sonic 3.6 only. For multilingual voices, enter an accent ID supported by the selected voice, such as general-american or standard-hindi. Leave blank for the voice default.","helpurl":"https://docs.cartesia.ai/build-with-cartesia/capability-guides/multilingual-voices"},
  "speed": {"type":"select","values":["slowest","slow","normal","fast","fastest"],"description":"Speaking speed for the voice"}
  },
  "INWORLD": {
@@ -251,12 +259,12 @@
  "voiceid": {"type":"string","description":"Voice file name. Works the same as DIALECTIC-XTTS voiceid. Will only work with voices in your Voice Cache. Voice will be automatically cloned to Inworld when first used.","helpurl":"xtts_clone.php"},
  "fallback_voice_id": {"type":"string","description":"Optional existing Inworld voice ID used when an actor sample is unavailable. Use the full workspace__voice ID."},
  "language": {"type":"select","values":["en-US","zh-CN","ko-KR","ja-JP","ru-RU","it-IT","es-ES","pt-BR","de-DE","fr-FR","ar-SA","pl-PL","nl-NL","hi-IN","he-IL"],"description":"Language to use for TTS generation. Uses BCP-47 regional language codes."},
- "model_id": {"type":"select","values":["inworld-tts-1","inworld-tts-1-max","inworld-tts-1.5-mini","inworld-tts-1.5-max"],"description":"Inworld model to use. inworld-tts-1 is the standard model, inworld-tts-1.5-max is the higher quality model.","helpurl":"https://docs.inworld.ai/docs/tts/tts-models"},
+ "model_id": {"type":"select","values":["inworld-tts-1","inworld-tts-1-max","inworld-tts-1.5-mini","inworld-tts-1.5-max","inworld-tts-2-flash"],"description":"Inworld model to use. inworld-tts-2-flash prioritizes speed.","helpurl":"https://docs.inworld.ai/docs/tts/tts-models"},
  "temperature": {"type":"number","description":"Sampling temperature (0-2). Higher values make output more random. Default: 1.0"},
  "speed": {"type":"number","description":"Speaking rate/speed (0.5-1.5). Default: 1.0"}
  }
 },
- "TTSFUNCTION_PLAYER": {"type":"select","userlvl":"basic","scope":"global","values":["omnivoice","pockettts","chatterbox","xtts-fastapi","inworld","cartesia","piper-tts","none","11labs","kokoro"],"description":"Text-to-Speech service options. Used to generate your voice.","_title":"Player TTS"},
+ "TTSFUNCTION_PLAYER": {"type":"select","userlvl":"basic","scope":"global","values":["omnivoice","higgs","pockettts","chatterbox","xtts-fastapi","inworld","cartesia","piper-tts","none","11labs","kokoro"],"description":"Text-to-Speech service options. Used to generate your voice.","_title":"Player TTS"},
  "TTSFUNCTION_PLAYER_VOICE": {"type":"string","userlvl":"basic","scope":"global","description":"VoiceID to use for the player character."},
  "TTSFUNCTION_PLAYER_VOICE_ID": {"type":"integer","userlvl":"pro","scope":"global","description":"Speaker ID to select a voice from multi-voice model."},
  "TTSFUNCTION_PLAYER_LANGUAGE": {"type":"string","userlvl":"basic","scope":"global","description":"Overrides the TTS language for the player character."},

@@ -15,8 +15,15 @@ if (!is_array($job)) {
 }
 
 $root = dirname(__DIR__);
+require_once $root . '/lib/dialectic_interaction.php';
+$GLOBALS['dialectic_interaction_generation'] = (int)($job['interaction_generation'] ?? -1);
 $path = $root . DIRECTORY_SEPARATOR;
 $lockPath = trim(strval($job["lock_path"] ?? ""));
+if (!dialecticInteractionAllowed()) {
+    if ($lockPath !== '') @unlink($lockPath);
+    @unlink($jobPath);
+    exit(0);
+}
 
 $speaker = trim(strval($job["speaker"] ?? ""));
 $text = trim(strval($job["text"] ?? ""));

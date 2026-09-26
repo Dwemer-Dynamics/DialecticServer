@@ -118,6 +118,25 @@ final class JsonSchemaCatalogTest extends TestCase
         $this->assertSame('0x000E32A9', $line['rechat_target_formid']);
     }
 
+    public function testExternalSpeechCarriesAuthoritativeSpeakerFormId(): void
+    {
+        $GLOBALS['DIALECTIC_RESPONSE_FORMAT'] = 'json';
+        $GLOBALS['DIALECTIC_RESPONSE_STREAMING'] = false;
+        $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'] = [];
+        $GLOBALS['DIALECTIC_NAME'] = 'Veronica';
+        $GLOBALS['DIALECTIC_RESPONSE_SPEAKER_FORMID'] = '0x000E32A9';
+        $GLOBALS['gameRequest'] = ['external_comment'];
+
+        dialectic_buffer_speech_response_line('Veronica', 'Nice weather for the Mojave.');
+
+        $this->assertCount(1, $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES']);
+        $line = $GLOBALS['DIALECTIC_JSON_RESPONSE_LINES'][0];
+        $this->assertSame('0x000E32A9', $line['speaker_formid']);
+        $this->assertSame('0x000E32A9', $line['speaker_refid']);
+
+        unset($GLOBALS['DIALECTIC_RESPONSE_SPEAKER_FORMID'], $GLOBALS['DIALECTIC_NAME']);
+    }
+
     public function testSpeechResponseKeepsSubtitleSeparateFromHiddenTtsText(): void
     {
         $GLOBALS['DIALECTIC_RESPONSE_FORMAT'] = 'json';

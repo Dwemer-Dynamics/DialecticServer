@@ -63,7 +63,7 @@ if (!isset($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]) ) {
         $contextDataWorld = DataLastInfoFor("", -2,$includeActorDescriptions=true,$excludeBusy=true)??[];
         $nearbySceneContext = trim((string)($GLOBALS["PROMPT_NEARBY_SECTIONS"] ?? ""));
         $contextDataFull = array_merge($contextDataWorld, $contextDataHistoric);
-        $historyData="";
+        $historyData=$isBoredInstruction ? "" : "# Current world context\n";
 
             
         foreach ($contextDataFull as $element) {
@@ -74,10 +74,14 @@ if (!isset($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]) ) {
         if ($nearbySceneContext !== "") {
             $historyData .= $nearbySceneContext . PHP_EOL . PHP_EOL;
         }
+        if ($isBoredInstruction) {
+            // Ground the opener in the same current world context used by normal dialogue.
+            $historyData .= buildWorldPrompt($GLOBALS["gameRequest"][2] ?? 0) . PHP_EOL . PHP_EOL;
+        }
         
         $recap=$GLOBALS["db"]->fetchOne("SELECT * FROM rolemaster where type='story_summary' ORDER BY rowid DESC LIMIT 1");
         if (isset($recap["data"])) {
-            $historyData=$recap["data"]."\n".$historyData;
+            $historyData=($isBoredInstruction ? "" : "# Historical story summary (not current presence)\n") . $recap["data"]."\n".$historyData;
 
         }
 
@@ -103,7 +107,8 @@ if (!isset($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]) ) {
         // Function stuff
         require($enginePath . "functions/functions_instruction.php");
 
-        if (!function_exists('dialecticActionCatalogIsActionEnabled') || dialecticActionCatalogIsActionEnabled("ReturnBackHome")) {
+        if (isset($GLOBALS["BASE_FUNCTIONS"]["ReturnBackHome"]) &&
+            (!function_exists('dialecticActionCatalogIsActionEnabled') || dialecticActionCatalogIsActionEnabled("ReturnBackHome"))) {
             $GLOBALS["ENABLED_FUNCTIONS"][]="ReturnBackHome";
             $GLOBALS["FUNCTIONS"][]=$GLOBALS["BASE_FUNCTIONS"]["ReturnBackHome"];
         }
@@ -121,6 +126,12 @@ if (!isset($GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"]) ) {
                     $GLOBALS["FUNCTION_SHORT_LIST"][]=$GLOBALS["F_NAMES"]["$functionCode"];
                 }
             }
+        }
+
+        if (!$isBoredInstruction) {
+            require_once $enginePath . 'lib/director_scene.php';
+            dialecticGenerateDirectorScene($connectionHandler, (string)($GLOBALS['argv'][3] ?? ''), $historyData);
+            return;
         }
 
 // Load director examples prompt from database with fallback
@@ -308,6 +319,7 @@ user request: actor \"a\" leaves the place
                     "character" => make_replacements($characterName),
                     "instruction" => make_replacements("{$instructionText} (must use ACTION $action)"),
                     "task_id" => $taskId,
+                    "target" => trim((string)($response["target"] ?? '')),
                 ]
             );
 

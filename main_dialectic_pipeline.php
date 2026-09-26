@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/lib/playthrough_switching.php';
+pas_http_guard();
 
 /* Definitions and main includes */
 error_reporting(E_ALL);
@@ -232,6 +234,29 @@ $GLOBALS["DIALECTIC_TURN_START_TIME"] = $startTime;
 $GLOBALS["AUDIT_RUNID_REQUEST"]=$gameRequest[0];
 
 $gameRequest[0] = strtolower($gameRequest[0]); // Who put 'diary' uppercase?
+if (in_array($gameRequest[0], ["external_comment", "external_reaction"], true)) {
+    $externalMode = $gameRequest[0] === "external_reaction" ? "reaction" : "comment";
+    $externalRequest = dialectic_decode_external_actor_request(
+        (string)($gameRequest[3] ?? ""),
+        "dialectic.external_request.v1",
+        $externalMode
+    );
+    if (empty($externalRequest["ok"])) {
+        Logger::warn("[xNVSE event API] Rejected {$gameRequest[0]} request" . Logger::formatContext([
+            "error" => $externalRequest["error"] ?? "Invalid request",
+        ]));
+        if (PHP_SAPI !== "cli" && !headers_sent()) {
+            http_response_code(400);
+        }
+        dialectic_buffer_response_close();
+        dialectic_emit_buffered_json_response();
+        @flush();
+        exit;
+    }
+
+    $GLOBALS["DIALECTIC_EXTERNAL_REQUEST"] = $externalRequest;
+    $GLOBALS["DIALECTIC_RESPONSE_SPEAKER_FORMID"] = $externalRequest["npc_id"];
+}
 if (PHP_SAPI !== 'cli' && !getenv('PHPUNIT_TEST') && $gameRequest[0] !== 'request') {
     dialecticPlayer2HealthMarkGameActivity();
 }
@@ -465,7 +490,7 @@ if (in_array(($gameRequest[0] ?? ''), ['rpg_lvlup', 'combatend', 'combatendmight
 }
 
 $inputRequestType = $gameRequest[0] ?? '';
-if (in_array($inputRequestType, ["inputtext", "inputtext_s", "cheatmode", "vision"], true)) {
+if (in_array($inputRequestType, ["inputtext", "inputtext_s", "cheatmode", "vision", "external_comment", "external_reaction"], true)) {
     Logger::phaseStart("input_profile_bind", [
         "type" => $inputRequestType,
     ]);
@@ -498,6 +523,9 @@ if (in_array($inputRequestType, ["inputtext", "inputtext_s", "cheatmode", "visio
             $inputRefid = function_exists('dialectic_extract_npc_refid')
                 ? dialectic_extract_npc_refid((string)$GLOBALS["DIALECTIC_REQUEST_EVENT"]["payload"], $inputProfileFields)
                 : "";
+        }
+        if (in_array($inputRequestType, ["external_comment", "external_reaction"], true)) {
+            $inputRefid = (string)($GLOBALS["DIALECTIC_EXTERNAL_REQUEST"]["npc_id"] ?? "");
         }
         dialectic_ensure_npc($db, $inputTarget, $inputRefid, $inputProfileFields);
 
@@ -1006,7 +1034,8 @@ if (in_array($gameRequest[0],["bored"])) {
                 : "php";
         }
         $managerPath = __DIR__ . DIRECTORY_SEPARATOR . "service" . DIRECTORY_SEPARATOR . "manager.php";
-        $command = escapeshellarg($phpCli)
+        $command = 'DIALECTIC_INTERACTION_GENERATION=' . escapeshellarg((string)$GLOBALS['dialectic_interaction_generation'])
+            . ' ' . escapeshellarg($phpCli)
             . " " . escapeshellarg($managerPath)
             . " rolemaster instruction " . escapeshellarg("")
             . " bored " . escapeshellarg($boredSeedActor)
@@ -1659,6 +1688,7 @@ if ($MUST_END) {  // Shorthand for non LLM processing
     terminate();
 
 }
+dialecticInteractionRequire();
 $executionMode = strtoupper((string)($GLOBALS["DIALECTIC_EXECUTION_MODE"] ?? ""));
 if ($executionMode=="INJECTION_LOG") {
     
@@ -1760,6 +1790,10 @@ Logger::phaseStart("prompt_includes", [
     "type" => $gameRequest[0] ?? "",
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
 ]);
+// The dialogue request is separate from image analysis; load its saved speaking prompt here.
+if ($gameRequest[0] === "vision") {
+    dialecticLoadActiveIttConnectorIntoGlobals();
+}
 require(__DIR__.DIRECTORY_SEPARATOR."prompt.includes.php");
 $gameRequest[0] = strtolower($gameRequest[0]); // one more time in case it was changed by an extension
 Logger::phaseEnd("prompt_includes", [
@@ -1911,8 +1945,9 @@ Logger::phaseStart("pre_llm_audience_scope", [
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
 ]);
 $playerInputEventTypes = ["inputtext", "inputtext_s", "narrator_inputtext", "cheatmode"];
-$authoritativeAudienceEventTypes = array_merge($playerInputEventTypes, ["player_consumed", "vision"]);
-$turnPeopleSnapshotEventTypes = array_merge($playerInputEventTypes, ["rechat", "vision"]);
+$externalSpeechEventTypes = ["external_comment", "external_reaction"];
+$authoritativeAudienceEventTypes = array_merge($playerInputEventTypes, $externalSpeechEventTypes, ["player_consumed", "vision"]);
+$turnPeopleSnapshotEventTypes = array_merge($playerInputEventTypes, $externalSpeechEventTypes, ["rechat", "vision"]);
 $requestAudienceSnapshot = dialecticDecodeAudienceSnapshotField($gameRequest[4] ?? "");
 $hasAuthoritativeRequestAudience = (
     in_array($gameRequest[0] ?? "", $authoritativeAudienceEventTypes, true) &&
@@ -2048,6 +2083,12 @@ if ($gameRequest[0] != "diary") {
             'location'=>$GLOBALS["CACHE_LOCATION"],
             'party'=>$GLOBALS["CACHE_PARTY"],
         );
+
+        // Keep scene directions out of player speech and dialogue-history retrieval.
+        if (!empty($GLOBALS["DIALECTIC_DIRECTOR_INPUT"])
+            && in_array($gameRequest[0], ["inputtext", "inputtext_s"], true)) {
+            $eventlogInsert['type'] = 'instruction';
+        }
 
         if ($gameRequest[0] === "chat") {
             $eventlogInsert["delivery_state"] = "spoken";
@@ -2428,13 +2469,16 @@ Logger::phaseStart("prompt_dynamic_context_build", [
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
 ]);
 $dynamicBiography = buildDynamicBiography($GLOBALS);
-$worldPrompt = buildWorldPrompt($gameRequest[2] ?? 0);
-require_once(__DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'visual_context.php');
-$visualContextPrompt = dialecticBuildVisualContextPrompt(
-    function_exists('dialecticLatestWorldContextPayload')
-        ? (dialecticLatestWorldContextPayload() ?: [])
-        : []
+$latestWorldContextPayload = function_exists('dialecticLatestWorldContextPayload')
+    ? (dialecticLatestWorldContextPayload() ?: [])
+    : [];
+$worldPrompt = buildWorldPrompt($gameRequest[2] ?? 0, $latestWorldContextPayload);
+$radioPrompt = buildRadioPrompt(
+    $latestWorldContextPayload,
+    function_exists('dialecticLatestNearbyActorsPayload') ? dialecticLatestNearbyActorsPayload() : null
 );
+require_once(__DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'visual_context.php');
+$visualContextPrompt = dialecticBuildVisualContextPrompt($latestWorldContextPayload);
 
 $playerBioSection = "";
 try {
@@ -2474,17 +2518,42 @@ if ($GLOBALS["DIALECTIC_NAME"] !== "The Narrator" && ($activeProfile = dialectic
     }
 }
 
-// Vision requests stay grounded in the current scene while producing a brief
-// in-character reaction instead of drifting into ordinary conversation.
-if ($gameRequest[0] === "vision") {
-    $GLOBALS["COMMAND_PROMPT"] = "Respond with one brief, in-character thought or reaction to the current scene. Focus on what stands out instead of describing the whole scene. Use the Talk action.";
-} else if ($gameRequest[0] === "narration" || $gameRequest[0] === "narrator_welcome") {
+// Narration requests retain their descriptive response instruction.
+if ($gameRequest[0] === "narration" || $gameRequest[0] === "narrator_welcome") {
     $GLOBALS["COMMAND_PROMPT"] = "Respond with atmospheric narration only. Use the Talk action.";
+}
+
+// Director input is a scene direction, not a line spoken by the player.
+$directorFields = $GLOBALS["DIALECTIC_STRUCTURED_INPUT_FIELDS"] ?? [];
+if (in_array($gameRequest[0], ["inputtext", "inputtext_s"], true)
+    && !empty($directorFields["director_instruction"])) {
+    $directorText = trim((string)($GLOBALS["DIALECTIC_PLAYER_INPUT_TEXT"] ?? ''));
+    $directorListener = trim((string)($directorFields["director_target"] ?? ''));
+    $directorAction = trim((string)($directorFields["director_action"] ?? 'Talk'));
+    $GLOBALS["COMMAND_PROMPT"] = "Follow this scene direction as {$GLOBALS['DIALECTIC_NAME']}: {$directorText}\n"
+        . "This is a director instruction, not player dialogue. Speak the requested dialogue now, in character; do not describe what you should say. "
+        . "Include a non-empty message that fulfills the direction. Do not replace the requested dialogue with an unrelated greeting or an action-only response.";
+    if ($directorListener !== '') {
+        $GLOBALS["COMMAND_PROMPT"] .= " Address {$directorListener} and set listener to {$directorListener}.";
+    }
+    if (in_array(strtolower($directorAction), ['talk', 'justtalk'], true)) {
+        $FUNCTIONS_ARE_ENABLED = false;
+        $GLOBALS["FUNCTIONS_ARE_ENABLED"] = false;
+        $GLOBALS["COMMAND_PROMPT"] .= " This is dialogue only; do not issue movement or other game actions.";
+    } else {
+        $GLOBALS["COMMAND_PROMPT"] .= " If appropriate, accompany the dialogue with the requested action: {$directorAction}.";
+    }
 }
 
 // Ensure actions and nearby sections are added to PROMPT_HEAD before building system prompt
 require_once(__DIR__.DIRECTORY_SEPARATOR."functions".DIRECTORY_SEPARATOR."json_response.php");
 require_once(__DIR__.DIRECTORY_SEPARATOR."lib".DIRECTORY_SEPARATOR."prompt_composition.php");
+
+if (in_array($gameRequest[0], ["inputtext", "inputtext_s"], true)
+    && !empty($directorFields["director_instruction"])) {
+    dialecticRefreshJsonResponseState(true);
+    $GLOBALS["structuredOutputTemplate"]["json_schema"]["schema"]["properties"]["message"]["minLength"] = 1;
+}
 
 if (
     $gameRequest[0] === "narrator_inputtext"
@@ -2573,7 +2642,7 @@ if (!empty($GLOBALS["WORLDKNOWLEDGE_HINT"])) {
 }
 
 $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
-    "\n</roleplay_instructions>" . $worldPrompt . ($visualContextPrompt !== '' ? "\n\n" . $visualContextPrompt : '') .
+    "\n</roleplay_instructions>" . $worldPrompt . $radioPrompt . ($visualContextPrompt !== '' ? "\n\n" . $visualContextPrompt : '') .
     "\n\n<character>\n" . $GLOBALS["DIALECTIC_PERS"] . $dynamicBiography . $latestDiaryContext . $characterBottomInjections .
     "\n</character>" . $knowledgeSection .
     "\n\n<general_instructions>\n" . $GLOBALS["COMMAND_PROMPT"] .
@@ -2582,6 +2651,7 @@ $systemPromptRaw = "<roleplay_instructions>\n" . $GLOBALS["PROMPT_HEAD"] .
 $promptCompositionSections = [
     'roleplay_instructions' => $GLOBALS['PROMPT_HEAD'] ?? '',
     'world' => $worldPrompt ?? '',
+    'radio' => $radioPrompt ?? '',
     'visual_context' => $visualContextPrompt ?? '',
     'character' => ($GLOBALS['DIALECTIC_PERS'] ?? '') . ($dynamicBiography ?? '') . ($latestDiaryContext ?? '') . ($characterBottomInjections ?? ''),
     'knowledge' => $knowledgeSection ?? '',
@@ -2613,6 +2683,7 @@ $head = dialecticAppendCompactHistoryToPrompt($head, $compactHistoryBlock, $prom
 Logger::phaseEnd("prompt_dynamic_context_build", [
     "npc" => $GLOBALS["DIALECTIC_NAME"] ?? "",
     "system_chars" => strlen((string)($head[0]['content'] ?? $systemPrompt)),
+    "radio_chars" => strlen((string)$radioPrompt),
     "nearby_chars" => strlen((string)$nearbySections),
     "actions_chars" => strlen((string)$actionsList),
 ], "info");

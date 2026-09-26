@@ -838,116 +838,8 @@ function processAutoDiary($gameRequest, $eventType) {
 
 // Function to process a single NPC's dynamic profile
 function processSingleDynamicProfile($npcName, $gameRequest) {
-    global $db;
-    
-    // Ensure required dependencies are loaded
-    if (!function_exists('DataSpeechJournal') || !function_exists('buildDynamicProfileDisplay')) {
-        require_once(__DIR__ . "/../lib/data_functions.php");
-    }
-    
-    // Handle The Narrator separately
-    if ($npcName === "The Narrator") {
-        return processNarratorDynamicProfile($db);
-    }
-    
-    // Check if profile exists for this NPC
-    $npcMaster=new NpcMaster();
-    $npcData=$npcMaster->getByName($npcName);
-    if (!$npcData) {
-        Logger::debug("processSingleDynamicProfile: No profile found for $npcName");
-        return false;
-    }
-
-    // Load profile, maybe DYNAMIC_PROFILE_FIELDS is defined there
-    $profile=new CoreProfile();
-    $currentProfileData=$profile->getById($npcData["profile_id"] ?? null);
-
-    $npcDataMetadata=json_decode($npcData["metadata"] ?? "{}",true);
-    if (!is_array($npcDataMetadata)) {
-        $npcDataMetadata = [];
-    }
-    $profileMetadata=json_decode($currentProfileData["metadata"] ?? "{}",true);
-    if (!is_array($profileMetadata)) {
-        $profileMetadata = [];
-    }
-    if (empty($npcDataMetadata["DYNAMIC_PROFILE_FIELDS"])) {
-        $npcData["DYNAMIC_PROFILE_FIELDS"]=$profileMetadata["DYNAMIC_PROFILE_FIELDS"] ?? [];
-    } else
-        $npcData["DYNAMIC_PROFILE_FIELDS"]=$npcDataMetadata["DYNAMIC_PROFILE_FIELDS"];
-
-   
-    try {
-        $characterDynamicProfile = $npcData["dynamic_profile"] ?? $GLOBALS["DYNAMIC_PROFILE"] ?? false;
-        
-        if (($npcData["dynamic_profile"] ?? null) === null
-            && isset($profileMetadata["DYNAMIC_PROFILE_ENABLED"])
-            && $profileMetadata["DYNAMIC_PROFILE_ENABLED"]==1) {
-            $characterDynamicProfile=true;
-        }
-
-        // restores logic now that DYNAMIC_PROFILE_FIELDS is in npcData
-        $characterDynamicProfileFields = $npcData["DYNAMIC_PROFILE_FIELDS"] ??
-            $GLOBALS["DYNAMIC_PROFILE_FIELDS"] ?? // use default conf.php settings
-            ["personality", "speechstyle", "goals"]; //fallback
-
-        // Check if DYNAMIC_PROFILE is enabled for this NPC
-        if (!$characterDynamicProfile) {
-            Logger::debug("processSingleDynamicProfile: DYNAMIC_PROFILE disabled for $npcName");
-            return false;
-        }
-        
-       
-        // Check if core connector is configured for dynamic profile updates
-        $connector = new LLMConnector();
-        $currentConnectorData = $connector->getById($GLOBALS["CORE_CONNECTOR_PROFILES"]);
-        if (!$currentConnectorData) {
-            Logger::debug("processSingleDynamicProfile: No core connector configured while updating profile for $npcName");
-            return false;
-        }
-        
-        // Get dynamic profile fields to update
-        $fieldsToUpdate = $characterDynamicProfileFields;
-        
-        if (empty($fieldsToUpdate)) {
-            Logger::debug("processSingleDynamicProfile: No fields selected for dynamic updates for $npcName");
-            return false;
-        }
-        
-        $historyData = getDynamicProfileHistoryData($npcName);
-        $updatedFields = [];
-        $successCount = 0;
-        
-        foreach ($fieldsToUpdate as $field) {
-            error_log("[processSingleDynamicProfile] Updating $npcName $field");
-
-            $result = updateDynamicProfileField($npcName, $field, $historyData);
-
-            if ($field=="skills") {
-                $skillsData=getInGameSkillDataFor($npcName);
-                $result.="\n$skillsData";
-            }
-
-            if ($result !== false) {
-                $updatedFields[$field] = $result;
-                $successCount++;
-            }
-        }
-        
-        if ($successCount > 0) {
-            // Save the updated profile
-            $success = saveDynamicProfileUpdates($npcName, $updatedFields, $db);
-            if ($success) {
-                Logger::info("processSingleDynamicProfile: Successfully updated $successCount fields for $npcName: " . implode(', ', array_keys($updatedFields)));
-                return true;
-            }
-        }
-        
-    } catch (Exception $e) {
-        Logger::error("processSingleDynamicProfile: Error processing $npcName: " . $e->getMessage());
-        return false;
-    }
-    
-    return false;
+    require_once __DIR__ . '/dynamic_profile_scheduler.php';
+    return dps_run($npcName)['updated'] > 0;
 }
 
 /**
@@ -956,70 +848,8 @@ function processSingleDynamicProfile($npcName, $gameRequest) {
  * @return bool Success status
  */
 function processNarratorDynamicProfile($db) {
-    require_once(__DIR__ . "/core/narrator.class.php");
-    require_once(__DIR__ . "/core/core_profiles.class.php");
-    require_once(__DIR__ . "/core/llm_connector.class.php");
-    
-    if (!function_exists('DataSpeechJournal') || !function_exists('buildDynamicProfileDisplay')) {
-        require_once(__DIR__ . "/../lib/data_functions.php");
-    }
-    
-    $narrator = new Narrator();
-    
-    // Check if dynamic profile is enabled for narrator
-    if (!$narrator->getBool('dynamic_profile', false)) {
-        Logger::debug("processNarratorDynamicProfile: DYNAMIC_PROFILE disabled for The Narrator");
-        return false;
-    }
-    
-    // Get dynamic profile fields
-    $fieldsToUpdate = $narrator->getDynamicProfileFields();
-    
-    if (empty($fieldsToUpdate)) {
-        Logger::debug("processNarratorDynamicProfile: No fields selected for dynamic updates for The Narrator");
-        return false;
-    }
-    
-    try {
-        // Check if core connector is configured
-        $connector = new LLMConnector();
-        $currentConnectorData = $connector->getById($GLOBALS["CORE_CONNECTOR_PROFILES"]);
-        if (!$currentConnectorData) {
-            Logger::debug("processNarratorDynamicProfile: No core connector configured");
-            return false;
-        }
-        
-        // Get history data for narrator
-        $historyData = getDynamicProfileHistoryData("The Narrator");
-        $updatedFields = [];
-        $successCount = 0;
-        
-        foreach ($fieldsToUpdate as $field) {
-            error_log("[processNarratorDynamicProfile] Updating The Narrator $field");
-            
-            $result = updateDynamicProfileField("The Narrator", $field, $historyData);
-            
-            if ($result !== false) {
-                $updatedFields[$field] = $result;
-                $successCount++;
-            }
-        }
-        
-        if ($successCount > 0) {
-            // Save the updated profile to narrator table
-            $success = saveNarratorDynamicProfileUpdates($updatedFields);
-            if ($success) {
-                Logger::info("processNarratorDynamicProfile: Successfully updated $successCount fields for The Narrator: " . implode(', ', array_keys($updatedFields)));
-                return true;
-            }
-        }
-        
-    } catch (Exception $e) {
-        Logger::error("processNarratorDynamicProfile: Error processing The Narrator: " . $e->getMessage());
-        return false;
-    }
-    
-    return false;
+    require_once __DIR__ . '/dynamic_profile_scheduler.php';
+    return dps_run('The Narrator')['updated'] > 0;
 }
 
 /**
@@ -1551,32 +1381,9 @@ function saveDynamicProfileUpdates($npcName, $updatedFields, $db, $updateTimeSta
 }
 
 function queueDynamicProfileBatch(array $npcNames, array $gameRequest): string {
-    global $db;
-
-    $npcNames = array_values(array_unique(array_filter(
-        array_map(static fn($name) => trim((string)$name), $npcNames),
-        static fn($name) => $name !== ''
-    )));
-    if (empty($npcNames)) {
-        throw new InvalidArgumentException('Cannot queue an empty dynamic profile batch');
-    }
-
-    $queueData = [
-        'timestamp' => time(),
-        'npcs' => $npcNames,
-        'gameRequest' => $gameRequest,
-    ];
-    $encoded = json_encode($queueData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-    $queueId = 'dynamic_profiles_queue_' . time() . '_' . uniqid();
-
-    if ($db->upsertRowOnConflict('conf_opts', [
-        'id' => $queueId,
-        'value' => $encoded,
-    ], 'id') === false) {
-        throw new RuntimeException('Could not persist the dynamic profile batch');
-    }
-
-    return $queueId;
+    require_once __DIR__ . '/dynamic_profile_scheduler.php';
+    if (($gameRequest[0] ?? '') !== 'updateprofiles_batch_async_manual') return 'server-managed';
+    return 'manual-' . dps_request(array_values(array_unique(array_map('strval',$npcNames))));
 }
 
 function dialecticPostgresBoolean($value): bool {
@@ -1584,76 +1391,8 @@ function dialecticPostgresBoolean($value): bool {
 }
 
 function triggerImmediateProfileProcessing(?callable $profileProcessor = null): array {
-    global $db;
-
-    $result = [
-        'locked' => false,
-        'jobs' => 0,
-        'npcs' => 0,
-        'updated' => 0,
-    ];
-
-    $lockRows = $db->fetchAll("SELECT pg_try_advisory_lock(hashtext('dialectic_dynamic_profile_worker')) AS acquired");
-    if (empty($lockRows) || !dialecticPostgresBoolean($lockRows[0]['acquired'] ?? false)) {
-        Logger::debug("triggerImmediateProfileProcessing: Another worker owns the queue lock");
-        return $result;
-    }
-
-    $result['locked'] = true;
-    $profileProcessor = $profileProcessor ?? 'processSingleDynamicProfile';
-
-    try {
-        $queueResults = $db->fetchAll("SELECT id, value FROM conf_opts WHERE id LIKE 'dynamic_profiles_queue_%' ORDER BY id LIMIT 5");
-        if (empty($queueResults)) {
-            Logger::debug("triggerImmediateProfileProcessing: No queue entries found");
-            return $result;
-        }
-
-        Logger::info("triggerImmediateProfileProcessing: Processing " . count($queueResults) . " queue entries");
-
-        foreach ($queueResults as $queueRow) {
-            $queueId = $queueRow['id'];
-            $queueJson = $queueRow['value'];
-
-            $queueData = json_decode($queueJson, true);
-            if (!$queueData || !isset($queueData['npcs']) || !isset($queueData['gameRequest'])) {
-                Logger::error("triggerImmediateProfileProcessing: Invalid queue data for $queueId");
-                $db->delete("conf_opts", "id = '" . $db->escape($queueId) . "'");
-                continue;
-            }
-
-            $npcs = is_array($queueData['npcs']) ? $queueData['npcs'] : [];
-            $gameRequest = $queueData['gameRequest'];
-            Logger::info("triggerImmediateProfileProcessing: Processing " . count($npcs) . " NPCs");
-
-            $successCount = 0;
-            foreach ($npcs as $npcName) {
-                try {
-                    if ($profileProcessor($npcName, $gameRequest)) {
-                        $successCount++;
-                        Logger::debug("triggerImmediateProfileProcessing: Updated profile for $npcName");
-                    }
-                } catch (Throwable $e) {
-                    Logger::error("triggerImmediateProfileProcessing: Error processing $npcName: " . $e->getMessage());
-                }
-            }
-
-            // Keep a job durable until every queued NPC has been attempted.
-            $db->delete("conf_opts", "id = '" . $db->escape($queueId) . "'");
-            Logger::info("triggerImmediateProfileProcessing: Completed job - updated $successCount of " . count($npcs) . " profiles");
-            $result['jobs']++;
-            $result['npcs'] += count($npcs);
-            $result['updated'] += $successCount;
-        }
-
-        Logger::info("triggerImmediateProfileProcessing: Total processed: {$result['jobs']} jobs, {$result['npcs']} NPCs");
-    } catch (Throwable $e) {
-        Logger::error("triggerImmediateProfileProcessing: Fatal error: " . $e->getMessage());
-    } finally {
-        $db->fetchAll("SELECT pg_advisory_unlock(hashtext('dialectic_dynamic_profile_worker')) AS released");
-    }
-
-    return $result;
+    require_once __DIR__ . '/dynamic_profile_scheduler.php';
+    return dps_run();
 }
 ?>
 

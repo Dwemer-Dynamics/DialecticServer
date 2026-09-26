@@ -58,22 +58,7 @@ if (isset($_GET["event_types"]) && !empty($_GET["event_types"])) {
     }
 }
 
-// Read-only relationship timeline rows derived from core_npc_master_history snapshots.
-// Incremental (since_rowid) polling stays rowid-based, so virtual rows are skipped there.
-$includeRelationshipRows = !isset($_GET["include_relationships"]) || $_GET["include_relationships"] !== "0";
-$relationshipRows = [];
-if ($includeRelationshipRows
-    && $sinceRowId <= 0
-    && !isset($_GET["event_types"])
-    && dialecticRelationshipTimelineIsVisible($selectedEventType, $savedHiddenTypes)) {
-    $relationshipRows = dialecticFetchRelationshipTimelineChanges($db, [
-        'limit' => 200,
-        'scan_limit' => 800,
-        'min_gamets' => $sinceGamets > 0 ? $sinceGamets : 0,
-    ]);
-}
-
-// Total count for pagination continues to describe the physical eventlog table only.
+// Total count for pagination describes the eventlog table.
 $countQuery = "SELECT COUNT(*) as total FROM eventlog WHERE $typeFilter";
 $countResult = $db->fetchAll($countQuery);
 $totalRecords = $countResult[0]['total'];
@@ -112,15 +97,6 @@ if ($sinceGamets > 0) {
 }
 
 $results = is_array($results) ? $results : [];
-if (!empty($relationshipRows)) {
-    // Virtual rows only join the page whose time window already contains them.
-    $results = dialecticMergeRelationshipTimelineRows(
-        $results,
-        $relationshipRows,
-        $sinceGamets > 0 ? true : $page <= 1,
-        $sinceGamets > 0 ? (count($results) < $limit) : $page >= max(1, (int)$totalPages)
-    );
-}
 
 // Check if raw format is requested (for in-game UI)
 $rawFormat = isset($_GET["format"]) && $_GET["format"] === "raw";
@@ -134,21 +110,6 @@ $columnHeaders = [
 ];
 
 $mappedResults = array_map(function ($row) use ($columnHeaders, $rawFormat) {
-    // Derived relationship rows: plain text, no physical rowid, identical column keys.
-    if (!empty($row['virtual'])) {
-        $relationshipPeople = array_merge([(string)($row['npc_name'] ?? '')], (array)($row['targets'] ?? []));
-        $relationshipPeople = array_values(array_filter(array_map('trim', $relationshipPeople), 'strlen'));
-        return [
-            'Event' => htmlspecialchars((string)($row['type'] ?? '')),
-            'Events' => htmlspecialchars((string)($row['data'] ?? '')),
-            $columnHeaders['gamets'] => htmlspecialchars((string)($row['fallout_time'] ?? '')),
-            'Time (UTC)' => htmlspecialchars((string)($row['local_time'] ?? '')),
-            'TS' => '',
-            'ROWID' => '',
-            'People Present' => htmlspecialchars(implode(', ', $relationshipPeople)),
-        ];
-    }
-
     $mappedRow = [];
 
     // Derive People Present from JSON in data if people field is empty
@@ -220,9 +181,6 @@ $response = [
     'timestamp' => time(),
     'new_count' => count($mappedResults),
     'latest_gamets' => $latestGamets,
-    'relationship_rows' => count(array_filter($results, function ($row) {
-        return !empty($row['virtual']);
-    })),
     'narrator_name' => function_exists('dialecticGetNarratorRoleplayName')
         ? dialecticGetNarratorRoleplayName()
         : 'The Narrator'

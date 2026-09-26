@@ -425,6 +425,34 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "head.htm
         line-height: 1.1;
     }
 
+    .home-heading-actions {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .home-action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border: 1px solid var(--dialectic-border);
+        background: var(--dialectic-surface);
+        color: #f7f7f7;
+        border-radius: 6px;
+        text-decoration: none;
+        white-space: nowrap;
+        transition: border-color 0.2s ease, background-color 0.2s ease;
+    }
+
+    .home-action-btn:hover,
+    .home-action-btn:focus-visible {
+        border-color: var(--dialectic-accent);
+        color: #fff;
+        text-decoration: none;
+    }
+
     .player-pill {
         display: inline-flex;
         align-items: center;
@@ -876,11 +904,21 @@ include(__DIR__ . DIRECTORY_SEPARATOR . "tmpl" . DIRECTORY_SEPARATOR . "navbar.p
     </div>
     <div class="home-heading">
         <h1>DIALECTIC Dashboard</h1>
-        <div class="player-pill">
-            <i class="bi bi-person-circle"></i>
-            <span><?php echo dialectic_home_h($playerName); ?></span>
+        <div class="home-heading-actions">
+            <a href="https://docs.google.com/spreadsheets/d/1UtAR_r18wskmTMMsg8IlhVvr1Fn9tHvRJT8drH6RuzY/edit?gid=1257158105#gid=1257158105" target="_blank" rel="noopener noreferrer" class="home-action-btn">
+                <span aria-hidden="true">&#x1F947;</span><span>AI/LLM Tier List</span>
+            </a>
+            <a href="<?php echo dialectic_home_h($webRoot . '/ui/quickstart.php'); ?>" class="home-action-btn">
+                <span aria-hidden="true">&#x1F680;</span><span>Go to Quickstart</span>
+            </a>
+            <div class="player-pill">
+                <i class="bi bi-person-circle"></i>
+                <span><?php echo dialectic_home_h($playerName); ?></span>
+            </div>
         </div>
     </div>
+
+    <?php require __DIR__ . '/tmpl/playthrough_home_controls.php'; ?>
 
     <section class="dashboard-container" aria-label="DIALECTIC dashboard">
         <article class="widget">

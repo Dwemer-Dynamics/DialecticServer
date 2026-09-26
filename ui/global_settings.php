@@ -1290,6 +1290,15 @@ body .settings-tabs .settings-tab.is-active {
  grid-template-columns: 1fr;
  }
 }
+.event-type-toggles { display: grid; width: 100%; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 12px; margin-bottom: 10px; }
+.event-type-toggles label { display: flex; min-height: 30px; align-items: center; gap: 7px; color: #ddd; cursor: pointer; overflow-wrap: anywhere; min-width: 0; }
+.event-type-toggles label:focus-within { outline: 2px solid #d4a44a; outline-offset: 2px; }
+.event-type-toggles input { flex-shrink: 0; accent-color: #d4a44a; }
+.event-type-editor { flex: 1; min-width: 0; width: 100%; }
+.event-type-editor > label { display: block; margin-bottom: 5px; }
+.provider-body .event-type-editor textarea { min-height: 60px; }
+.event-type-editor p { font-size: 12px; color: #bbb; margin: 6px 0; }
+
 </style><main><div class="page-header"><div class="page-header-row"><h1 class="gs-title">Global Settings</h1><div class="page-header-actions"><button type="button" id="global_connector_test_btn" class="btn-action-blue">Test Global Connectors</button><button type="submit" class="btn-save-green" name="save_all" value="1" form="gs_form">Save All</button></div></div></div><div class="gs-presets" id="gs-presets" data-endpoint="<?php echo htmlspecialchars($webRoot); ?>/ui/api/global_settings_presets.php"><div class="gs-presets-row"><label class="gs-presets-label" for="gs-preset-select">Preset</label><select class="gs-presets-select" id="gs-preset-select" aria-describedby="gs-preset-desc" disabled><option value="">Loading presets...</option></select><div class="gs-presets-actions"><button type="button" class="btn-primary gs-presets-btn" id="gs-preset-apply" disabled>Apply</button><button type="button" class="gs-presets-btn" id="gs-preset-save" disabled>Save New</button><button type="button" class="gs-presets-btn" id="gs-preset-overwrite" disabled>Overwrite</button><button type="button" class="gs-presets-btn" id="gs-preset-retry" hidden>Retry</button><button type="button" class="gs-presets-help" id="gs-preset-help" aria-expanded="false" aria-controls="gs-preset-help-text" title="How presets work">?<span class="gs-presets-sr">How presets work</span></button></div></div><p class="gs-presets-desc" id="gs-preset-desc"></p><p class="gs-presets-help-text" id="gs-preset-help-text" hidden>Presets store global toggles, limits and context selections. Prompts, service URLs, connectors and profiles stay unchanged. Save New and Overwrite only save the preset; Apply updates active settings and reloads the page.</p><p class="gs-presets-status" id="gs-preset-status" role="status" aria-live="polite"></p><p class="gs-presets-error" id="gs-preset-error" role="alert" hidden></p></div><?php if ($saveSuccess): ?><div class="result-ok" style="margin-bottom: 16px;">Global settings saved to the database.</div><?php endif; ?><div class="settings-tabs" role="tablist" aria-label="Global settings categories"><?php foreach ($settingsTabs as $tabId => $tabLabel): ?><button type="button" class="settings-tab<?php echo $tabId === 'prompt-rechat' ? ' is-active' : ''; ?>" id="settings-tab-<?php echo htmlspecialchars($tabId); ?>" role="tab" aria-selected="<?php echo $tabId === 'prompt-rechat' ? 'true' : 'false'; ?>" aria-controls="<?php echo htmlspecialchars($tabControlPanels[$tabId]); ?>" data-settings-tab="<?php echo htmlspecialchars($tabId); ?>"><?php echo htmlspecialchars($tabLabel); ?></button><?php endforeach; ?></div><form method="post" action="" id="gs_form"><div class="content-grid"><?php foreach ($gsSections as $sectionTitle => $fields): ?><?php $sectionTab = $sectionTabs[$sectionTitle] ?? 'general'; $isInitialTab = $sectionTab === 'prompt-rechat'; $sectionClasses = 'content-section' . ($sectionTitle === 'Global Connectors' ? ' connector-section' : ''); ?><div class="<?php echo htmlspecialchars($sectionClasses); ?>" id="settings-panel-<?php echo htmlspecialchars($sectionTab); ?>-<?php echo htmlspecialchars(preg_replace('/[^a-z0-9]+/i', '-', strtolower($sectionTitle))); ?>" role="tabpanel" aria-labelledby="settings-tab-<?php echo htmlspecialchars($sectionTab); ?>" data-settings-panel="<?php echo htmlspecialchars($sectionTab); ?>" <?php echo $isInitialTab ? '' : 'hidden'; ?>><h2><?php echo htmlspecialchars($sectionTitle); ?></h2><div class="provider-grid"><?php if ($sectionTitle === $promptContextSectionTitle): ?><div class="prompt-context-wrap"><?php foreach ($promptContextCatalog as $bucket => $options): ?><div class="prompt-context-group"><h3><?php echo htmlspecialchars(prompt_context_bucket_title($bucket)); ?></h3><div class="prompt-context-grid"><?php foreach ($options as $optionId => $meta): ?><?php
  $checked = in_array($optionId, $currentPromptContextOptions[$bucket] ?? [], true);
  $inputName = 'prompt_context_' . $bucket . '[]';
@@ -1570,6 +1579,64 @@ body .settings-tabs .settings-tab.is-active {
 })();
 
 const filterBrowseConfigs = <?php echo json_encode($filterBrowseFieldConfigs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+// Enhance the existing CSV field so saves, presets and the recent-values picker share one value.
+document.querySelectorAll('textarea[name="EVENT_TYPE_FILTER"]').forEach((storage, index) => {
+    const choices = ["chat", "backgroundchat", "death", "itemfound", "itemtransfer", "quest", "rpg_lvl", "welcome", "waitstart", "waitstop", "infoaction", "info_timeforward"];
+    const parse = (value) => [...new Set(String(value).split(',').map((type) => type.trim().toLowerCase()).filter(Boolean))];
+    const editor = document.createElement('div');
+    editor.className = 'event-type-editor';
+    const hint = document.createElement('p');
+    hint.id = 'event-type-help-' + index;
+    hint.textContent = 'Checked types are excluded from AI context. Uncheck to include them. Save All applies your changes.';
+    const toggles = document.createElement('div');
+    toggles.className = 'event-type-toggles';
+    toggles.setAttribute('role', 'group');
+    toggles.setAttribute('aria-label', 'Event types to exclude');
+    toggles.setAttribute('aria-describedby', hint.id);
+    const customLabel = document.createElement('label');
+    customLabel.htmlFor = 'event-type-custom-' + index;
+    customLabel.textContent = 'Custom event types to exclude';
+    const custom = document.createElement('textarea');
+    custom.id = customLabel.htmlFor;
+    custom.rows = 2;
+    custom.placeholder = 'my_custom_event, another_event';
+    custom.readOnly = storage.readOnly;
+    const customHint = document.createElement('p');
+    customHint.id = 'event-type-custom-help-' + index;
+    customHint.textContent = 'Separate names with commas. Types do not need to appear in the log first.';
+    custom.setAttribute('aria-describedby', customHint.id);
+    const checkboxes = choices.map((type) => {
+        const label = document.createElement('label');
+        const labels = {"chat": "Dialogue", "backgroundchat": "Background Dialogue", "death": "Death", "itemfound": "Item Pickups", "itemtransfer": "Item Transfers", "quest": "Quests", "rpg_lvl": "Level Up", "welcome": "Arrival", "waitstart": "Wait Started", "waitstop": "Wait Finished", "infoaction": "Actions", "info_timeforward": "Time Passed"};
+        label.title = type;
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = type;
+        checkbox.disabled = storage.readOnly;
+        label.append(checkbox, document.createTextNode(labels[type] || type.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())));
+        toggles.append(label);
+        return checkbox;
+    });
+    const readStorage = () => {
+        const selected = parse(storage.value);
+        checkboxes.forEach((checkbox) => { checkbox.checked = selected.includes(checkbox.value); });
+        custom.value = selected.filter((type) => !choices.includes(type)).join(', ');
+    };
+    const writeStorage = () => {
+        storage.value = parse([...checkboxes.filter((checkbox) => checkbox.checked).map((checkbox) => checkbox.value), custom.value].join(', ')).join(', ');
+    };
+    toggles.addEventListener('change', writeStorage);
+    custom.addEventListener('input', writeStorage);
+    // Move a manually entered built-in name to its checkbox after editing.
+    custom.addEventListener('change', () => { writeStorage(); readStorage(); });
+    storage.addEventListener('change', readStorage);
+    storage.form?.addEventListener('reset', () => setTimeout(readStorage, 0));
+    readStorage();
+    editor.append(hint, toggles, customLabel, custom, customHint);
+    storage.before(editor);
+    storage.hidden = true;
+});
+
 const filterBrowseEndpoint = <?php echo json_encode($webRoot . '/ui/api/filter_candidates.php', JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
 
 (function () {
@@ -1858,6 +1925,7 @@ const filterBrowseEndpoint = <?php echo json_encode($webRoot . '/ui/api/filter_c
  });
 
  state.activeTextarea.value = nextValues.join(', ');
+ state.activeTextarea.dispatchEvent(new Event('change', { bubbles: true }));
 
  closeModal();
  });

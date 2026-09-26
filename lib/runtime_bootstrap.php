@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/dialectic_interaction.php';
 
 require_once(__DIR__ . DIRECTORY_SEPARATOR . "settings.php");
 require_once(__DIR__ . DIRECTORY_SEPARATOR . "dialectic_runtime.php");
@@ -66,6 +67,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'public.core_stt_connector',
             'public.core_itt_connector',
             'public.core_tts_connector',
+            'public.core_tts_pronunciation',
             'public.database_versioning',
             'public.descriptions',
             'public.descriptions_custom',
@@ -171,6 +173,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
         }
 
         $requiredVersions = [
+            'responselog' => 20260912001,
             'conf_opts' => 20260626001,
             'core_action' => 20260823003,
             'core_player' => 20260707001,
@@ -189,6 +192,7 @@ if (!function_exists('dialecticRuntimeNeedsDbUpdates')) {
             'core_tts_connector_metadata' => 20260626001,
             'core_tts_connector_omnivoice' => 20260708001,
             'core_tts_connector_removed_drivers' => 20260712001,
+            'core_tts_pronunciation' => 20260829002,
             'tts_gender_fallback_defaults' => 20260715001,
             'legacy_translation_tables_cleanup' => 20260628001,
             'legacy_currentmission_cleanup' => 20260713003,
