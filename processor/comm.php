@@ -906,6 +906,7 @@ if ($gameRequest[0] == "wipe") { // Reset reponses if init sent (Think about thi
             "INJECTION_LOG" => "Inject Event",
             "INJECTION_CHAT" => "Inject & Chat",
             "CHEATMODE" => "Cheat Mode",
+            "HYPNOSIS" => "Hypnosis",
         ];
         if (!isset($modeLabels[$mode])) {
             Logger::warn("Invalid dialectic_mode requested: ".$vars[1]);

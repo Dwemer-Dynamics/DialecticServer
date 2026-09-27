@@ -215,6 +215,7 @@ function dialecticModeExtractRequestedMode(array $gameRequest, string $receivedD
         "INJECTION_LOG",
         "INJECTION_CHAT",
         "CHEATMODE",
+        "HYPNOSIS",
     ];
 
     $mode = dialecticModeValueFromArray(dialecticModePayloadToArray($gameRequest[3] ?? ''));
@@ -346,6 +347,12 @@ if ($EXECUTION_MODE=="STANDARD") {
         Logger::warn("[DIRECTOR] Service manager failed with exit code " . intval($returnCode));
         dialecticModeNotify("Director mode instruction failed.");
     }
+    terminate();
+
+} else if ($EXECUTION_MODE=="HYPNOSIS") {
+    dialecticModeResetToStandard($db);
+    require_once __DIR__ . "/hypnosis.php";
+    dialecticRunHypnosis(dialecticModePayloadToArray($gameRequest[3] ?? ''));
     terminate();
 
 } else if ($EXECUTION_MODE=="CHEATMODE") {
