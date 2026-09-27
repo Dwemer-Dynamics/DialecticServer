@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__) . "/dwemerdistro_llm.php";
 
 require_once __DIR__ . '/llm_connector.class.php';
 require_once dirname(__DIR__) . '/settings.php';
@@ -6,6 +7,7 @@ require_once dirname(__DIR__) . '/settings.php';
 function dialecticLocalLlmServerCatalog(): array
 {
     return [
+        'dwemerdistro' => ['label' => 'DwemerDistro LLM Studio', 'port' => 1234],
         'lm_studio' => ['label' => 'LM Studio', 'port' => 1234],
         'ollama' => ['label' => 'Ollama', 'port' => 11434],
         'llama_cpp' => ['label' => 'llama.cpp', 'port' => 8080],
@@ -62,6 +64,11 @@ function dialecticLocalLlmValidateUrl(string $rawUrl): string
 function dialecticLocalLlmNormalizeSetup(array $raw): array
 {
     $serverType = strval($raw['server_type'] ?? 'lm_studio');
+    if ($serverType === 'dwemerdistro') {
+        $raw['url'] = DwemerDistroLlm::ENDPOINT;
+        $raw['api_key'] = '';
+        $raw['clear_api_key'] = true;
+    }
     $scope = strval($raw['scope'] ?? 'conversations');
     $catalog = dialecticLocalLlmServerCatalog();
     if (!isset($catalog[$serverType]) || !in_array($scope, ['conversations', 'all'], true)) {
@@ -151,6 +158,14 @@ function dialecticLocalLlmReusableBadge(?array $existing, array $setup): ?int
 function dialecticLocalLlmApplySetup(array $raw): array
 {
     $setup = dialecticLocalLlmNormalizeSetup($raw);
+    if ($setup['server_type'] === 'dwemerdistro') {
+        if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+        $tested = $_SESSION['dwemerdistro_llm_test'] ?? [];
+        if (($tested['hash'] ?? '') !== hash('sha256', json_encode($setup)) || time() - ($tested['time'] ?? 0) > 600) {
+            throw new InvalidArgumentException('Test these LLM Studio settings successfully before applying them.');
+        }
+    }
+    if ($setup['server_type'] === 'dwemerdistro') DwemerDistroLlm::requireModel($setup['model']);
     $db = $GLOBALS['db'];
     if (!$db->query('BEGIN')) {
         throw new RuntimeException('Could not begin local model setup.');
@@ -187,12 +202,12 @@ function dialecticLocalLlmApplySetup(array $raw): array
             'quickstart_managed' => true, 'quickstart_server_type' => $setup['server_type'],
             'quickstart_scope' => $setup['scope'], 'quickstart_timeout' => $setup['timeout'],
             'disable_streaming' => $setup['disable_streaming'],
-            'lmstudio_compat' => $setup['server_type'] === 'lm_studio',
+            'lmstudio_compat' => in_array($setup['server_type'], ['lm_studio', 'dwemerdistro'], true),
         ]);
         $payload = [
             'label' => 'Local LLM - ' . $setup['server_label'],
             'metadata' => json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-            'url' => $setup['url'], 'model' => $setup['model'], 'provider' => 'local', 'service' => 'custom',
+            'url' => $setup['url'], 'model' => $setup['model'], 'provider' => 'local', 'service' => $setup['server_type'] === 'dwemerdistro' ? 'dwemerdistro' : 'custom',
             'driver' => 'openaijson', 'api_badge_id' => $badgeId,
         ];
         $connectors = new LLMConnector();
@@ -243,6 +258,11 @@ function dialecticLocalLlmApplySetup(array $raw): array
 function dialecticLocalLlmTestDraft(array $raw): array
 {
     $setup = dialecticLocalLlmNormalizeSetup($raw);
+    if ($setup['server_type'] === 'dwemerdistro') {
+        if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+        unset($_SESSION['dwemerdistro_llm_test']);
+        DwemerDistroLlm::requireModel($setup['model']);
+    }
     if ($setup['clear_api_key']) {
         $setup['api_key'] = '';
     } elseif ($setup['api_key'] === '') {
@@ -296,6 +316,10 @@ function dialecticLocalLlmTestDraft(array $raw): array
     } elseif (!is_string($content) || trim($content) === '') {
         $message = 'The local model returned an empty or unsupported chat response.';
     } else {
+        if ($setup['server_type'] === 'dwemerdistro') {
+            if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+            $_SESSION['dwemerdistro_llm_test'] = ['hash' => hash('sha256', json_encode($setup)), 'time' => time()];
+        }
         return ['ok' => true, 'message' => 'Local model responded successfully. Nothing was saved.', 'elapsed_ms' => $elapsed];
     }
     return ['ok' => false, 'message' => $message, 'elapsed_ms' => $elapsed];
