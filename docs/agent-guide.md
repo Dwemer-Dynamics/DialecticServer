@@ -1,5 +1,23 @@
 # DialecticServer agent guide
 
+## Quest comments
+
+Active quest updates use **NPC Quest Comments** and **NPC Quest Comment Chance**
+in the NPC's profile. One enabled nearby NPC is selected and its chance is rolled
+once. If no NPC comment is selected, **Narrator Management → Quest Comments**
+provides a separately enabled fallback. Both use the cooldown in Narrator
+Management; only nonempty, successful dialogue generation starts it.
+
+The legacy `quest_updated` RPG Comments selection is retained in saved profiles
+but no longer controls quest comments. Enable the dedicated NPC setting to use
+NPC quest commentary. Existing Narrator settings are preserved.
+
+Update the client as well as the server for nearby candidate selection and
+Narrator-only play. Older RPG payloads can still nominate their existing NPC.
+The first active-quest snapshot after a load is a silent baseline; subsequent
+active quest/objective changes can comment. The snapshot does not identify why
+an objective disappeared, so the client does not label it completed or failed.
+
 [Server source](https://github.com/Dwemer-Dynamics/DialecticServer) and
 [xNVSE client source](https://github.com/Dwemer-Dynamics/Dialectic) are independent
 repositories. This guide describes the source shipped with this server;
