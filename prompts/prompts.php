@@ -280,7 +280,7 @@ $PROMPTS=array(
             $payload = json_decode((string)($gameRequest[3] ?? ""), true);
             return is_array($payload) ? (string)($payload["text"] ?? "") : (string)($gameRequest[3] ?? "");
         })()],
-        "extra" => shouldTriggerRPGComment("quest_updated") ? [] : ["dontuse" => true]
+        "extra" => !empty($GLOBALS["QUEST_COMMENT_SELECTED"]) ? [] : ["dontuse" => true]
     ],
     // Database Prompt (Rechat)
     // Encourages natural multi-party conversation - NPCs can address each other directly
