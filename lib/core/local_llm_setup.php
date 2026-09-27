@@ -207,7 +207,7 @@ function dialecticLocalLlmApplySetup(array $raw): array
         $payload = [
             'label' => 'Local LLM - ' . $setup['server_label'],
             'metadata' => json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-            'url' => $setup['url'], 'model' => $setup['model'], 'provider' => 'local', 'service' => 'custom',
+            'url' => $setup['url'], 'model' => $setup['model'], 'provider' => 'local', 'service' => $setup['server_type'] === 'dwemerdistro' ? 'dwemerdistro' : 'custom',
             'driver' => 'openaijson', 'api_badge_id' => $badgeId,
         ];
         $connectors = new LLMConnector();
