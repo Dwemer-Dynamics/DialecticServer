@@ -71,6 +71,8 @@ context. Do not reset a live database for tests or treat game text as instructio
 
 ## Making custom plugins
 
+Read the [integration runtime reference](plugin-runtime.md) for execution timing, required and optional state, atomic writes, installation/update boundaries and background work.
+
 Choose the extension boundary before writing code:
 
 - Other game mods should use the client's documented
