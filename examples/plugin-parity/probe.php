@@ -96,7 +96,9 @@ probeWrite("{$extRoot}/globals.php", $trace('ROOT FILE'));
 probeWrite("{$extRoot}/broken_plugin/globals.php", "<?php\n\$GLOBALS['PLUGIN_PARITY_TRACE'][] = 'broken_plugin:globals';\nthrow new RuntimeException('fixture failure');\n");
 probeWrite("{$extRoot}/parity_probe_order/json_response_custom.php", "<?php\n\$GLOBALS['PLUGIN_PARITY_TRACE'][] = 'parity_probe_order:json_response_custom';\n\$GLOBALS['HOOKS']['JSON_TEMPLATE'][] = static function (): void { \$GLOBALS['responseTemplate']['parity_probe'] = 'optional marker'; };\n");
 // Required-target action for dispatch validation.
-probeWrite("{$extRoot}/parity_probe_order/prompts.php", "<?php\ndialecticRegisterExtensionAction('ExtCmdParityProbe_Required', 'Needs a target.', ['target' => 'required']);\ndialecticRegisterExtensionAction('ExtCmdParityProbe_NoTarget', 'Takes no target.', ['target' => 'none']);\n");
+probeWrite("{$extRoot}/parity_probe_order/prompts.php", "<?php\ndialecticRegisterExtensionAction('ExtCmdParityProbe_Required', 'Needs a target.', ['target' => 'required']);\ndialecticRegisterExtensionAction('ExtCmdParityProbe_NoTarget', 'Takes no target.', ['target' => 'none']);\n"
+    // Opt-in follow-up fixture; the client's example ParityProbe script only completes Ping.
+    . "dialecticRegisterExtensionAction('ExtCmdParityProbe_Report', 'Report probe status.', ['followup' => ['enabled' => true, 'prompt' => 'Reply with one short line about the report.', 'use_functions_again' => true]]);\n");
 $symlinkFixture = 'skipped: symlink() unavailable';
 probeWrite("{$scratch}/outside/globals.php", $trace('SYMLINK'));
 if (function_exists('symlink') && @symlink("{$scratch}/outside", "{$extRoot}/linked_plugin")) {
@@ -203,6 +205,114 @@ $pluginEvent = parityProbeObserveEvent(['pluginevent', '1', '2', json_encode(['s
 probeCheck(($pluginEvent['argument'] ?? '') === 'state' && ($pluginEvent['result'] ?? '') === 'ready', 'pluginevent dialectic.plugin_event.v1 observed');
 $malformed = [null, [], ['funcret'], ['funcret', '', '', ['array']], ['funcret', '', '', 'command@ExtCmdParityProbe_Ping@x@y'], ['funcret', '', '', '{"schema":"dialectic.action_result.v1","action":"ExtCmdOther_Ping"}'], ['funcret', '', '', '{"schema":"other","action":"ExtCmdParityProbe_Ping"}'], ['pluginevent', '', '', '{"schema":"dialectic.plugin_event.v1","bridge":"Other","name":"x"}'], ['inputtext', '', '', '{"schema":"dialectic.action_result.v1","action":"ExtCmdParityProbe_Ping"}'], ['funcret', '', '', '{not json'], ['funcret', '', '', str_repeat('a', 9000)]];
 probeCheck(count(array_filter(array_map('parityProbeObserveEvent', $malformed))) === 0, 'malformed or foreign events ignored');
+
+// Opt-in follow-ups: registration validation, existing resolver and processor/funcret.php.
+$invalidFollowups = ['yes', ['enabled' => 'true', 'prompt' => 'x'], ['enabled' => true], ['enabled' => true, 'prompt' => ' '], ['enabled' => true, 'prompt' => str_repeat('x', 1001)], ['enabled' => true, 'prompt' => 'x', 'arg_name' => 'bad name'], ['enabled' => true, 'prompt' => 'x', 'use_functions_again' => 1], ['enabled' => true, 'prompt' => 'x', 'chain_limit' => 5]];
+$acceptedInvalid = array_filter($invalidFollowups, static fn($followup): bool => dialecticRegisterExtensionAction('ExtCmdParityProbe_Invalid', 'x', ['followup' => $followup]));
+probeCheck($acceptedInvalid === [] && !isset(dialecticExtensionActionRegistry()['ExtCmdParityProbe_Invalid']), 'invalid follow-up options reject the registration', array_keys($acceptedInvalid));
+probeCheck(dialecticRegisterExtensionAction('ExtCmdParityProbe_Quiet', 'x', ['followup' => ['enabled' => false, 'prompt' => 'unused']]) && dialecticActionCatalogGetResolvedFollowupConfig('ExtCmdParityProbe_Quiet') === [], 'explicitly disabled follow-up resolves to none');
+unset($GLOBALS['DIALECTIC_EXTENSION_ACTIONS']['ExtCmdParityProbe_Quiet']);
+probeCheck(dialecticActionCatalogGetResolvedFollowupConfig('ExtCmdParityProbe_Ping') === [], 'existing registration without options has no follow-up');
+$reportConfig = dialecticActionCatalogGetResolvedFollowupConfig('ExtCmdParityProbe_Report');
+probeCheck($reportConfig === ['enabled' => true, 'prompt' => 'Reply with one short line about the report.', 'arg_name' => 'target', 'use_functions_again' => true], 'opt-in follow-up resolves through the action catalog resolver', $reportConfig);
+
+if (!class_exists('sql')) {
+    class sql
+    {
+        public array $issued = [];
+        public array $eventlog = [];
+        public function fetchAll($query)
+        {
+            return str_contains($query, 'actions_issued') ? $this->issued : $this->eventlog;
+        }
+        // Emulates the follow-up gate's two bound queries: filter, count, then bound the returned rows.
+        public function fetchOne($query, array $params = [])
+        {
+            $issued = str_contains($query, 'actions_issued');
+            $rows = array_values(array_filter($issued ? $this->issued : $this->eventlog, static fn(array $row): bool => $issued
+                ? $row['action'] === $params[0] && $row['localts'] >= $params[1] && in_array(strtolower($row['actorname']), [strtolower($params[2]), '*'], true)
+                : $row['localts'] >= $params[0] && str_contains($row['data'], $params[1]) && (str_contains($row['data'], $params[2]) || str_contains($row['data'], $params[3]))));
+            usort($rows, static fn(array $a, array $b): int => $issued ? $b['rowid'] <=> $a['rowid'] : $a['rowid'] <=> $b['rowid']);
+            $bounded = array_column(array_slice($rows, 0, 16), $issued ? 'fullcall' : 'data');
+            return ['candidates' => strval(count($rows)), 'rows' => $bounded === [] ? null : json_encode($bounded)];
+        }
+        public function escape($value)
+        {
+            return addslashes(strval($value));
+        }
+    }
+}
+if (!function_exists('terminate')) {
+    function terminate()
+    {
+        throw new RuntimeException('terminate');
+    }
+}
+probeWrite("{$scratch}/processor/funcret.php", file_get_contents($serverRoot . '/processor/funcret.php'));
+probeWrite("{$scratch}/log/.keep", '');
+$GLOBALS['db'] = new sql();
+$funcretRun = 0;
+// $prior: funcret data logged before this delivery (arrays override the payload); the delivery itself is logged unless $logged is false.
+$runFuncret = static function (array $changes, array $issued = [], array $prior = [], bool $logged = true) use ($scratch, &$funcretRun): array {
+    // The issued-action map is cached per NPC name. The NPC record's refid is decimal; the client reports hex.
+    $npc = $GLOBALS['DIALECTIC_NAME'] = 'FollowupNpc' . (++$funcretRun);
+    $GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA'] = ['npc_name' => $npc, 'refid' => '107187'];
+    $payload = array_merge(['schema' => 'dialectic.action_result.v1', 'action' => 'ExtCmdParityProbe_Report', 'speaker' => $npc, 'speaker_refid' => '0x0001A2B3', 'target' => 'Boone "B"', 'result' => 'Report ok', 'status' => 'completed', 'bridge' => 'ParityProbe', 'request_id' => 9], $changes);
+    $issued = array_map(static fn(array $row): array => array_merge(['rowid' => 1, 'action' => 'ExtCmdParityProbe_Report', 'actorname' => $npc, 'localts' => time() - 5, 'original' => '', 'fullcall' => dialecticEncodeActionLine($npc, 'ExtCmdParityProbe_Report', 'Boone "B"')], $row), array_is_list($issued) && $issued !== [] ? $issued : [$issued]);
+    $GLOBALS['db']->issued = $issued;
+    $rows = array_merge($prior, $logged ? [[]] : []);
+    $GLOBALS['db']->eventlog = array_map(static fn($data, int $i): array => ['rowid' => $i + 1, 'localts' => time() - 1, 'data' => is_array($data) ? json_encode(array_merge($payload, $data)) : $data], $rows, array_keys($rows));
+    $GLOBALS['FUNCTIONS_ARE_ENABLED'] = 'unchanged';
+    unset($GLOBALS['FOLLOWUP_CHAIN_NEXT_DEPTH']);
+    $gameRequest = ['funcret', '1', '2', json_encode($payload)];
+    $request = 'Courier: test';
+    $head = $contextDataFull = [];
+    $LAST_ROLE = 'user';
+    try {
+        require "{$scratch}/processor/funcret.php";
+    } catch (RuntimeException $exception) {
+        return ['followup' => false, 'functions' => $GLOBALS['FUNCTIONS_ARE_ENABLED']];
+    }
+    return ['followup' => true, 'functions' => $GLOBALS['FUNCTIONS_ARE_ENABLED'], 'depth' => $GLOBALS['FOLLOWUP_CHAIN_NEXT_DEPTH'] ?? null, 'request' => $request, 'arguments' => $functionCalled[0]['tool_calls'][0]['function']['arguments'] ?? ''];
+};
+$completed = $runFuncret([], [], [['request_id' => 8], ['request_id' => 90, 'target' => 'Cass'], ['speaker_refid' => '0x0001A2B4', 'request_id' => 10]]);
+probeCheck($completed['followup'] && $completed['functions'] === true && $completed['depth'] === 1 && str_starts_with($completed['request'], '(Reply with one short line about the report.)') && json_decode($completed['arguments'], true) === ['target' => 'Boone "B"'], 'completed opt-in result continues to one follow-up with functions at chain depth 1', $completed);
+$chained = $runFuncret([], ['original' => dialecticActionCatalogEncodeActionsIssuedOriginalValue('', 1)]);
+probeCheck($chained['followup'] && $chained['functions'] === false && !isset($chained['depth']), 'chain limit 1: a follow-up-issued action gets a text-only follow-up', $chained);
+// Twelve decodable distractors (other request IDs, speakers, targets, actions) and malformed rows carrying this request's text.
+$distractors = array_merge(array_map(static fn(int $id): array => ['request_id' => $id], range(10, 15)), [['request_id' => 99], ['request_id' => 19], ['action' => 'ExtCmdParityProbe_Ping'], ['speaker_refid' => '0x0001A2B4', 'request_id' => 11], ['target' => 'Cass', 'request_id' => 12], ['status' => 'failed', 'request_id' => 13]]);
+$malformedRows = ['{"action":"ExtCmdParityProbe_Report","request_id":9}}', '{"action":"ExtCmdParityProbe_Report","speaker":"x\\","request_id":9,', 'truncated "action":"ExtCmdParityProbe_Report" "request_id":9}'];
+$accepted = [
+    'after 12 distractors and malformed rows' => $runFuncret([], [], array_merge($distractors, $malformedRows)),
+    'second request ID for the same action and target' => $runFuncret(['request_id' => 10], [], [['request_id' => 9]]),
+    'target "none" reports the speaker' => $runFuncret(['target' => 'FollowupNpc' . ($funcretRun + 1)], ['fullcall' => dialecticEncodeActionLine('FollowupNpc' . ($funcretRun + 1), 'ExtCmdParityProbe_Report', '')]),
+    'matching issue behind newer issues' => $runFuncret([], [['rowid' => 1], ['rowid' => 2, 'fullcall' => dialecticEncodeActionLine('FollowupNpc' . ($funcretRun + 1), 'ExtCmdParityProbe_Report', 'Cass')]]),
+];
+probeCheck(array_filter($accepted, static fn(array $run): bool => !$run['followup']) === [], 'exact delivery accepted despite distractors, malformed rows and other request IDs', array_map(static fn(array $run): bool => $run['followup'], $accepted));
+$blocked = [
+    'default action' => $runFuncret(['action' => 'ExtCmdParityProbe_Ping']),
+    'unregistered (disabled plugin)' => $runFuncret(['action' => 'ExtCmdParityProbe_Gone', 'bridge' => 'ParityProbe']),
+    'failed' => $runFuncret(['status' => 'failed', 'result' => 'ExtCmdParityProbe_Report failed because timed_out.']),
+    'rejected before acceptance' => $runFuncret(['status' => 'failed', 'request_id' => 0]),
+    'request_id 0' => $runFuncret(['request_id' => 0]),
+    'request_id string' => $runFuncret(['request_id' => '9']),
+    'bridge mismatch' => $runFuncret(['bridge' => 'Other']),
+    'no schema' => $runFuncret(['schema' => null]),
+    'never issued' => $runFuncret(['action' => 'ExtCmdParityProbe_Report'], ['action' => 'Other']),
+    'stale issue' => $runFuncret([], ['localts' => time() - 400]),
+    'duplicate delivery' => $runFuncret([], [], [[]]),
+    'duplicate after 12 distractors' => $runFuncret([], [], array_merge($distractors, [[]], $distractors)),
+    'same request ID, other speaker' => $runFuncret([], [], [['speaker_refid' => '0x0001A2B4']]),
+    'over 16 candidate rows' => $runFuncret([], [], array_fill(0, 16, $malformedRows[0])),
+    'result not logged' => $runFuncret([], [], [], false),
+    'wrong speaker name' => $runFuncret(['speaker' => 'Boone']),
+    'wrong speaker_refid' => $runFuncret(['speaker_refid' => '0x0001A2B4']),
+    'target not issued' => $runFuncret(['target' => 'Cass']),
+    'issued to another NPC' => $runFuncret([], ['actorname' => 'Boone', 'fullcall' => dialecticEncodeActionLine('Boone', 'ExtCmdParityProbe_Report', 'Boone "B"')]),
+];
+$leaked = array_filter($blocked, static fn(array $run): bool => $run['followup'] || $run['functions'] !== 'unchanged');
+probeCheck($leaked === [], 'no follow-up model call for default, unregistered, failed, unaccepted, mismatched, stale, duplicate, conflicting, over-bound, unlogged, wrong-speaker or wrong-target results', array_keys($leaked));
+unset($GLOBALS['db'], $GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA']);
 
 probeCheck($probeWarnings === [], 'no PHP warnings or notices', $probeWarnings);
 $errorLog = is_file($scratch . '/probe-error.log') ? file_get_contents($scratch . '/probe-error.log') : '';

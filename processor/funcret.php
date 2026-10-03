@@ -141,6 +141,11 @@ if (isset($returnFunction[2])) {
 	error_log("[DIALECTIC] Checking <$functionCodeName> <{$returnFunction[1]}>");
 
 	$followupEnabled = !empty($followupConfig['enabled']);
+	if ($followupEnabled && str_starts_with($functionCodeName, 'ExtCmd')) {
+		// Registered opt-in only, for one completed client result per issued action.
+		$followupEnabled = function_exists('dialecticExtensionActionFollowupAllowed')
+			&& dialecticExtensionActionFollowupAllowed($functionCodeName, $decodedFuncretPayload);
+	}
 	$followupPrompt = trim(strval($followupConfig['prompt'] ?? ''));
 
 	if (!$followupEnabled) {
@@ -174,7 +179,7 @@ if (isset($returnFunction[2])) {
 			array(
 				"id" => $lastCallId,
 				"type" => "function",
-				"function" => ["name" => $functionDisplayName, "arguments" => "{\"$argName\":\"{$returnFunction[2]}\"}"]
+				"function" => ["name" => $functionDisplayName, "arguments" => json_encode([$argName => $returnFunction[2]], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]
 			)
 		]
 	);
