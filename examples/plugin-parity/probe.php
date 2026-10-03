@@ -131,6 +131,15 @@ $contextRan = dialecticRunExtensionHook('context.php');
 probeCheck(count($contextRan) === 1 && !in_array('LATE', $GLOBALS['PLUGIN_PARITY_TRACE'], true), 'later stages reuse the one-time directory index');
 probeCheck(in_array('parity_probe:context:inputtext', $GLOBALS['PLUGIN_PARITY_TRACE'], true), '$gameRequest visible to context.php');
 probeCheck(dialecticRunExtensionHook('globals.php', $scratch . '/missing-ext') === [], 'missing ext root is a no-op');
+// CHIM requireFilesRecursively(__DIR__, ...) from inside one plugin folder.
+probeWrite("{$extRoot}/scoped_plugin/scoped_helper.php", "<?php\n\$GLOBALS['PLUGIN_PARITY_TRACE'][] = 'scoped:direct';\n");
+probeWrite("{$extRoot}/scoped_plugin/lib/scoped_helper.php", "<?php\n\$GLOBALS['PLUGIN_PARITY_TRACE'][] = 'scoped:nested';\n");
+probeWrite("{$extRoot}/scoped_plugin/private/scoped_helper.php", $trace('SCOPED private'));
+probeWrite("{$extRoot}/disabled_marker/scoped_helper.php", $trace('SCOPED disabled'));
+requireFilesRecursively("{$extRoot}/scoped_plugin", 'scoped_helper.php');
+requireFilesRecursively("{$extRoot}/disabled_marker", 'scoped_helper.php');
+$scopedTrace = array_values(array_filter($GLOBALS['PLUGIN_PARITY_TRACE'], static fn(string $item): bool => stripos($item, 'scoped') !== false));
+probeCheck($scopedTrace === ['scoped:nested', 'scoped:direct'] && requireFilesRecursively("{$extRoot}/scoped_plugin", 'scoped_helper.php') === [], 'plugin-folder requireFilesRecursively() loads its own and nested helpers once; private and disabled skipped', $scopedTrace);
 
 // Prompt injection and enrichment API (CHIM names wrap dialectic* names).
 $characterBottom = chimRenderPromptInjections('character_bottom', ['dialectic_name' => 'Veronica']);
@@ -144,6 +153,8 @@ probeCheck(chimBuildActorProfileEnrichmentText('Boone', 'npc') === 'Parity probe
 $invalidCodes = ['ExtCmd_Ping', 'Ping', 'ExtCmdA_B C', 'ExtCmdParity', 'WebCmdParity_Ping'];
 probeCheck(count(array_filter($invalidCodes, static fn(string $code): bool => dialecticRegisterExtensionAction($code, 'x'))) === 0 && !dialecticRegisterExtensionAction('ExtCmdParity_NoDescription', ' '), 'invalid codes and empty descriptions rejected');
 probeCheck(!dialecticRegisterExtensionAction('EXTCMDPARITYPROBE_PING', 'case clash'), 'case-insensitive duplicate code rejected');
+probeCheck(dialecticRegisterExtensionAction('ExtCmdParityProbe_Do_Thing', 'Underscore action.') && !dialecticRegisterExtensionAction('ExtCmd9Probe_Ping', 'x') && !dialecticRegisterExtensionAction('ExtCmdParityProbe__Ping', 'x'), 'action names may contain underscores; bridge and action still start with a letter');
+unset($GLOBALS['DIALECTIC_EXTENSION_ACTIONS']['ExtCmdParityProbe_Do_Thing']);
 
 // Real action catalog, schema and dispatch encoder (database not configured).
 dialecticRunExtensionHook('prompts.php');

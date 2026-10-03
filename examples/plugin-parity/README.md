@@ -54,10 +54,10 @@ in the client addon mod as
 match the manifest `name`, and the file stem must match `version`.
 `parity_probe_order` is a probe fixture and is not packaged.
 
-Action codes must match `ExtCmd<Bridge>_<Action>`, where both the bridge and
-the action start with a letter and contain only ASCII letters and digits (64
-characters at most). The Dialectic client also accepts bridges that begin with
-a digit; the server does not register them, so use a leading letter.
+Action codes must match `ExtCmd<Bridge>_<Action>` (64 characters at most). The
+bridge starts with a letter and contains only ASCII letters and digits; the
+action starts with a letter and may also contain underscores, as in
+`ExtCmdParityProbe_Do_Thing`.
 
 ## Install on a disposable test server
 
