@@ -594,4 +594,46 @@ function dialectic_extract_funcret_actor(string $payload): string
     return "";
 }
 
+// Request-scoped speech mode from an addon message (dialectic.input.v1 "addon_message").
+// '' when the payload is not an addon message; any value outside the enum falls back to STANDARD.
+function dialecticAddonMessageMode(array $payload): string
+{
+    if (!array_key_exists('addon_message', $payload)) {
+        return '';
+    }
+    $mode = is_array($payload['addon_message']) ? ($payload['addon_message']['mode'] ?? null) : null;
+    return is_string($mode) && in_array($mode, ['STANDARD', 'WHISPER', 'SHOUT'], true) ? $mode : 'STANDARD';
+}
+
+// Event-log text for a dialectic.addon_context.v1 pluginevent, or '' when the payload is invalid.
+// Addon context is recorded as narration-style context, never as player speech.
+function dialecticAddonContextLogText($payload): string
+{
+    $data = is_string($payload) && strlen($payload) <= 8192 ? json_decode($payload, true) : null;
+    if (!is_array($data) || ($data['schema'] ?? '') !== 'dialectic.addon_context.v1') {
+        return '';
+    }
+    $bridge = $data['bridge'] ?? null;
+    $type = $data['type'] ?? null;
+    $name = $data['name'] ?? null;
+    $text = $data['text'] ?? null;
+    $actor = $data['actor'] ?? '';
+    if (!is_string($bridge) || !preg_match('/^[A-Za-z][A-Za-z0-9]{0,31}$/', $bridge) ||
+        !is_string($type) || !preg_match('/^[A-Za-z0-9_.\-]{1,64}$/', $type) ||
+        !is_string($name) || !preg_match('/^[A-Za-z0-9_.\-]{1,64}$/', $name) ||
+        !is_string($text) || $text === '' || strlen($text) > 1000 || !is_string($actor) || strlen($actor) > 256) {
+        return '';
+    }
+    $clean = static function (string $value): string {
+        return trim(preg_replace('/\s+/', ' ', str_replace(['|', '@'], ['/', ' at '], $value)) ?? '');
+    };
+    $text = $clean($text);
+    $actor = $clean($actor);
+    if ($text === '') {
+        return '';
+    }
+    $about = $actor !== '' ? " about {$actor}" : '';
+    return "(Addon {$bridge} {$type} {$name}{$about}: {$text})";
+}
+
 ?>

@@ -1196,7 +1196,15 @@ Logger::phaseEnd("party_context_prepare", [
 dialecticRunExtensionHook("prerequest.php");
 
 // dialectic.plugin_event.v1 state from client addons is for prerequest.php observers only.
+// dialectic.addon_context.v1 is also logged as context, never as player input, without a model call.
 if ($gameRequest[0] === "pluginevent") {
+    $addonContextText = dialecticAddonContextLogText($gameRequest[3] ?? '');
+    if ($addonContextText !== '' && function_exists('logEvent')) {
+        $addonContextEvent = $gameRequest;
+        $addonContextEvent[0] = "infoaction";
+        $addonContextEvent[3] = $addonContextText;
+        logEvent($addonContextEvent);
+    }
     terminate();
 }
 
