@@ -347,4 +347,8 @@ if ($GLOBALS["FUNCTIONS_ARE_ENABLED"]) {
 
 // Database Prompt (Dialogue should all be one)
 /* Model-specific overrides removed - prose/narration now handled uniformly */
+
+if (function_exists('dialecticRunExtensionHook')) {
+    dialecticRunExtensionHook("dialogue_prompt.php");
+}
 ?>

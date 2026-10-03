@@ -62,6 +62,7 @@ require_once($path . "lib/utils_game_timestamp.php");
 require_once($path . "lib/logger.php"); 
 require_once($path . "lib/save_rollback.php");
 require_once($path . "processor/captured_dialogue.php");
+dialecticRunExtensionHook("globals.php");
 
 // New profile system
 require_once($path . "lib/core/api_badge.class.php");
@@ -357,6 +358,9 @@ if (isset($gameRequest[3]) && is_string($gameRequest[3]) &&
     }
 }
 
+// Call extension's preprocessing files
+dialecticRunExtensionHook("preprocessing.php");
+
 if (in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext","cheatmode","instruction","init"])) {
     // This is just a mark that user has made an input request. We will check later when waiting for LLm response 
     // if user has made input after initial request, so we can abort it.
@@ -382,7 +386,7 @@ if (in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext","ch
 $fast_commands = ["updateprofile","updateprofile_narrator","diary","diary_narrator","diary_player","setconf","request","_speech","captured_dialogue",
     "infoaction","status_msg","delete_event","itemfound","chat","goodnight","waitstart","waitstop",
     "updateprofiles_batch_async","core_profile_assign","switchrace","combatbark",
-    "region"];
+    "region","pluginevent"];
 
 $GLOBALS["all_fast_commands"] = $fast_commands;
 
@@ -1188,6 +1192,13 @@ Logger::phaseEnd("party_context_prepare", [
 // RECHAT PRE MANAGMENT
 
 
+
+dialecticRunExtensionHook("prerequest.php");
+
+// dialectic.plugin_event.v1 state from client addons is for prerequest.php observers only.
+if ($gameRequest[0] === "pluginevent") {
+    terminate();
+}
 
 // Non-LLM request handling.
 // We need to include this file asap. Most events are handled there.
@@ -2586,6 +2597,12 @@ if (isset($GLOBALS["TTSFUNCTION"]) && !empty($GLOBALS["TTSFUNCTION"])) {
 
 //dialecticFormatPromptXmlSections moved to misc.php, dialecticRemovePromptXmlBlock,dialecticApplyPromptContextOptionsToSystemPrompt moved to misc.php
 
+// Check for context overrides on ext dir (plugins) before system prompt build
+// Re-sync nearby sections after context_pre plugins, since plugins can mutate PROMPT_NEARBY_SECTIONS.
+if (dialecticRunExtensionHook("context_pre.php") !== [] && isset($GLOBALS["PROMPT_NEARBY_SECTIONS"])) {
+    $nearbySections = $GLOBALS["PROMPT_NEARBY_SECTIONS"];
+}
+
 $promptInjectionContext = [
     "game_request" => $gameRequest,
     "dialectic_name" => function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : ($GLOBALS["DIALECTIC_NAME"] ?? ""),
@@ -2666,6 +2683,9 @@ if (!empty($GLOBALS["WORLDKNOWLEDGE_HINT"])) {
     //avoid reinjecting command prompt that we have already appended
     $GLOBALS["COMMAND_PROMPT"] = "";
 }
+
+// Check for context overrides on ext dir (plugins) after system prompt build
+dialecticRunExtensionHook("context.php");
 
 /**********************
 CALL BUILDING
@@ -2966,6 +2986,8 @@ if (dialectic_json_response_enabled()) {
     ], "info");
 
     if (!getenv("PHPUNIT_TEST")) {
+        // The JSON path exits here, so CHIM's post-request stages run now.
+        dialecticRunPostResponseExtensionHooks();
         exit;
     }
 
@@ -2976,7 +2998,9 @@ if ($dialecticResponseEmittedBeforePostrequest && !getenv("PHPUNIT_TEST")) {
     ob_start();
     $dialecticPostrequestBufferLevel = ob_get_level();
 }
+dialecticRunExtensionHook("prepostrequest.php");
 require(__DIR__.DIRECTORY_SEPARATOR."processor".DIRECTORY_SEPARATOR."postrequest.php");
+dialecticRunExtensionHook("postrequest.php");
 if ($dialecticResponseEmittedBeforePostrequest && !getenv("PHPUNIT_TEST")) {
     $dialecticPostrequestBufferLevel = intval($dialecticPostrequestBufferLevel ?? 0);
     while ($dialecticPostrequestBufferLevel > 0 && ob_get_level() >= $dialecticPostrequestBufferLevel) {

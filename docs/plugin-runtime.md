@@ -4,7 +4,25 @@ This guide describes DialecticServer's current `unstable` implementation for Fal
 
 ## Integration points and timing
 
-Installing a package and executing its code are separate operations. The current dialogue pipeline explicitly includes the built-in relationship files; it does not provide CHIM's general recursive named-hook registration. Do not ship an arbitrary `ext/MyPlugin/prerequest.php` and assume it runs.
+Installing a package and executing its code are separate operations. [lib/extension_hooks.php](../lib/extension_hooks.php) runs CHIM-named hook files from `ext/<plugin>/` at the same pipeline points as CHIM. The `ext/` tree is scanned once per request; each stage then requires its matching files once, in byte-sorted path order, with CHIM's scope (`$gameRequest` plus `$GLOBALS`). A throwing hook file is logged and skipped. Discovery skips files directly under `ext/`, dot-prefixed entries, symlinks, `private/` and `staging/` directories, top-level directories ending `.disabled` or containing a `.disabled` file, and the built-in `relationship_system` directory. A missing `ext/` is a no-op. `requireFilesRecursively($dir, $name)` uses the same rules and cache; given a plugin's own folder (for example `__DIR__`), it also loads matching files directly in that folder, skips `private/`, `staging/`, dot entries and symlinks below it, and loads nothing when the plugin's top-level folder is disabled or reserved.
+
+| Hook file | Caller and timing |
+|---|---|
+| `globals.php` | Pipeline, after library includes and before `$gameRequest` exists |
+| `preprocessing.php` | After speaking-mode tag normalization. `captured_dialogue` and external comment requests exit earlier |
+| `prerequest.php` | Before `processor/comm.php`. Event-only types such as `infoaction`, `chat`, `bored` and `status_msg` terminate earlier, as in CHIM; `funcret` and `pluginevent` reach it, and `pluginevent` then ends without dialogue |
+| `dialogue_prompt.php`, `prompts.php` | End of `prompts/dialogue_prompt.php` and `prompts/prompts.php` |
+| `context_building.php` | `replaceRoles()` with `$GLOBALS['CONTEXT_BUILDING_DATA']` |
+| `json_response_custom.php` | First `dialecticRefreshJsonResponseState(true)`, before `HOOKS['JSON_TEMPLATE']` |
+| `context_pre.php` | Before the system prompt is assembled; `PROMPT_NEARBY_SECTIONS` is re-read afterwards |
+| `context.php` | After the system prompt, before call building |
+| `prepostrequest.php`, `postrequest.php` | After the JSON response is emitted (output discarded) and before exit; on the non-JSON path around `processor/postrequest.php` |
+
+The relationship system keeps its explicit `context_pre.php`/`postrequest.php` includes at the existing points below; the generic loader never loads it, so it runs once at unchanged times.
+
+PHP API: `dialectic*` names are canonical and `chimRegisterPromptInjection()`, `chimRenderPromptInjections()`, `chimRegisterActorProfileEnricher()` and `chimBuildActorProfileEnrichmentText()` wrap them with CHIM's signatures, slots (`character_bottom`, `prompt_bottom`) and priority ordering. `HOOKS['JSON_TEMPLATE']` and `HOOKS['BIOGRAPHY_BUILDER']` behave as in CHIM.
+
+External actions: call `dialecticRegisterExtensionAction('ExtCmd<Bridge>_<Action>', $description, ['target' => 'none'|'optional'|'required'])` from `globals.php`. A registered code joins the canonical action set, `FUNCTIONS`/`F_NAMES`/`ENABLED_FUNCTIONS`, the action guidance and structured `action` enum, and is dispatched as a `rolecommand` line (`command_name` = code, `command_args[0]` = target) carrying the speaker's `speaker_refid` from the active NPC record or external request. The client never resolves an ExtCmd speaker by name; without a known reference it rejects the command. The model sees the code itself, not a display alias. Unregistered `ExtCmd*` codes, including action-catalog rows, stay excluded. Actions still follow `FUNCTIONS_ARE_ENABLED` and the existing rechat/narration restrictions. The client reports results as `funcret` with a `dialectic.action_result.v1` payload (`action`, `target`, `result`, plus `status`, `bridge` and `request_id` for ExtCmd), which reaches `prerequest.php`; `processor/funcret.php` then logs it as an info action and, because a registered code has no action-catalog follow-up configuration, ends without a follow-up model call. Addon state arrives as `pluginevent` with `dialectic.plugin_event.v1` (`bridge`, `name`, `data`, optional `actor`/`actor_refid`); it skips the `MAIN` semaphore and ends after `prerequest.php` without being logged. A runnable example and probe are in [examples/plugin-parity](../examples/plugin-parity/README.md).
 
 | Stage | Current source | Contract |
 |---|---|---|
@@ -14,7 +32,7 @@ Installing a package and executing its code are separate operations. The current
 | Relationship evaluation | Same pipeline | Explicitly includes `ext/relationship_system/postrequest.php` after streaming/retry completion and before the JSON response closes. This is not proof of client playback. |
 | Other post-processing | [processor/postrequest.php](../processor/postrequest.php) | Runs when the later dialogue path reaches it; not a universal callback for all endpoints. |
 
-For an independent extension, identify an explicit integration contract or propose a focused source contribution. Do not replace core files as an installation technique. For other game mods, use the client's [public xNVSE event API](https://github.com/Dwemer-Dynamics/Dialectic/blob/unstable/docs/XNVSE_EVENT_API.md) within its documented scope.
+For an independent extension, use the hook stages above or propose a focused source contribution for another point. Do not replace core files as an installation technique. For other game mods, use the client's [public xNVSE event API](https://github.com/Dwemer-Dynamics/Dialectic/blob/unstable/docs/XNVSE_EVENT_API.md) within its documented scope.
 
 ## Request state and optional speech IDs
 
@@ -117,17 +135,18 @@ Dialectic uses the schema-4 ZIP-compatible `.dwpkg`/`.zip` [package manager](../
 manifest.json
 checksums.sha256
 server/
-  manifest.json
   ...extension files...
 ```
 
-The outer manifest supplies `schema_version: 4`, `name`, `version` and `server`. All archive files except `checksums.sha256` need checksum entries. Declare actual extension-owned mutable paths in `server.mutable_paths`; paths are relative to the server payload. Game DLLs do not belong in it. Review path validation, migrations and activation rollback before building a package.
+The outer manifest supplies `schema_version: 4`, `name`, `version` and `server`. All archive files except `checksums.sha256` need checksum entries. Declare actual extension-owned mutable paths in `server.mutable_paths`; paths are relative to the server payload. Updates, removal, reinstall and rollback keep the folder recorded in the ledger, so a manifest `name` that changes only letter case still updates the same `ext/` folder. Game DLLs do not belong in it. Review path validation, migrations and activation rollback before building a package. Build the example with [examples/plugin-parity/build_package.php](../examples/plugin-parity/README.md); do not commit built archives.
+
+The [Server Plugins page](../ui/server_plugins.php) also uploads packages and installs or switches [catalog](../ui/data/plugin_repository.json) entries on their Live or Dev channel; the page does not check releases on load; **Check for Updates** and an install or channel switch fetch them. Built-in `relationship_system` is protected. Unmanaged `ext/` folders are listed and cannot be removed through the page, but installing a package with the same folder name can replace one after backing it up. The page lists each plugin's `.disabled` marker, a `config_url` from its manifest when it names an existing file inside the plugin's own `ext/` folder (`settings.php`, `ext/<folder>/settings.php` or `/<web root>/ext/<folder>/settings.php`; links are relative to `ui/`), and an HTTPS-only `mod_download_url` with `<version>` replaced. Other values are omitted.
 
 1. Verify supported client/server versions and the extension's explicit execution entry point. Back up configuration and use disposable data for the first install.
-2. For a game-carried package, install the author's MO2 archive so its virtual Data tree contains `Dialectic/server-plugins/<name>/<version>.dwpkg` (or `.zip`). Use one intended version per plugin.
+2. For a game-carried package, install the author's MO2 archive so its virtual Data tree contains `Dialectic/server-plugins/<name>/<version>.dwpkg` (or `.zip`), for example `Data/Dialectic/server-plugins/parity_probe/1.0.0.dwpkg`. Use one intended version per plugin.
 3. Launch Fallout through MO2 against the intended server. The [client synchronizer](https://github.com/Dwemer-Dynamics/Dialectic/blob/unstable/Plugin/src/ServerPluginSync.cpp) probes and uploads through [ui/api/plugin_packages.php](../ui/api/plugin_packages.php). Inspect `[SERVER_PLUGIN_SYNC]` client logs and the [Server Plugins page](../ui/server_plugins.php).
 4. Check package activation and then one known extension event. A completed install does not prove an arbitrary hook ran.
-5. Replace the old package for an update and verify again. Follow the author's separate server uninstall procedure; removing the MO2 archive only stops future discovery.
+5. Replace the old package for an update and verify again. **Remove** on Server Plugins (ledger-managed packages only) moves the folder out of `ext/` into retained package storage; database tables, migration records and declared mutable data are kept and return if the same plugin is reinstalled. Removing the MO2 archive only stops future discovery; while it stays enabled, the next game load reinstalls the package.
 
 A server-only archive may not match MO2's usual game-data layout. Verify the path above and the author's instructions before accepting a warning. Do not put PHP payload files directly into the game's Data root.
 

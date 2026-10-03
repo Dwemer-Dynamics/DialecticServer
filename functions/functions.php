@@ -56,7 +56,11 @@ function dialecticCanonicalActionCodeSet()
     if ($set === null) {
         $set = array_fill_keys(dialecticCanonicalActionCodes(), true);
     }
-    return $set;
+    // Plugin-registered ExtCmd actions only; arbitrary catalog codes stay excluded.
+    $extensionCodes = function_exists('dialecticExtensionActionRegistry')
+        ? array_fill_keys(array_keys(dialecticExtensionActionRegistry()), true)
+        : [];
+    return $set + $extensionCodes;
 }
 
 function dialecticNormalizeActionCodeName($codeName)
@@ -1761,6 +1765,9 @@ $GLOBALS["FUNCTIONS"] = array_values(array_filter($GLOBALS["FUNCTIONS"], functio
     return $codeName !== false && isset(dialecticCanonicalActionCodeSet()[$codeName]);
 }));
 $GLOBALS["ENABLED_FUNCTIONS"] = dialecticFilterCanonicalActionCodeList($GLOBALS["ENABLED_FUNCTIONS"] ?? []);
+if (function_exists('dialecticApplyExtensionActionsToRuntimeFunctions')) {
+    dialecticApplyExtensionActionsToRuntimeFunctions();
+}
 
 if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . "../prompts/prompts_custom.php")) {
     require __DIR__ . DIRECTORY_SEPARATOR . "../prompts/prompts_custom.php";

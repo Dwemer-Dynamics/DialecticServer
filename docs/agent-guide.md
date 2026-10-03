@@ -90,12 +90,18 @@ Choose the extension boundary before writing code:
   `Plugin/src/ServerPluginSync.cpp` owns discovery/upload for game-distributed
   packages under `Data/Dialectic/server-plugins/`. Check its subdirectory and
   filename rules against the selected client release before packaging.
-- Installation and hook execution are different. Follow actual runtime include
-  sites before selecting a hook; a filename alone does not register it. The
-  built-in [relationship system](../ext/relationship_system/) shows current
-  `context_pre.php` and `postrequest.php` integration, explicitly included by
-  the pipeline. It is a maintained example of integration, not a generic SDK or
-  a promise that arbitrary folders are automatically loaded.
+  The page also installs Live/Dev catalog releases; it never checks releases
+  on load, only on Check for Updates or an install/channel action. Its Remove
+  keeps files and data in retained storage for reinstall. Built-in
+  `relationship_system` is protected. Unmanaged `ext/` folders are listed and
+  cannot be removed through the page, but a same-name install can replace one
+  after backing it up.
+- Installation and hook execution are different. CHIM-named hook files in
+  `ext/<plugin>/` run through [extension_hooks.php](../lib/extension_hooks.php)
+  at the stages in the runtime reference; start from
+  [examples/plugin-parity](../examples/plugin-parity/README.md). The built-in
+  [relationship system](../ext/relationship_system/) is excluded from that
+  loader and keeps its explicit pipeline includes.
 
 Keep custom plugins in their own repositories with their own `AGENTS.md`,
 supported versions and install/build instructions. Do not replace core files
