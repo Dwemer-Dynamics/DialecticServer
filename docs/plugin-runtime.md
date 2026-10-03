@@ -22,7 +22,41 @@ The relationship system keeps its explicit `context_pre.php`/`postrequest.php` i
 
 PHP API: `dialectic*` names are canonical and `chimRegisterPromptInjection()`, `chimRenderPromptInjections()`, `chimRegisterActorProfileEnricher()` and `chimBuildActorProfileEnrichmentText()` wrap them with CHIM's signatures, slots (`character_bottom`, `prompt_bottom`) and priority ordering. `HOOKS['JSON_TEMPLATE']` and `HOOKS['BIOGRAPHY_BUILDER']` behave as in CHIM.
 
-External actions: call `dialecticRegisterExtensionAction('ExtCmd<Bridge>_<Action>', $description, ['target' => 'none'|'optional'|'required'])` from `globals.php`. A registered code joins the canonical action set, `FUNCTIONS`/`F_NAMES`/`ENABLED_FUNCTIONS`, the action guidance and structured `action` enum, and is dispatched as a `rolecommand` line (`command_name` = code, `command_args[0]` = target) carrying the speaker's `speaker_refid` from the active NPC record or external request. The client never resolves an ExtCmd speaker by name; without a known reference it rejects the command. The model sees the code itself, not a display alias. Unregistered `ExtCmd*` codes, including action-catalog rows, stay excluded. Actions still follow `FUNCTIONS_ARE_ENABLED` and the existing rechat/narration restrictions. The client reports results as `funcret` with a `dialectic.action_result.v1` payload (`action`, `target`, `result`, plus `status`, `bridge` and `request_id` for ExtCmd), which reaches `prerequest.php`; `processor/funcret.php` then logs it as an info action and, because a registered code has no action-catalog follow-up configuration, ends without a follow-up model call. Addon state arrives as `pluginevent` with `dialectic.plugin_event.v1` (`bridge`, `name`, `data`, optional `actor`/`actor_refid`); it skips the `MAIN` semaphore and ends after `prerequest.php` without being logged. A runnable example and probe are in [examples/plugin-parity](../examples/plugin-parity/README.md).
+External actions: call `dialecticRegisterExtensionAction('ExtCmd<Bridge>_<Action>', $description, ['target' => 'none'|'optional'|'required'])` from `globals.php`. A registered code joins the canonical action set, `FUNCTIONS`/`F_NAMES`/`ENABLED_FUNCTIONS`, the action guidance and structured `action` enum, and is dispatched as a `rolecommand` line (`command_name` = code, `command_args[0]` = target) carrying the speaker's `speaker_refid` from the active NPC record or external request. The client never resolves an ExtCmd speaker by name; without a known reference it rejects the command. The model sees the code itself, not a display alias. Unregistered `ExtCmd*` codes, including action-catalog rows, stay excluded. Actions still follow `FUNCTIONS_ARE_ENABLED` and the existing rechat/narration restrictions. The client reports results as `funcret` with a `dialectic.action_result.v1` payload (`action`, `target`, `result`, plus `status`, `bridge` and `request_id` for ExtCmd), which reaches `prerequest.php`; `processor/funcret.php` then logs it as an info action and, by default, ends without a follow-up model call. Addon state arrives as `pluginevent` with `dialectic.plugin_event.v1` (`bridge`, `name`, `data`, optional `actor`/`actor_refid`); it skips the `MAIN` semaphore and ends after `prerequest.php` without being logged. A runnable example and probe are in [examples/plugin-parity](../examples/plugin-parity/README.md).
+
+### Action follow-ups (opt-in)
+
+A registered action can ask for one more model turn after the client reports success, using the action catalog's existing follow-up keys:
+
+```php
+dialecticRegisterExtensionAction('ExtCmdMyBridge_Report', 'Ask MyBridge for a status report.', [
+    'target' => 'none',
+    'followup' => [
+        'enabled' => true,                 // required, boolean; absent or false means no follow-up
+        'prompt' => 'Reply with one short in-character line about the report below.',
+        'arg_name' => 'target',            // optional, [A-Za-z][A-Za-z0-9_]{0,31}
+        'use_functions_again' => false,    // optional, boolean
+    ],
+]);
+```
+
+Validation is strict: `followup` must be an array with only these keys; flags must be booleans; an enabled follow-up needs a non-blank prompt of at most 1000 bytes (whitespace is collapsed). An invalid `followup` rejects the whole registration with an `[ExtensionActions]` log line, so the action is not offered. Registrations without `followup` are unchanged. Registration is authoritative for its code: [`dialecticActionCatalogGetResolvedFollowupConfig()`](../lib/core/action_catalog.php) reads it instead of any action-catalog row, and the action-catalog UI does not edit it. The prompt goes through the same template formatting as catalog follow-ups.
+
+`processor/funcret.php` then runs its existing follow-up path (prompt prepended to the request, the tool call and result added to context) only when [`dialecticExtensionActionFollowupAllowed()`](../lib/extension_hooks.php) accepts the result:
+
+- the action is registered in this request with an enabled follow-up, so a disabled or removed plugin gets none;
+- the payload is `dialectic.action_result.v1` with `status` `completed`, a `bridge` matching the code and an integer `request_id` above 0. Failures, including timeouts and rejections before acceptance, never trigger a follow-up; they stay in the event log for the next turn;
+- `speaker` is the NPC the request was bound to and `speaker_refid` is that NPC's known form ID (compared numerically, as the client parses it);
+- an `actions_issued` row from the last 300 seconds has this code, that NPC as actor and this `target` (the issued parameter, or the speaker for a target-less action, after the client's `@`/`|`/whitespace cleanup). Up to the 16 newest rows for the code and NPC are examined;
+- exactly one `funcret` for this action and `request_id` has been logged in the last 300 seconds, and it has this `speaker_refid` and `target`. Each request ID is counted on its own, so separate requests for the same action and target each get a follow-up, while a second delivery of the same ID, or the same ID from another speaker or target, gets none.
+
+The funcret event is written to `eventlog` before `processor/funcret.php` runs, so it counts itself. Candidates are selected in SQL by plain text (`strpos` on `"action":"<code>"` and `"request_id":<n>` followed by `,` or `}`, the client's compact form) and counted before any row limit; at most 16 are returned, ordered by `rowid`, and decoded in PHP. Rows that are not valid JSON, or decode to another action or ID, never count, and nothing is cast to `json` in PostgreSQL. More than 16 candidates, or a query failure, refuses the follow-up. Both queries use bound parameters.
+
+Limits, all failing closed except the last: two copies of one delivery handled concurrently are each logged before either is checked, so both may be refused, but both cannot pass; the client restarts request IDs at 1 each session, so a reused ID within 300 seconds is refused; a payload not in the client's compact form is not found and refused. A copy replayed more than 300 seconds after the original is not recognised as a repeat; it gets a follow-up only if a matching action was issued again within the last 300 seconds.
+
+Chaining uses the existing limit (`dialecticActionCatalogGetFollowupChainLimit()`, currently 1): with `use_functions_again`, the follow-up may choose actions; their results get at most a text-only follow-up. One opted-in action therefore costs at most two extra model calls. ExtCmd results without an opted-in registration, and all rechat, narration and action-allowlist rules, behave as before.
+
+These checks bound model calls from the Dialectic client's own result delivery. They do not authenticate the caller: anything able to post game events to the server can also send player input, so treat `funcret` content as untrusted text, as for other game events. No table or migration is involved.
 
 | Stage | Current source | Contract |
 |---|---|---|

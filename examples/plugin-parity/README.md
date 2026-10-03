@@ -11,7 +11,7 @@ extension hooks. Nothing here is loaded automatically: the plugins live outside
 | `ext/parity_probe/context.php` | Context-stage marker in `$GLOBALS['PLUGIN_PARITY_TRACE']` |
 | `ext/parity_probe/prerequest.php` | Observer for the Dialectic client's `funcret` (`dialectic.action_result.v1`) and `pluginevent` (`dialectic.plugin_event.v1`, bridge `ParityProbe`) events |
 | `ext/parity_probe_order/globals.php` | Second plugin: load order versus injection priority |
-| `probe.php` | Real loader, include-once, exclusions, prompt API, `functions.php` catalog, `json_response.php` schema and action dispatch |
+| `probe.php` | Real loader, include-once, exclusions, prompt API, `functions.php` catalog, `json_response.php` schema, action dispatch and the opt-in follow-up decision in `processor/funcret.php` |
 
 No provider, database, network or game client is used.
 
@@ -90,5 +90,35 @@ exact response-line `speaker_refid`, and posted client-shaped `funcret` and
 `pluginevent` JSON to `main.php`; its current artifacts pass 24/24. A real
 model's choice, native client `ExtCmd` dispatch and in-game results remain
 live-test items. The game itself has not been run.
-Registered codes have no catalog follow-up configuration, so `funcret` is
-logged without a follow-up model call.
+
+## Follow-ups
+
+`ExtCmdParityProbe_Ping` is registered without options, so its `funcret` is
+logged and no follow-up model call is made. That is the default for every
+registered action.
+
+The probe also registers a fixture, `ExtCmdParityProbe_Report`, that opts in:
+
+```php
+dialecticRegisterExtensionAction('ExtCmdParityProbe_Report', 'Report probe status.', [
+    'followup' => [
+        'enabled' => true,
+        'prompt' => 'Reply with one short line about the report.',
+        'use_functions_again' => true,
+    ],
+]);
+```
+
+It is not in `ext/parity_probe/globals.php` because the client's example
+ParityProbe script completes only `Ping` and fails other actions. Using a
+stubbed database and a scratch copy of `processor/funcret.php`, the probe checks
+that a completed result produces one follow-up at chain depth 1, that a result
+for an action issued by a follow-up gets a text-only follow-up, and that the
+default action, an unregistered code, failed, unaccepted, mismatched, stale,
+duplicate and unlogged results do not continue to a model call. Its stub
+applies the gate's filters, count and 16-row limit in PHP, with more than 8
+distractor rows, malformed rows, a duplicate beyond row 8, separate request IDs
+for one action, and wrong speakers and targets. It also checks
+that invalid `followup` options reject the registration. The rules are in
+[plugin runtime](../../docs/plugin-runtime.md#action-follow-ups-opt-in).
+The probe stops at the `funcret.php` decision; it does not call a model.

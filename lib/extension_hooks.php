@@ -193,6 +193,11 @@ function dialecticRegisterExtensionAction(string $codeName, string $description,
         error_log('[ExtensionActions] Rejected incomplete action definition: ' . $codeName);
         return false;
     }
+    $followup = dialecticExtensionActionNormalizeFollowup($options['followup'] ?? null);
+    if ($followup === null) {
+        error_log('[ExtensionActions] Rejected invalid follow-up options: ' . $codeName);
+        return false;
+    }
     foreach (array_keys(dialecticExtensionActionRegistry()) as $existingCode) {
         if (strcasecmp($existingCode, $codeName) === 0 && $existingCode !== $codeName) {
             return false;
@@ -203,7 +208,152 @@ function dialecticRegisterExtensionAction(string $codeName, string $description,
         'code' => $codeName,
         'description' => substr($description, 0, 400),
         'target' => $target,
+        'followup' => $followup,
     ];
+    return true;
+}
+
+/**
+ * Optional 'followup' registration option, using the action catalog's keys.
+ * Absent or disabled means no follow-up model call. Returns null when invalid.
+ */
+function dialecticExtensionActionNormalizeFollowup($followup): ?array
+{
+    if ($followup === null) {
+        return [];
+    }
+    if (!is_array($followup) || array_diff(array_keys($followup), ['enabled', 'prompt', 'arg_name', 'use_functions_again']) !== []) {
+        return null;
+    }
+    foreach (['enabled', 'use_functions_again'] as $flag) {
+        if (array_key_exists($flag, $followup) && !is_bool($followup[$flag])) {
+            return null;
+        }
+    }
+    $prompt = $followup['prompt'] ?? '';
+    $argName = $followup['arg_name'] ?? 'target';
+    if (!is_string($prompt) || strlen($prompt) > 1000 || !is_string($argName)
+        || preg_match('/^[A-Za-z][A-Za-z0-9_]{0,31}$/', $argName) !== 1) {
+        return null;
+    }
+    if (($followup['enabled'] ?? false) !== true) {
+        return [];
+    }
+    $prompt = trim(preg_replace('/\s+/', ' ', $prompt) ?? '');
+    if ($prompt === '') {
+        return null;
+    }
+    return [
+        'enabled' => true,
+        'prompt' => $prompt,
+        'arg_name' => $argName,
+        'use_functions_again' => ($followup['use_functions_again'] ?? false) === true,
+    ];
+}
+
+/**
+ * Catalog-shaped row for a registered action, read by the existing follow-up
+ * resolver. Registration is authoritative over any catalog row with the code.
+ */
+function dialecticExtensionActionCatalogRow(string $codeName): ?array
+{
+    $spec = dialecticExtensionActionRegistry()[$codeName] ?? null;
+    if (!is_array($spec)) {
+        return null;
+    }
+    $followup = $spec['followup'] ?? [];
+    return ['code_name' => $codeName, 'metadata' => $followup === [] ? [] : ['followup' => $followup]];
+}
+
+/**
+ * Provenance gate for an opted-in ExtCmd follow-up, using only eventlog and
+ * actions_issued. Within the last 300 seconds it needs:
+ * - a completed client result for this bridge with a request ID above 0, from
+ *   the bound NPC (name and speaker_refid) about the target issued to it;
+ * - an actions_issued row for the code, NPC and that target;
+ * - exactly one logged funcret for this action and request ID. The current
+ *   event is logged before this runs, so a repeated delivery fails closed.
+ * Logged rows are matched in the client's compact JSON text and decoded in PHP;
+ * malformed rows never match. Too many candidates fail closed. This bounds
+ * model calls; it does not authenticate the local HTTP caller.
+ */
+function dialecticExtensionActionFollowupAllowed(string $codeName, $payload): bool
+{
+    $spec = dialecticExtensionActionRegistry()[$codeName] ?? null;
+    $requestId = is_array($payload) ? ($payload['request_id'] ?? null) : null;
+    $speaker = trim(strval($GLOBALS['DIALECTIC_NAME'] ?? ''));
+    // Form IDs as the client parses them: 0x-prefixed or 8 characters is hex, other digits decimal.
+    $formId = static function ($value): int {
+        $value = is_string($value) ? trim($value) : '';
+        if (preg_match('/^(?:0[xX])?([0-9A-Fa-f]{1,8})$/', $value, $hex) === 1 && (stripos($value, '0x') === 0 || strlen($value) === 8)) {
+            return intval(hexdec($hex[1]));
+        }
+        return preg_match('/^[0-9]{1,10}$/', $value) === 1 && intval($value) <= 0xFFFFFFFF ? intval($value) : 0;
+    };
+    $speakerRefid = $speaker === '' ? 0 : $formId(dialecticExtensionActionSpeakerRefid($speaker));
+    $reason = '';
+    if (!is_array($spec) || empty($spec['followup']['enabled'])) {
+        $reason = 'not registered with a follow-up';
+    } elseif (!is_array($payload) || ($payload['schema'] ?? '') !== 'dialectic.action_result.v1' || ($payload['status'] ?? '') !== 'completed'
+        || strcasecmp(strval($payload['bridge'] ?? ''), substr(explode('_', $codeName, 2)[0], 6)) !== 0
+        || !is_int($requestId) || $requestId <= 0) {
+        $reason = 'result is not a completed client result';
+    } elseif ($speakerRefid === 0 || !is_string($payload['speaker'] ?? null) || strcasecmp(trim($payload['speaker']), $speaker) !== 0
+        || $formId($payload['speaker_refid'] ?? null) !== $speakerRefid || !is_string($payload['target'] ?? null)) {
+        $reason = 'result is not from the bound NPC';
+    } elseif (!isset($GLOBALS['db']) || !is_object($GLOBALS['db'])) {
+        $reason = 'no database';
+    } else {
+        $since = time() - 300;
+        $limit = 16;
+        // The client reports the issued parameter, or the speaker when there is none, with @, | and whitespace runs collapsed.
+        $label = static fn(string $value): string => trim(preg_replace('/[\s@|]+/', ' ', $value) ?? '');
+        $issued = $GLOBALS['db']->fetchOne(
+            "WITH c AS (SELECT rowid, fullcall FROM actions_issued WHERE action = $1 AND localts >= $2 AND lower(actorname) IN (lower($3), '*'))
+            SELECT (SELECT COUNT(*) FROM c) AS candidates, (SELECT json_agg(fullcall ORDER BY rowid DESC) FROM (SELECT rowid, fullcall FROM c ORDER BY rowid DESC LIMIT {$limit}) s) AS rows",
+            [$codeName, $since, $speaker]
+        );
+        $issuedMatch = false;
+        require_once __DIR__ . DIRECTORY_SEPARATOR . 'dialectic_command_payload.php';
+        foreach (json_decode(strval($issued['rows'] ?? ''), true) ?: [] as $fullcall) {
+            $line = is_string($fullcall) ? dialecticDecodeActionLine($fullcall) : [];
+            $parameter = strval($line['parameter_string'] ?? '');
+            if (($line['action'] ?? '') === $codeName && strcasecmp(strval($line['actor'] ?? ''), $speaker) === 0
+                && $label($payload['target']) === $label($parameter === '' ? $speaker : $parameter)) {
+                $issuedMatch = true;
+                break;
+            }
+        }
+        if (!$issuedMatch) {
+            $reason = intval($issued['candidates'] ?? 0) > $limit ? 'too many recent issued actions' : 'no matching issued action';
+        } else {
+            // Candidates by text; deliveries are counted only after decoding.
+            $logged = $GLOBALS['db']->fetchOne(
+                "WITH c AS (SELECT rowid, data FROM eventlog WHERE type = 'funcret' AND localts >= $1 AND strpos(data, $2) > 0 AND (strpos(data, $3) > 0 OR strpos(data, $4) > 0))
+                SELECT (SELECT COUNT(*) FROM c) AS candidates, (SELECT json_agg(data ORDER BY rowid) FROM (SELECT rowid, data FROM c ORDER BY rowid LIMIT {$limit}) s) AS rows",
+                [$since, "\"action\":\"{$codeName}\"", "\"request_id\":{$requestId}}", "\"request_id\":{$requestId},"]
+            );
+            $candidates = intval($logged['candidates'] ?? 0);
+            $deliveries = [];
+            foreach (json_decode(strval($logged['rows'] ?? ''), true) ?: [] as $data) {
+                $row = is_string($data) ? json_decode($data, true) : null;
+                if (is_array($row) && ($row['action'] ?? null) === $codeName && ($row['request_id'] ?? null) === $requestId) {
+                    $deliveries[] = $row;
+                }
+            }
+            if ($candidates > $limit) {
+                $reason = "{$candidates} logged candidates for request {$requestId}";
+            } elseif (count($deliveries) !== 1) {
+                $reason = count($deliveries) . " logged deliveries of request {$requestId}";
+            } elseif (($deliveries[0]['speaker_refid'] ?? null) !== $payload['speaker_refid'] || ($deliveries[0]['target'] ?? null) !== $payload['target']) {
+                $reason = "logged delivery of request {$requestId} does not match this result";
+            }
+        }
+    }
+    if ($reason !== '') {
+        error_log("[ExtensionActions] No follow-up for {$codeName}: {$reason}");
+        return false;
+    }
     return true;
 }
 
