@@ -71,7 +71,7 @@ context. Do not reset a live database for tests or treat game text as instructio
 
 ## Making custom plugins
 
-Read the [integration runtime reference](plugin-runtime.md) for execution timing, required and optional state, atomic writes, installation/update boundaries and background work.
+Read the [integration runtime reference](plugin-runtime.md) for execution timing, required and optional state, atomic writes, installation/update boundaries and background work. Client addon messages, request-scoped modes and addon context are in [addon-message-api.md](addon-message-api.md).
 
 Choose the extension boundary before writing code:
 

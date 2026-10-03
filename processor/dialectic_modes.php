@@ -290,6 +290,9 @@ $GLOBALS["DIALECTIC_CONFIGURED_EXECUTION_MODE"] = $EXECUTION_MODE;
 
 if (!in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext"])) {
     $EXECUTION_MODE="STANDARD";
+} elseif (($ADDON_MESSAGE_MODE = dialecticAddonMessageMode(dialecticModePayloadToArray($gameRequest[3] ?? ''))) !== '') {
+    // Addon messages carry a request-scoped mode; the stored global mode is neither used nor changed.
+    $EXECUTION_MODE = $ADDON_MESSAGE_MODE;
 } else {
     $REQUESTED_EXECUTION_MODE = dialecticModeExtractRequestedMode($gameRequest, $receivedData ?? '');
     if ($REQUESTED_EXECUTION_MODE !== '') {
