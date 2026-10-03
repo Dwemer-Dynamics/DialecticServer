@@ -361,4 +361,8 @@ if (file_exists(__DIR__.DIRECTORY_SEPARATOR."prompts_custom.php"))
 if (php_sapi_name()=="cli") {
     //print_r($PROMPTS);
 }
+
+if (function_exists('dialecticRunExtensionHook')) {
+    dialecticRunExtensionHook("prompts.php");
+}
 ?>
