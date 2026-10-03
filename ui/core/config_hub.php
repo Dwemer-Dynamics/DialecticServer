@@ -38,7 +38,7 @@ $validTabs = [
 $configSections = [
     'settings' => ['label' => 'Settings', 'tabs' => ['globals' => 'Global Settings', 'profiles' => 'Profiles', 'npc' => 'DIALECTIC NPCs', 'player' => 'Player', 'narrator' => 'Narration']],
     'ai-voice' => ['label' => 'AI & Voice', 'tabs' => ['llm' => 'LLM', 'ttscfg' => 'TTS', 'xtts' => 'TTS Studio', 'sttcfg' => 'STT', 'pipvision' => 'ITT', 'keys' => 'API Keys']],
-    'world-behavior' => ['label' => 'World & Behavior', 'tabs' => ['npcbio' => 'NPC Biographies', 'worldknowledge' => 'World Knowledge', 'items' => 'Descriptions', 'actions' => 'Action Editor', 'prompts' => 'Prompts Manager']],
+    'world-behavior' => ['label' => 'World & Behavior', 'tabs' => ['npcbio' => 'NPC Biographies', 'worldknowledge' => 'World Knowledge', 'items' => 'Descriptions', 'actions' => 'Action Editor', 'prompts' => 'Prompts Manager', 'serverplugins' => 'Server Plugins']],
 ];
 $tabIcons = [
     'npc' => '&#x1F31F;', 'profiles' => '&#x1F5C3;&#xFE0F;', 'player' => '&#x1F464;', 'narrator' => '&#x1F5E3;&#xFE0F;', 'npcbio' => '&#x1FAAA;',
