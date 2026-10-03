@@ -48,6 +48,10 @@ and version produce identical bytes. It needs PHP's `zip` extension:
 php examples/plugin-parity/build_package.php /tmp/parity_probe-1.0.0.dwpkg 1.0.0
 ```
 
+To list a package in the server catalog, see
+[plugin distribution](../../docs/plugin-distribution.md). CI runs the probe and
+this builder in [plugin-parity.yml](../../.github/workflows/plugin-parity.yml).
+
 Do not commit built archives. For Dialectic's game-side sync, place the archive
 in the client addon mod as
 `Data/Dialectic/server-plugins/parity_probe/1.0.0.dwpkg`. The folder name must

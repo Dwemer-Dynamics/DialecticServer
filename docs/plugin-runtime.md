@@ -163,7 +163,7 @@ After one run, affinity is `5` with one effect and one history row. Repeating th
 
 ## Installation and updates
 
-Dialectic uses the schema-4 ZIP-compatible `.dwpkg`/`.zip` [package manager](../lib/plugin_package_manager.php). Do not substitute CHIM catalog tarballs. Its layout is:
+Dialectic uses the schema-4 ZIP-compatible `.dwpkg`/`.zip` [package manager](../lib/plugin_package_manager.php). Do not substitute CHIM catalog tarballs. Catalog entries, release documents and publishing are described in [plugin distribution](plugin-distribution.md). Its layout is:
 
 ```text
 manifest.json
