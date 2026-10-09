@@ -280,7 +280,7 @@ $PROMPTS=array(
             $payload = json_decode((string)($gameRequest[3] ?? ""), true);
             return is_array($payload) ? (string)($payload["text"] ?? "") : (string)($gameRequest[3] ?? "");
         })()],
-        "extra" => shouldTriggerRPGComment("quest_updated") ? [] : ["dontuse" => true]
+        "extra" => !empty($GLOBALS["QUEST_COMMENT_SELECTED"]) ? [] : ["dontuse" => true]
     ],
     // Database Prompt (Rechat)
     // Encourages natural multi-party conversation - NPCs can address each other directly
@@ -360,5 +360,9 @@ if (file_exists(__DIR__.DIRECTORY_SEPARATOR."prompts_custom.php"))
 */
 if (php_sapi_name()=="cli") {
     //print_r($PROMPTS);
+}
+
+if (function_exists('dialecticRunExtensionHook')) {
+    dialecticRunExtensionHook("prompts.php");
 }
 ?>
