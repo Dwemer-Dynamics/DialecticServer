@@ -197,6 +197,57 @@ final class NpcPersistenceEncodingTest extends DatabaseTestCase
         $this->assertSame(['Varmint rifle'], $extended['inventory']);
     }
 
+    public function testStaleGenericUpdateKeepsRelationshipWriteCommittedDuringIt(): void
+    {
+        $this->assertTrue($this->npcMaster->create([
+            'npc_name' => 'Cass Relationship Race Test',
+            'extended_data' => [
+                'inventory' => ['Shotgun'],
+                'relationships' => ['Player' => ['aff' => 10]],
+            ],
+        ]));
+        $staleRow = $this->npcMaster->getByName('Cass Relationship Race Test');
+        $npcId = (int)$staleRow['id'];
+        $staleExtended = json_decode((string)$staleRow['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $staleExtended['inventory'][] = 'Whiskey';
+        $staleRow['extended_data'] = $staleExtended;
+
+        // A second session holds a relationship write uncommitted while the generic update reads and waits.
+        $writer = pg_connect('host=localhost dbname=testdb user=dwemer password=dwemer', PGSQL_CONNECT_FORCE_NEW);
+        $this->assertNotFalse($writer);
+        $writerPid = pg_get_pid($writer);
+        $this->assertTrue(pg_send_query($writer, "BEGIN;
+            UPDATE core_npc_master
+            SET extended_data = jsonb_set(extended_data, '{relationships,Player,aff}', '55'::jsonb)
+            WHERE id = {$npcId};
+            SELECT pg_sleep(1);
+            COMMIT;"));
+        $holdingLock = false;
+        for ($i = 0; $i < 100 && !$holdingLock; $i++) {
+            $state = $GLOBALS['db']->fetchOne(
+                "SELECT 1 AS held FROM pg_stat_activity WHERE pid = {$writerPid} AND backend_xid IS NOT NULL"
+            );
+            $holdingLock = !empty($state['held']);
+            if (!$holdingLock) {
+                usleep(10000);
+            }
+        }
+
+        try {
+            $this->assertTrue($holdingLock);
+            $this->assertNotFalse($this->npcMaster->updateByArray($staleRow));
+        } finally {
+            while (pg_get_result($writer) !== false) {
+            }
+            pg_close($writer);
+        }
+
+        $row = $this->npcMaster->getByName('Cass Relationship Race Test');
+        $extended = json_decode((string)$row['extended_data'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(55, $extended['relationships']['Player']['aff']);
+        $this->assertSame(['Shotgun', 'Whiskey'], $extended['inventory']);
+    }
+
     public function testExplicitIndividualMemoryDisableRemovesSetting(): void
     {
         $this->assertTrue($this->npcMaster->create([
