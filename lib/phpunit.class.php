@@ -109,10 +109,12 @@ class sql
         return $finalData;
     }
     
-    public function fetchOne($q)
+    public function fetchOne($q, array $params = [])
     {
         self::ensureLink();
-        $result = pg_query(self::$link, $q);
+        $result = $params
+            ? pg_query_params(self::$link, $q, $params)
+            : pg_query(self::$link, $q);
         if (!$result) {
             Logger::error(pg_last_error(self::$link));
             return [];
