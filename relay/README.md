@@ -44,6 +44,13 @@ to `/health`, `healthcheckTimeout` to 120, `sleepApplication` to false,
 Railway's `serviceInstanceUpdate` API, scoped to the exact service and environment.
 Upload with `railway up <scratch-directory> --path-as-root --service <service-id>`.
 
+The image follows the floating `php:8.3-fpm-alpine` tag, and the build fails if its
+PHP is older than 8.3.36 (CVE-2026-109618/109619). When building locally, run
+`docker build --pull -f relay/Dockerfile .` from the repository root so a cached
+vulnerable base image is not reused, then redeploy using the steps above. Redeploying
+keeps the service's volume and settings; do not delete or recreate them. Check
+`php -v` in the deployed container before treating the live relay as patched.
+
 The beta limits below cap stored audio, not total monthly network transfer. Check
 Railway usage as more players join. No change to the plugin's Off behavior is needed.
 

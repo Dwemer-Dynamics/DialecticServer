@@ -1,5 +1,9 @@
 FROM php:8.3-fpm-alpine
 
+# Reject cached base images older than PHP 8.3.36 (CVE-2026-109618/109619).
+RUN php -r 'exit(version_compare(PHP_VERSION, "8.3.36", ">=") ? 0 : 1);' \
+    || { echo "PHP $(php -r 'echo PHP_VERSION;') is below 8.3.36; rebuild with --pull" >&2; exit 1; }
+
 RUN apk add --no-cache nginx supervisor \
     && mkdir -p /opt/dialectic-relay/public /opt/dialectic-relay/lib /var/lib/dialectic-relay \
     && chown www-data:www-data /var/lib/dialectic-relay \
