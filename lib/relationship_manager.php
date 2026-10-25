@@ -763,7 +763,7 @@ class RelationshipManager {
             $saved = $npcMaster->updateByArray([
                 'id' => $npcData['id'],
                 'extended_data' => json_encode($extended, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
-            ]);
+            ], true);
             if ($saved) {
                 dialecticRelationshipTimelineStamp($npcData['id'], 'relationship_inline');
             }
@@ -811,7 +811,7 @@ class RelationshipManager {
         $saved = $npcMaster->updateByArray([
             'id' => $npcData['id'],
             'extended_data' => json_encode($extended, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
-        ]);
+        ], true);
 
         if (!$saved) {
             return false;

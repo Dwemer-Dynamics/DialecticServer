@@ -315,6 +315,16 @@ if (!function_exists('dialecticRelationshipTimelineStamp')) {
 
 class NpcMaster
 {
+    private const RELATIONSHIP_EXTENDED_KEYS = [
+        'relationships',
+        'relationships_analyzed',
+        'relationships_inferred',
+        'relationships_last_eval',
+        'relationships_model',
+        'relationships_updated',
+        'relationships_locked',
+    ];
+
     private $table = "core_npc_master";
     private $db;
     private string $lastError = '';
@@ -509,6 +519,11 @@ class NpcMaster
     // Update NPC by ID
     public function update($id, $data, $existingNpcData = null)
     {
+        return $this->writeNpcRow($id, $data, $existingNpcData, false);
+    }
+
+    private function writeNpcRow($id, $data, $existingNpcData, bool $preserveRelationships)
+    {
         $id = (int) $id;
         $existing = is_array($existingNpcData) ? $existingNpcData : $this->getById($id);
         $data = $this->normalizeNpcDataForPersistence($data, $existing ?: null);
@@ -563,7 +578,9 @@ class NpcMaster
         $where    = "id = {$id}";
         $filtered = array_intersect_key($data, array_flip($fields));
         $this->lastError = '';
-        $updated = $GLOBALS["db"]->updateRow($this->table, $filtered, $where);
+        $updated = $preserveRelationships && array_key_exists('extended_data', $filtered)
+            ? $this->updateRowPreservingRelationships($id, $filtered)
+            : $GLOBALS["db"]->updateRow($this->table, $filtered, $where);
         if ($updated === false) {
             $this->lastError = trim((string)$this->db->GetLastError());
         }
@@ -571,8 +588,51 @@ class NpcMaster
 
     }
 
-    // Update NPC using an array (id key required)
-    public function updateByArray($data)
+    // Merge relationship keys from the row version PostgreSQL updates, not a PHP snapshot, so a
+    // relationship write committed while this statement waits for the row lock is kept.
+    private function updateRowPreservingRelationships(int $id, array $filtered)
+    {
+        $current = "(CASE WHEN jsonb_typeof(extended_data) = 'object' THEN extended_data ELSE '{}'::jsonb END)";
+        $keyArray = [];
+        $keptKeys = [];
+        foreach (self::RELATIONSHIP_EXTENDED_KEYS as $key) {
+            $literal = $this->db->escapeLiteral($key);
+            $keyArray[] = $literal;
+            $keptKeys[] = "CASE WHEN {$current} ? {$literal} THEN jsonb_build_object({$literal}, {$current} -> {$literal}) ELSE '{}'::jsonb END";
+        }
+        $keyArray = 'ARRAY[' . implode(', ', $keyArray) . ']::text[]';
+
+        // Values are bound like updateRow(); only allowlisted columns and the fixed keys above enter the SQL text.
+        $params = [];
+        $setClauses = [];
+        foreach ($filtered as $column => $value) {
+            if ($column !== 'extended_data') {
+                $params[] = $value;
+                $setClauses[] = "{$column} = $" . count($params);
+                continue;
+            }
+            if ($value === null) {
+                // Keep a cleared column NULL unless relationship keys must survive.
+                $merged = '(' . implode(' || ', $keptKeys) . ')';
+                $setClauses[] = "extended_data = CASE WHEN {$current} ?| {$keyArray} THEN {$merged} ELSE NULL END";
+            } else {
+                $params[] = $value;
+                $setClauses[] = "extended_data = (($" . count($params) . "::jsonb - {$keyArray}) || " . implode(' || ', $keptKeys) . ')';
+            }
+        }
+        $params[] = $id;
+
+        // The CTE returns one row on success, including when no row matched, so [] means failure.
+        $result = $this->db->fetchOne(
+            "WITH updated AS (UPDATE {$this->table} SET " . implode(', ', $setClauses)
+            . ' WHERE id = $' . count($params) . ' RETURNING 1) SELECT count(*) AS updated FROM updated',
+            $params
+        );
+        return $result === [] ? false : true;
+    }
+
+    // Update NPC using an array (id key required). Only relationship-system writers may change relationship keys.
+    public function updateByArray($data, bool $relationshipWrite = false)
     {
         if (! isset($data['id'])) {
             return false;
@@ -583,7 +643,8 @@ class NpcMaster
         $data = $this->preserveResolvedVoiceOnGenericUpdate($data, $existing);
         unset($data['id']); // Remove 'id' from the data array to avoid updating it
 
-        return $this->update($id, $data, $existing);
+        // Generic writers carry stale row snapshots; relationship keys come from the row being updated.
+        return $this->writeNpcRow($id, $data, $existing, !$relationshipWrite);
     }
 
     // Prevent stale runtime row snapshots from erasing a voice resolved by a newer game-data event.
@@ -1774,7 +1835,7 @@ FROM restore
                 ");
 
         $currentNpcData["core"] .= ".Formerly known as {$currentNpcDataAlt["npc_name"]}";
-        $this->updateByArray($currentNpcData);
+        $this->updateByArray($currentNpcData, true);
     }
 
     /**

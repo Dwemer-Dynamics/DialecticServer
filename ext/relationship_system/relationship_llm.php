@@ -496,7 +496,7 @@ PROMPT;
             $result = $npcMaster->updateByArray([
                 'id' => $npcId,
                 'extended_data' => json_encode($extended, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
-            ]);
+            ], true);
             if ($result) {
                 dialecticRelationshipTimelineStamp($npcId, 'relationship_analysis');
             }
@@ -675,7 +675,7 @@ PROMPT;
                 $saved = $npcMaster->updateByArray([
                     'id' => $npcId,
                     'extended_data' => json_encode($extended, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
-                ]);
+                ], true);
                 if ($saved) {
                     dialecticRelationshipTimelineStamp($npcId, 'relationship_inference');
                 }
@@ -1388,7 +1388,7 @@ PROMPT;
                 $result = $npcMaster->updateByArray([
                     'id' => $npcId,
                     'extended_data' => $jsonData
-                ]);
+                ], true);
                 if ($result) {
                     dialecticRelationshipTimelineStamp($npcId, 'relationship_evaluation');
                 }
