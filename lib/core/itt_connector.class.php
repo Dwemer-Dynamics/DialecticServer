@@ -279,6 +279,10 @@ class ITTConnector
             $GLOBALS['ITT'] = [];
         }
         $GLOBALS['ITT'][$driver] = $metadata;
+        // Apply the reference after metadata/defaults have selected the actual provider destination.
+        if ($driver !== '') {
+            ApiBadge::applyShared($row, 'llm', (string)($GLOBALS['ITT'][$driver]['url'] ?? ''), $GLOBALS['ITT'][$driver]);
+        }
     }
 
     private function normalize(array $data): array
