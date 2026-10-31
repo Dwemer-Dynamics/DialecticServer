@@ -228,7 +228,8 @@ $presetMap = [
  'inworld' => 'Inworld',
  'replicate' => 'Replicate',
  'groq' => 'Groq',
- 'nano-gpt' => 'Nano-GPT'
+ 'nano-gpt' => 'Nano-GPT',
+ 'ploofy' => 'Ploofy'
 ];
 
 // Provider key/dashboard links
@@ -243,7 +244,8 @@ $providerLinks = [
  'inworld' => 'https://studio.inworld.ai/',
  'replicate' => 'https://replicate.com/account/api-tokens',
  'groq' => 'https://console.groq.com/keys',
- 'nano-gpt' => 'https://nano-gpt.com/'
+ 'nano-gpt' => 'https://nano-gpt.com/',
+ 'ploofy' => 'https://ploofy.ai/portal#api-key-card'
 ];
 
 // Subtext bullet points per provider
@@ -259,6 +261,7 @@ $providerSubtext = [
  'replicate' => ['Gallery Processor'],
  'groq' => ['LLM'],
  'nano-gpt' => ['LLM'],
+ 'ploofy' => ['LLM'],
 ];
 
 // Reserved labels (both slugs and pretty names), used to keep presets distinct from customs
