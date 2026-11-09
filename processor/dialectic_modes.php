@@ -215,6 +215,7 @@ function dialecticModeExtractRequestedMode(array $gameRequest, string $receivedD
         "INJECTION_LOG",
         "INJECTION_CHAT",
         "CHEATMODE",
+        "HYPNOSIS",
     ];
 
     $mode = dialecticModeValueFromArray(dialecticModePayloadToArray($gameRequest[3] ?? ''));
@@ -289,6 +290,9 @@ $GLOBALS["DIALECTIC_CONFIGURED_EXECUTION_MODE"] = $EXECUTION_MODE;
 
 if (!in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext"])) {
     $EXECUTION_MODE="STANDARD";
+} elseif (($ADDON_MESSAGE_MODE = dialecticAddonMessageMode(dialecticModePayloadToArray($gameRequest[3] ?? ''))) !== '') {
+    // Addon messages carry a request-scoped mode; the stored global mode is neither used nor changed.
+    $EXECUTION_MODE = $ADDON_MESSAGE_MODE;
 } else {
     $REQUESTED_EXECUTION_MODE = dialecticModeExtractRequestedMode($gameRequest, $receivedData ?? '');
     if ($REQUESTED_EXECUTION_MODE !== '') {
@@ -346,6 +350,12 @@ if ($EXECUTION_MODE=="STANDARD") {
         Logger::warn("[DIRECTOR] Service manager failed with exit code " . intval($returnCode));
         dialecticModeNotify("Director mode instruction failed.");
     }
+    terminate();
+
+} else if ($EXECUTION_MODE=="HYPNOSIS") {
+    dialecticModeResetToStandard($db);
+    require_once __DIR__ . "/hypnosis.php";
+    dialecticRunHypnosis(dialecticModePayloadToArray($gameRequest[3] ?? ''));
     terminate();
 
 } else if ($EXECUTION_MODE=="CHEATMODE") {

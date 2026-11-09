@@ -47,7 +47,7 @@ $localSchemaOverrides = [
 // Visual keys to expose (can be expanded easily)
 $visualKeys = isset($profileSyncableMetadataKeys) && is_array($profileSyncableMetadataKeys)
     ? $profileSyncableMetadataKeys
-    : ["RECHAT_H","RECHAT_P","RECHAT_ALLOW_ACTIONS","DIARY_PROMPT","DIARY_COOLDOWN","CONTEXT_HISTORY_DIARY","COMBAT_BARK_COOLDOWN","BORED_EVENT"];
+    : ["RECHAT_H","RECHAT_P","RECHAT_ALLOW_ACTIONS","DIARY_PROMPT","DIARY_COOLDOWN","CONTEXT_HISTORY_DIARY","COMBAT_BARK_COOLDOWN","BORED_EVENT","QUEST_COMMENT","QUEST_COMMENT_CHANCE"];
 
 // Organize visual keys into categories for display
 $visualGroups = [
@@ -55,17 +55,21 @@ $visualGroups = [
   'Diary' => ["DIARY_PROMPT","DIARY_COOLDOWN","CONTEXT_HISTORY_DIARY"],
   'Combat' => ["COMBAT_BARK_COOLDOWN"],
   'Bored Event' => ["BORED_EVENT"],
+  'Quest Comments' => ["QUEST_COMMENT","QUEST_COMMENT_CHANCE"],
 ];
 
 // Pair related sections into aligned rows; the final odd section spans the row.
 $visualRows = [
   ['Rechat', 'Diary'],
   ['Combat', 'Bored Event'],
+  ['Quest Comments'],
 ];
 
 // Fallback values shown when a profile has no explicit value stored yet.
 // Saving the profile materialises the same fixed default used by the runtime.
 $visualKeyFallbacks = [
+    'QUEST_COMMENT' => false,
+    'QUEST_COMMENT_CHANCE' => '10%',
     'BORED_EVENT' => class_exists('CoreProfile') ? CoreProfile::BORED_EVENT_DEFAULT : 30,
 ];
 
@@ -77,6 +81,8 @@ function meta_pretty_label(string $name): string {
         'RECHAT_P' => 'Rechat Probaility',
         'CONTEXT_HISTORY_DIARY' => 'Context History Diary Event Count',
         'BORED_EVENT' => 'Bored Event Chance',
+        'QUEST_COMMENT' => 'NPC Quest Comments',
+        'QUEST_COMMENT_CHANCE' => 'NPC Quest Comment Chance',
     ];
     
     if (isset($customLabels[$name])) {

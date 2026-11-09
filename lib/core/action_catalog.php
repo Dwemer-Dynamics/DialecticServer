@@ -909,6 +909,9 @@ function dialecticActionCatalogGetResolvedFollowupConfig($codeName, $row = null)
         return [];
     }
 
+    if (!is_array($row) && function_exists('dialecticExtensionActionCatalogRow')) {
+        $row = dialecticExtensionActionCatalogRow($codeName);
+    }
     if (!is_array($row)) {
         $row = dialecticGetActionCatalogRow($codeName);
     }

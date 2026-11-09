@@ -12,6 +12,7 @@ require_once(__DIR__."/core/game_plugins.php");
 require_once(__DIR__."/core/npc_master.class.php");
 require_once(__DIR__."/core/core_profiles.class.php");
 require_once(__DIR__."/prompt_injections.php");
+require_once(__DIR__."/extension_hooks.php");
 require_once(__DIR__."/memory_ranking.php");
 
 
@@ -3223,6 +3224,7 @@ function replaceRoles($lastDialogFull,$actor,$lastNelements) {
 
     file_put_contents(__DIR__."/../log/context_for_$actor.txt",print_r($orderedData,true));
     $GLOBALS["CONTEXT_BUILDING_DATA"]=$orderedData;
+    dialecticRunExtensionHook("context_building.php");
 
     return $GLOBALS["CONTEXT_BUILDING_DATA"];
 
@@ -6581,6 +6583,14 @@ function call_llm_internal() {
                             if (is_string($metadataKey) && is_scalar($metadataValue)) {
                                 $responseMetadata[$metadataKey] = $metadataValue;
                             }
+                        }
+                    }
+                    if (str_starts_with($commandName, 'ExtCmd')) {
+                        // Identity comes only from the active NPC/external request, never model parameters.
+                        unset($responseMetadata['speaker_refid'], $responseMetadata['speaker_formid']);
+                        $speakerRefid = dialecticExtensionActionSpeakerRefid($speaker);
+                        if ($speakerRefid !== '') {
+                            $responseMetadata['speaker_refid'] = $speakerRefid;
                         }
                     }
                     dialectic_buffer_command_response_line($speaker, $payload, $responseMetadata);

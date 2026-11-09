@@ -75,6 +75,11 @@
             setStructuredOutputTemplate();
             setGBNFGrammar();
 
+            if ($loadExtensionCustomizers && function_exists('dialecticRunExtensionHook')) {
+                // One-time direct template edits from extensions (include-once).
+                dialecticRunExtensionHook("json_response_custom.php");
+            }
+
             dialecticApplyJsonTemplateHooks();
         }
     }
