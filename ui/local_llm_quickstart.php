@@ -751,3 +751,5 @@ echo '<script>
   refreshKeyHint();
 })();
 </script>';
+
+echo '<script defer data-distro-llm data-status-url="api/dwemerdistro_llm.php" src="js/dwemerdistro_llm.js"></script>';

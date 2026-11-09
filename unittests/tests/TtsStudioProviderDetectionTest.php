@@ -29,7 +29,7 @@ final class TtsStudioProviderDetectionTest extends TestCase
             'http://127.0.0.1:9000',
             [],
             $this->probe(200, ['status' => 'ok']),
-            $this->probe(200, ['data' => []]),
+            $this->probe(200, ['data' => [['id' => 'pocket-tts', 'family' => 'pocket_tts']]]),
             $this->probe(404)
         );
 
@@ -49,6 +49,30 @@ final class TtsStudioProviderDetectionTest extends TestCase
 
         $this->assertTrue($runtime['reachable']);
         $this->assertSame('standard', $runtime['mode']);
+    }
+
+    public function testRejectsOtherEnginesRegisteredAsPocketTts(): void
+    {
+        $higgs = dialecticTtsStudioClassifyPocketTtsRuntime('http://localhost:8025', [],
+            $this->probe(200), $this->probe(200, ['data' => [['id' => 'higgs-v3', 'family' => 'higgs_audio_tts']]]), $this->probe(404));
+        $this->assertFalse($higgs['reachable']);
+        foreach (['xtts-fastapi', 'chatterbox'] as $provider) {
+            $runtime = dialecticTtsStudioClassifyPocketTtsRuntime('http://localhost:8020', [],
+                $this->probe(404), $this->probe(404), $this->probe(200, ['sample']), $provider);
+            $this->assertFalse($runtime['reachable']);
+        }
+    }
+
+    public function testUnassignedSelectionPrefersDefaultEndpointButPreservesAssignments(): void
+    {
+        $rows = [['id' => 50, 'url' => 'http://localhost:8025/v1/audio/speech'],
+            ['id' => 39, 'url' => 'http://localhost:8020'], ['id' => 41, 'url' => 'http://localhost:8086/v1/audio/speech/']];
+        $url = fn(array $row): string => $row['url'];
+        $default = 'http://localhost:8086';
+        $this->assertSame(41, dialecticTtsStudioSelectPocketTtsConnector($rows, 48, [], $default, $url)['id']);
+        $this->assertSame(50, dialecticTtsStudioSelectPocketTtsConnector($rows, 50, [], $default, $url)['id']);
+        $this->assertSame(50, dialecticTtsStudioSelectPocketTtsConnector($rows, 48, [50 => 1], $default, $url)['id']);
+        $this->assertSame(50, dialecticTtsStudioSelectPocketTtsConnector($rows, 48, [], 'http://remote:9000', $url)['id']);
     }
 
     public function testFallsBackToConfiguredModeWhenServiceIsOffline(): void

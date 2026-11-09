@@ -534,7 +534,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create"])) {
 $profileSyncableMetadataKeys = [
     'RECHAT_H', 'RECHAT_P', 'RECHAT_ALLOW_ACTIONS',
     'DIARY_PROMPT', 'DIARY_COOLDOWN', 'CONTEXT_HISTORY_DIARY',
-    'COMBAT_BARK_COOLDOWN', 'BORED_EVENT',
+    'COMBAT_BARK_COOLDOWN', 'BORED_EVENT', 'QUEST_COMMENT', 'QUEST_COMMENT_CHANCE',
 ];
 $profileSyncableMetadataKeys = array_values(array_unique(array_merge($profileSyncableMetadataKeys, array_keys(dps_policy([])), ['CONTEXT_HISTORY_DYNAMIC_PROFILE'])));
 

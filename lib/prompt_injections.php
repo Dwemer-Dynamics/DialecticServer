@@ -160,3 +160,32 @@ function dialecticBuildActorProfileEnrichmentText(string $actorName, string $act
     $parts = array_values(array_unique($parts));
     return empty($parts) ? '' : implode('. ', $parts);
 }
+
+// CHIM-compatible public names; dialectic* names remain canonical.
+if (!function_exists('chimRegisterPromptInjection')) {
+    function chimRegisterPromptInjection(string $slot, string $id, $content, int $priority = 100): bool
+    {
+        return dialecticRegisterPromptInjection($slot, $id, $content, $priority);
+    }
+}
+
+if (!function_exists('chimRenderPromptInjections')) {
+    function chimRenderPromptInjections(string $slot, array $context = []): string
+    {
+        return dialecticRenderPromptInjections($slot, $context);
+    }
+}
+
+if (!function_exists('chimRegisterActorProfileEnricher')) {
+    function chimRegisterActorProfileEnricher(string $id, callable $callback, int $priority = 100): bool
+    {
+        return dialecticRegisterActorProfileEnricher($id, $callback, $priority);
+    }
+}
+
+if (!function_exists('chimBuildActorProfileEnrichmentText')) {
+    function chimBuildActorProfileEnrichmentText(string $actorName, string $actorType, array $context = []): string
+    {
+        return dialecticBuildActorProfileEnrichmentText($actorName, $actorType, $context);
+    }
+}

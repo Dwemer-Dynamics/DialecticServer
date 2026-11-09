@@ -88,11 +88,16 @@ if (!function_exists('dialecticTtsStudioResolveConnectorRow')) {
             return null;
         }
 
+        static $selected = [];
+        if (array_key_exists($driver, $selected)) {
+            return $selected[$driver];
+        }
+
         $rows = array_values(array_filter($ttsConnector->readAll(), function ($row) use ($driver, $ttsConnector) {
             return $ttsConnector->normalizeDriverValue($row['driver'] ?? '') === $driver;
         }));
         if (empty($rows)) {
-            return null;
+            return $selected[$driver] = null;
         }
 
         $profileUsageMap = [];
@@ -133,7 +138,15 @@ if (!function_exists('dialecticTtsStudioResolveConnectorRow')) {
             return $aId <=> $bId;
         });
 
-        return $ttsConnector->getById(intval($rows[0]['id'] ?? 0));
+        $row = $rows[0];
+        if ($driver === 'pockettts') {
+            $row = dialecticTtsStudioSelectPocketTtsConnector(
+                $rows, $playerConnectorId, $profileUsageMap,
+                $ttsConnector->getDefaultUrlForDriver($driver),
+                [$ttsConnector, 'resolveConnectorUrl']
+            );
+        }
+        return $selected[$driver] = $ttsConnector->getById(intval($row['id'] ?? 0));
     }
 }
 
@@ -206,13 +219,17 @@ if (!function_exists('dialecticTtsStudioDetectPocketTtsRuntime')) {
             ? dialecticTtsStudioProbeJson($audioCppBase . '/v1/models')
             : ['response' => false, 'decoded' => null, 'http_code' => 0, 'curl_error' => ''];
         $speakersProbe = dialecticTtsStudioProbeJson($endpoint . '/speakers_list');
+        $standardProvider = dialecticTtsStudioProbeSucceeded($speakersProbe)
+            ? dialecticTtsStudioDetectEndpointProvider($endpoint)['provider']
+            : '';
 
         return $cache[$endpoint] = dialecticTtsStudioClassifyPocketTtsRuntime(
             $endpoint,
             dialecticTtsStudioResolveConnectorMetadata('pockettts'),
             $healthProbe,
             $modelsProbe,
-            $speakersProbe
+            $speakersProbe,
+            $standardProvider
         );
     }
 }

@@ -62,6 +62,7 @@ require_once($path . "lib/utils_game_timestamp.php");
 require_once($path . "lib/logger.php"); 
 require_once($path . "lib/save_rollback.php");
 require_once($path . "processor/captured_dialogue.php");
+dialecticRunExtensionHook("globals.php");
 
 // New profile system
 require_once($path . "lib/core/api_badge.class.php");
@@ -357,6 +358,9 @@ if (isset($gameRequest[3]) && is_string($gameRequest[3]) &&
     }
 }
 
+// Call extension's preprocessing files
+dialecticRunExtensionHook("preprocessing.php");
+
 if (in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext","cheatmode","instruction","init"])) {
     // This is just a mark that user has made an input request. We will check later when waiting for LLm response 
     // if user has made input after initial request, so we can abort it.
@@ -382,7 +386,7 @@ if (in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext","ch
 $fast_commands = ["updateprofile","updateprofile_narrator","diary","diary_narrator","diary_player","setconf","request","_speech","captured_dialogue",
     "infoaction","status_msg","delete_event","itemfound","chat","goodnight","waitstart","waitstop",
     "updateprofiles_batch_async","core_profile_assign","switchrace","combatbark",
-    "region"];
+    "region","pluginevent"];
 
 $GLOBALS["all_fast_commands"] = $fast_commands;
 
@@ -443,6 +447,11 @@ if (in_array($gameRequest[0],["inputtext","inputtext_s","narrator_inputtext"]) &
 // Narrator inititalization
 // Note: We should check if we need to load Narrator profile in all type of requests. 
 require(__DIR__."/processor/narrator_init.php");
+// Quest selection precedes profile loading and bypasses the generic RPG chance/cooldown.
+if (in_array($gameRequest[0] ?? '', ['quest', 'quest_updated', 'narrator_quest_comment'], true)) {
+    require(__DIR__ . '/processor/quest_comment.php');
+}
+
 
 // maybeQueueNpcVoiceRefresh function moved to misc.php. 
 // If function is called only in one place,and seems has no other uses elsewhere, then there is no point of having a function, write the code in place.
@@ -563,7 +572,40 @@ if (($gameRequest[0] ?? '') === 'bored') {
     }
 }
 
-if (($activeProfile = dialecticRuntimeGetActiveProfile()) !== null) {
+if (!empty($GLOBALS['QUEST_COMMENT_SELECTED'])) {
+    if ($gameRequest[0] === 'quest') {
+        if (!dialecticSwitchActiveNpcProfile($GLOBALS['QUEST_COMMENT_SPEAKER'])) {
+            Logger::warn('[QUEST_COMMENT] NPC profile/connector unavailable; cooldown unchanged');
+            terminate();
+        }
+        $currentNpcData = $GLOBALS['DIALECTIC_CORE_CURRENT_NPC_DATA'];
+        $currentProfileData = $GLOBALS['DIALECTIC_CORE_CURRENT_PROFILE_DATA'];
+        $currentConnectorData = $GLOBALS['DIALECTIC_CORE_CURRENT_CONNECTOR_DATA'];
+    } else {
+        $narrator = new Narrator();
+        $narratorData = $narrator->getNarratorData();
+        $profile = new CoreProfile();
+        $currentProfileData = $profile->getById((int)($narratorData['profile_id'] ?? 0));
+        if (!$currentProfileData) {
+            Logger::warn('[QUEST_COMMENT] Narrator profile unavailable; cooldown unchanged');
+            terminate();
+        }
+        $connector = new LLMConnector();
+        $connectorSlot = LLMRandomizer::getConnectorSlot($currentProfileData, $narratorData, new NpcMaster());
+        $currentConnectorData = $connector->getById(LLMRandomizer::getConnectorIdForSlot($currentProfileData, $connectorSlot));
+        if (!$currentConnectorData) {
+            Logger::warn('[QUEST_COMMENT] Narrator connector unavailable; cooldown unchanged');
+            terminate();
+        }
+        $narrator->loadIntoGlobals();
+        $connector->setOldGlobals($currentConnectorData);
+        $profile->setOldGlobals($currentProfileData);
+        $narrator->loadCharacterIntoGlobals();
+        $GLOBALS['DIALECTIC_CORE_CURRENT_PROFILE_DATA'] = $currentProfileData;
+        $GLOBALS['DIALECTIC_CORE_CURRENT_CONNECTOR_DATA'] = $currentConnectorData;
+    }
+    $GLOBALS['CURRENT_CONNECTOR'] = $currentConnectorData['driver'];
+} elseif (($activeProfile = dialecticRuntimeGetActiveProfile()) !== null) {
     Logger::phaseStart("profile_runtime_load", [
         "type" => $gameRequest[0] ?? "",
         "profile" => $activeProfile,
@@ -1151,6 +1193,21 @@ Logger::phaseEnd("party_context_prepare", [
 
 
 
+dialecticRunExtensionHook("prerequest.php");
+
+// dialectic.plugin_event.v1 state from client addons is for prerequest.php observers only.
+// dialectic.addon_context.v1 is also logged as context, never as player input, without a model call.
+if ($gameRequest[0] === "pluginevent") {
+    $addonContextText = dialecticAddonContextLogText($gameRequest[3] ?? '');
+    if ($addonContextText !== '' && function_exists('logEvent')) {
+        $addonContextEvent = $gameRequest;
+        $addonContextEvent[0] = "infoaction";
+        $addonContextEvent[3] = $addonContextText;
+        logEvent($addonContextEvent);
+    }
+    terminate();
+}
+
 // Non-LLM request handling.
 // We need to include this file asap. Most events are handled there.
 // Log events are handled there to, which are the most called requests, and we want to exit as fast as possible for them.
@@ -1612,72 +1669,6 @@ if ($gameRequest[0] == "narrator_welcome") {
     }
 }
 
-// Handle narrator_quest_comment events after the request processor converts quest to narrator_quest_comment.
-if ($gameRequest[0] == "narrator_quest_comment") {
-    // Load narrator profile with full connector configuration
-    require_once(__DIR__ . DIRECTORY_SEPARATOR . "lib" . DIRECTORY_SEPARATOR . "core" . DIRECTORY_SEPARATOR . "narrator.class.php");
-    $narrator = new Narrator();
-    $narratorData = $narrator->getNarratorData();
-    
-    if ($narratorData && isset($narratorData["profile_id"])) {
-        // Load Narrator profile - set connector and profile first, character data last
-        $profile = new CoreProfile();
-        $currentProfileData = $profile->getById($narratorData["profile_id"]);
-        
-        if (!$currentProfileData) {
-            Logger::error("[NARRATOR_QUEST_COMMENT] Profile ID {$narratorData['profile_id']} not found in core_profiles table");
-            Logger::error("[NARRATOR_QUEST_COMMENT] Please ensure The Narrator has a valid profile assigned");
-            terminate();
-        }
-        
-        $GLOBALS["DIALECTIC_CORE_CURRENT_PROFILE_DATA"] = $currentProfileData;
-        
-        $connector = new LLMConnector();
-        
-        // Get global connector slot (respects in-game mode)
-        $db = $GLOBALS['db'];
-        $result = $db->fetchOne("SELECT value FROM conf_opts WHERE id='dialectic_profile_model'");
-        $connectorSlot = (isset($result['value']) && $result['value'] >= 1 && $result['value'] <= 4) 
-            ? (int)$result['value'] 
-            : 1;
-        
-        $connectorId = LLMRandomizer::getConnectorIdForSlot($currentProfileData, $connectorSlot);
-        
-        $slotName = LLMRandomizer::getSlotName($connectorSlot);
-        
-        if (!$connectorId) {
-            Logger::error("[NARRATOR_QUEST_COMMENT] No connector assigned to {$slotName} slot (slot {$connectorSlot}) for profile '{$currentProfileData['label']}'");
-            Logger::error("[NARRATOR_QUEST_COMMENT] Please configure connectors for The Narrator's profile:");
-            Logger::error("[NARRATOR_QUEST_COMMENT]   - Go to Profile Management > Edit The Narrator's profile");
-            Logger::error("[NARRATOR_QUEST_COMMENT]   - Assign connectors to: Standard (slot 1), Fast (slot 2), Powerful (slot 3), Experimental (slot 4)");
-            Logger::error("[NARRATOR_QUEST_COMMENT]   - The system uses the ingame mode setting to pick which connector to use");
-            terminate();
-        }
-        
-        $currentConnectorData = $connector->getById($connectorId);
-        
-        if (!$currentConnectorData) {
-            Logger::error("[NARRATOR_QUEST_COMMENT] Connector ID {$connectorId} not found in core_connectors table");
-            terminate();
-        }
-        
-        $connector->setOldGlobals($currentConnectorData);
-        $profile->setOldGlobals($currentProfileData);
-        
-        // Load narrator character data into GLOBALS
-        $narrator->loadCharacterIntoGlobals();
-        
-        $GLOBALS["DIALECTIC_CORE_CURRENT_CONNECTOR_DATA"] = $currentConnectorData;
-        
-        // Keep connector globals populated for shared connector helpers.
-        $GLOBALS["CURRENT_CONNECTOR"] = $currentConnectorData['driver'];
-    } else {
-        Logger::error("[NARRATOR_QUEST_COMMENT] Narrator profile_id not found in core_narrator table");
-        Logger::error("[NARRATOR_QUEST_COMMENT] Please configure The Narrator in Narrator Management");
-        terminate();
-    }
-}
-
 if ($MUST_END) {  // Shorthand for non LLM processing
     dialectic_buffer_response_close();
     if (microtime(true) - $startTime > 0.5) {
@@ -2123,7 +2114,6 @@ $rpgCommentEventMap = [
     'lockpicked'    => 'lockpick',
     'goodmorning'   => 'sleep',
     'location_changed' => 'location_changed',
-    'quest_updated' => 'quest_updated',
 ];
 $rpgCommentEventType = $rpgCommentEventMap[$gameRequest[0]] ?? null;
 
@@ -2615,6 +2605,12 @@ if (isset($GLOBALS["TTSFUNCTION"]) && !empty($GLOBALS["TTSFUNCTION"])) {
 
 //dialecticFormatPromptXmlSections moved to misc.php, dialecticRemovePromptXmlBlock,dialecticApplyPromptContextOptionsToSystemPrompt moved to misc.php
 
+// Check for context overrides on ext dir (plugins) before system prompt build
+// Re-sync nearby sections after context_pre plugins, since plugins can mutate PROMPT_NEARBY_SECTIONS.
+if (dialecticRunExtensionHook("context_pre.php") !== [] && isset($GLOBALS["PROMPT_NEARBY_SECTIONS"])) {
+    $nearbySections = $GLOBALS["PROMPT_NEARBY_SECTIONS"];
+}
+
 $promptInjectionContext = [
     "game_request" => $gameRequest,
     "dialectic_name" => function_exists('dialecticGetPromptCharacterName') ? dialecticGetPromptCharacterName() : ($GLOBALS["DIALECTIC_NAME"] ?? ""),
@@ -2695,6 +2691,9 @@ if (!empty($GLOBALS["WORLDKNOWLEDGE_HINT"])) {
     //avoid reinjecting command prompt that we have already appended
     $GLOBALS["COMMAND_PROMPT"] = "";
 }
+
+// Check for context overrides on ext dir (plugins) after system prompt build
+dialecticRunExtensionHook("context.php");
 
 /**********************
 CALL BUILDING
@@ -2953,6 +2952,11 @@ if (php_sapi_name()=="cli" && !getenv('PHPUNIT_TEST')) {
 }
 
 
+// MAIN still serializes quest selection here; failed/empty output leaves the cooldown untouched.
+if (!empty($GLOBALS['QUEST_COMMENT_SELECTED']) && !empty($talkedSoFar) && !$ERROR_TRIGGERED) {
+    $db->upsertRowOnConflict('conf_opts', ['id' => 'QUEST_COMMENT_LAST_TIMESTAMP', 'value' => time()], 'id');
+}
+
 // POST PROCESS TASKS
 SemaphoreManager::release("MAIN");
 
@@ -2990,6 +2994,8 @@ if (dialectic_json_response_enabled()) {
     ], "info");
 
     if (!getenv("PHPUNIT_TEST")) {
+        // The JSON path exits here, so CHIM's post-request stages run now.
+        dialecticRunPostResponseExtensionHooks();
         exit;
     }
 
@@ -3000,7 +3006,9 @@ if ($dialecticResponseEmittedBeforePostrequest && !getenv("PHPUNIT_TEST")) {
     ob_start();
     $dialecticPostrequestBufferLevel = ob_get_level();
 }
+dialecticRunExtensionHook("prepostrequest.php");
 require(__DIR__.DIRECTORY_SEPARATOR."processor".DIRECTORY_SEPARATOR."postrequest.php");
+dialecticRunExtensionHook("postrequest.php");
 if ($dialecticResponseEmittedBeforePostrequest && !getenv("PHPUNIT_TEST")) {
     $dialecticPostrequestBufferLevel = intval($dialecticPostrequestBufferLevel ?? 0);
     while ($dialecticPostrequestBufferLevel > 0 && ob_get_level() >= $dialecticPostrequestBufferLevel) {

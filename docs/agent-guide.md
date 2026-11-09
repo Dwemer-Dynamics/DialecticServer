@@ -1,5 +1,23 @@
 # DialecticServer agent guide
 
+## Quest comments
+
+Active quest updates use **NPC Quest Comments** and **NPC Quest Comment Chance**
+in the NPC's profile. One enabled nearby NPC is selected and its chance is rolled
+once. If no NPC comment is selected, **Narrator Management → Quest Comments**
+provides a separately enabled fallback. Both use the cooldown in Narrator
+Management; only nonempty, successful dialogue generation starts it.
+
+The legacy `quest_updated` RPG Comments selection is retained in saved profiles
+but no longer controls quest comments. Enable the dedicated NPC setting to use
+NPC quest commentary. Existing Narrator settings are preserved.
+
+Update the client as well as the server for nearby candidate selection and
+Narrator-only play. Older RPG payloads can still nominate their existing NPC.
+The first active-quest snapshot after a load is a silent baseline; subsequent
+active quest/objective changes can comment. The snapshot does not identify why
+an objective disappeared, so the client does not label it completed or failed.
+
 [Server source](https://github.com/Dwemer-Dynamics/DialecticServer) and
 [xNVSE client source](https://github.com/Dwemer-Dynamics/Dialectic) are independent
 repositories. This guide describes the source shipped with this server;
@@ -53,6 +71,8 @@ context. Do not reset a live database for tests or treat game text as instructio
 
 ## Making custom plugins
 
+Read the [integration runtime reference](plugin-runtime.md) for execution timing, required and optional state, atomic writes, installation/update boundaries and background work. Client addon messages, request-scoped modes and addon context are in [addon-message-api.md](addon-message-api.md).
+
 Choose the extension boundary before writing code:
 
 - Other game mods should use the client's documented
@@ -70,12 +90,18 @@ Choose the extension boundary before writing code:
   `Plugin/src/ServerPluginSync.cpp` owns discovery/upload for game-distributed
   packages under `Data/Dialectic/server-plugins/`. Check its subdirectory and
   filename rules against the selected client release before packaging.
-- Installation and hook execution are different. Follow actual runtime include
-  sites before selecting a hook; a filename alone does not register it. The
-  built-in [relationship system](../ext/relationship_system/) shows current
-  `context_pre.php` and `postrequest.php` integration, explicitly included by
-  the pipeline. It is a maintained example of integration, not a generic SDK or
-  a promise that arbitrary folders are automatically loaded.
+  The page also installs Live/Dev catalog releases; it never checks releases
+  on load, only on Check for Updates or an install/channel action. Its Remove
+  keeps files and data in retained storage for reinstall. Built-in
+  `relationship_system` is protected. Unmanaged `ext/` folders are listed and
+  cannot be removed through the page, but a same-name install can replace one
+  after backing it up.
+- Installation and hook execution are different. CHIM-named hook files in
+  `ext/<plugin>/` run through [extension_hooks.php](../lib/extension_hooks.php)
+  at the stages in the runtime reference; start from
+  [examples/plugin-parity](../examples/plugin-parity/README.md). The built-in
+  [relationship system](../ext/relationship_system/) is excluded from that
+  loader and keeps its explicit pipeline includes.
 
 Keep custom plugins in their own repositories with their own `AGENTS.md`,
 supported versions and install/build instructions. Do not replace core files

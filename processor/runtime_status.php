@@ -46,6 +46,7 @@ try {
         "INJECTION_LOG" => 6,
         "INJECTION_CHAT" => 7,
         "CHEATMODE" => 8,
+        "HYPNOSIS" => 9,
     ];
     if (!array_key_exists($mode, $allowedModes)) {
         $mode = "STANDARD";
