@@ -64,7 +64,7 @@ function dialecticNpcManagerFindNpc(array $input): array
         throw new InvalidArgumentException('NPC id is required');
     }
     $row = $GLOBALS['db']->fetchOne("SELECT * FROM core_npc_master WHERE id = {$id} LIMIT 1");
-    if (!is_array($row)) {
+    if (!is_array($row) || $row === []) {
         throw new InvalidArgumentException('NPC not found');
     }
     return $row;
@@ -114,13 +114,8 @@ function dialecticNpcManagerEventRecipients($people): array
     return $recipients;
 }
 
-function dialecticNpcManagerHistory(array $input): array
+function dialecticNpcManagerHistoryTypesWhere(): string
 {
-    $npc = dialecticNpcManagerFindNpc($input);
-    $npcName = trim((string)($npc['npc_name'] ?? ''));
-    $limit = max(1, min(100, intval($input['limit'] ?? 100)));
-    $selectedEventType = trim((string)($input['event_type'] ?? ''));
-    $hiddenEventTypes = dialecticGetPersistedEventLogHiddenTypes($GLOBALS['db']);
     // Keep NPC History aligned with the PHP Adventure Log's default narrative event list.
     $allowedEventTypes = [
         'im_alive',
@@ -141,7 +136,17 @@ function dialecticNpcManagerHistory(array $input): array
     $escapedAllowedEventTypes = array_map(static function ($eventType) {
         return "'" . $GLOBALS['db']->escape($eventType) . "'";
     }, $allowedEventTypes);
-    $allowedTypesWhere = 'a.type IN (' . implode(',', $escapedAllowedEventTypes) . ')';
+    return 'a.type IN (' . implode(',', $escapedAllowedEventTypes) . ')';
+}
+
+function dialecticNpcManagerHistory(array $input): array
+{
+    $npc = dialecticNpcManagerFindNpc($input);
+    $npcName = trim((string)($npc['npc_name'] ?? ''));
+    $limit = max(1, min(100, intval($input['limit'] ?? 100)));
+    $selectedEventType = trim((string)($input['event_type'] ?? ''));
+    $hiddenEventTypes = dialecticGetPersistedEventLogHiddenTypes($GLOBALS['db']);
+    $allowedTypesWhere = dialecticNpcManagerHistoryTypesWhere();
     $peopleWhere = dialecticBuildNpcEventLogPeopleWhereClause($GLOBALS['db'], $npcName, 'a.people');
     $visibleWhere = dialecticBuildVisibleEventLogWhereClause(
         $GLOBALS['db'],
@@ -338,6 +343,79 @@ function dialecticNpcManagerDeleteEvent(array $input): array
     return ['message' => 'Event deleted.', 'rowid' => $rowId];
 }
 
+// Bulk deletion accepts 1-100 unique positive event IDs and never deletes part of a batch.
+function dialecticNpcManagerNormalizeEventRowIds($value): array
+{
+    if (!is_array($value) || !array_is_list($value) || $value === []) {
+        throw new InvalidArgumentException('Select at least one event');
+    }
+    if (count($value) > 100) {
+        throw new InvalidArgumentException('Select at most 100 events at a time');
+    }
+    $rowIds = [];
+    foreach ($value as $rowId) {
+        if (is_string($rowId) && preg_match('/^[1-9][0-9]{0,17}$/', $rowId)) {
+            $rowId = intval($rowId);
+        }
+        if (!is_int($rowId) || $rowId <= 0) {
+            throw new InvalidArgumentException('Invalid event row');
+        }
+        if (isset($rowIds[$rowId])) {
+            throw new InvalidArgumentException('Duplicate event row');
+        }
+        $rowIds[$rowId] = $rowId;
+    }
+    return array_values($rowIds);
+}
+
+// Every selected row must still be a visible history event for this NPC; the locked
+// check and delete share one transaction so a stale or mixed batch deletes nothing.
+function dialecticNpcManagerDeleteEvents(array $input): array
+{
+    $npc = dialecticNpcManagerFindNpc($input);
+    $npcName = trim((string)($npc['npc_name'] ?? ''));
+    if ($npcName === '') {
+        throw new InvalidArgumentException('NPC name is required to delete events');
+    }
+    $rowIds = dialecticNpcManagerNormalizeEventRowIds($input['rowids'] ?? null);
+    $db = $GLOBALS['db'];
+    $rowIdList = implode(',', $rowIds);
+    $allowedTypesWhere = dialecticNpcManagerHistoryTypesWhere();
+    $visibleWhere = dialecticBuildVisibleEventLogWhereClause($db, '', dialecticGetPersistedEventLogHiddenTypes($db));
+    $peopleWhere = dialecticBuildNpcEventLogPeopleWhereClause($db, $npcName, 'a.people');
+
+    if ($db->query('BEGIN') === false) {
+        throw new RuntimeException('Could not begin event deletion');
+    }
+    try {
+        $available = $db->fetchAll(
+            "SELECT a.rowid FROM eventlog a
+             WHERE a.rowid IN ({$rowIdList}) AND {$allowedTypesWhere} AND {$visibleWhere} AND {$peopleWhere}
+             FOR UPDATE OF a"
+        );
+        if (count((array)$available) !== count($rowIds)) {
+            throw new InvalidArgumentException('Some selected events are no longer available in this NPC history. Nothing was deleted.');
+        }
+        $deleted = $db->fetchAll("DELETE FROM eventlog WHERE rowid IN ({$rowIdList}) RETURNING rowid");
+        if (count((array)$deleted) !== count($rowIds)) {
+            throw new RuntimeException('Event deletion count did not match the selection');
+        }
+        if ($db->query('COMMIT') === false) {
+            throw new RuntimeException('Could not commit event deletion');
+        }
+    } catch (Throwable $error) {
+        $db->query('ROLLBACK');
+        throw $error;
+    }
+
+    $count = count($rowIds);
+    return [
+        'message' => $count === 1 ? '1 event deleted.' : $count . ' events deleted.',
+        'deleted_count' => $count,
+        'rowids' => $rowIds,
+    ];
+}
+
 // Resolve the latest tracked NPC position to a stable synchronized location marker.
 function dialecticNpcManagerResolveReturnLocation(array $lastCoords): ?array
 {
@@ -531,6 +609,9 @@ try {
     }
     if ($operation === 'delete_event') {
         dialecticNpcManagerRespond(['success' => true, 'data' => dialecticNpcManagerDeleteEvent($input)]);
+    }
+    if ($operation === 'delete_events') {
+        dialecticNpcManagerRespond(['success' => true, 'data' => dialecticNpcManagerDeleteEvents($input)]);
     }
     throw new InvalidArgumentException('Unsupported NPC manager operation');
 } catch (InvalidArgumentException $error) {
