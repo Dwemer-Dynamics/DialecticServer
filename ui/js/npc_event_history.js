@@ -50,6 +50,16 @@
         let searchTimer = null;
         let searchGeneration = 0;
         let selectedEventType = '';
+        // Selection covers loaded physical rows only; loadGeneration drops stale responses
+        // and busy blocks overlapping deletes, reloads and filter changes.
+        const selectedRowIds = new Set();
+        let deletableRowIds = [];
+        let sharedRowIds = new Set();
+        let selectAllBox = null;
+        let loadGeneration = 0;
+        let busy = false;
+        // Server context for the loaded rows; deletes are rejected after a playthrough switch.
+        let historyToken = '';
 
         root.innerHTML = `
             <div class="npc-event-history-shell span-2">
@@ -79,6 +89,11 @@
                         </label>
                         <span class="npc-event-history-filter-note" data-history-filter-note>Using Event Log visibility filters.</span>
                     </div>
+                    <div class="npc-event-history-bulkbar">
+                        <button type="button" class="npc-event-history-delete" data-history-delete-selected disabled>Delete selected (0)</button>
+                        <button type="button" class="npc-event-history-clear" data-history-clear-selection disabled>Clear selection</button>
+                        <span class="npc-event-history-status" data-history-events-status role="status" aria-live="polite"></span>
+                    </div>
                     <div class="npc-event-history-list" data-history-list><p class="npc-event-history-empty">Open this tab to load recent events.</p></div>
                 </section>
             </div>`;
@@ -93,10 +108,45 @@
         const refreshButton = root.querySelector('[data-history-refresh]');
         const eventTypeSelect = root.querySelector('[data-history-event-type]');
         const filterNote = root.querySelector('[data-history-filter-note]');
+        const deleteSelectedButton = root.querySelector('[data-history-delete-selected]');
+        const clearSelectionButton = root.querySelector('[data-history-clear-selection]');
+        const eventsStatus = root.querySelector('[data-history-events-status]');
 
         function setStatus(message, isError) {
             status.textContent = message || '';
             status.classList.toggle('is-error', Boolean(isError));
+        }
+
+        function setEventsStatus(message, isError) {
+            eventsStatus.textContent = message || '';
+            eventsStatus.classList.toggle('is-error', Boolean(isError));
+        }
+
+        // Sync the bulk buttons, select-all state and per-row controls with the selection.
+        function updateSelectionUi() {
+            const count = selectedRowIds.size;
+            deleteSelectedButton.textContent = 'Delete selected (' + count + ')';
+            deleteSelectedButton.disabled = busy || count === 0;
+            clearSelectionButton.disabled = busy || count === 0;
+            if (selectAllBox) {
+                selectAllBox.checked = count > 0 && count === deletableRowIds.length;
+                selectAllBox.indeterminate = count > 0 && count < deletableRowIds.length;
+                selectAllBox.disabled = busy || deletableRowIds.length === 0;
+            }
+            list.querySelectorAll('[data-history-select-row]').forEach(function (box) {
+                box.checked = selectedRowIds.has(Number(box.value));
+                box.disabled = busy;
+            });
+            list.querySelectorAll('.npc-event-history-delete').forEach(function (button) {
+                button.disabled = busy;
+            });
+            refreshButton.disabled = busy;
+            eventTypeSelect.disabled = busy;
+        }
+
+        function setBusy(value) {
+            busy = Boolean(value);
+            updateSelectionUi();
         }
 
         function renderRecipients() {
@@ -174,6 +224,12 @@
 
         function renderEvents(events) {
             list.replaceChildren();
+            selectAllBox = null;
+            const physicalEvents = events.filter(function (event) { return !event.virtual && Number(event.rowid) > 0; });
+            deletableRowIds = physicalEvents.map(function (event) { return Number(event.rowid); });
+            sharedRowIds = new Set(physicalEvents
+                .filter(function (event) { return Array.isArray(event.recipients) && event.recipients.length > 1; })
+                .map(function (event) { return Number(event.rowid); }));
             if (!events.length) {
                 list.appendChild(element('p', 'npc-event-history-empty', 'No events are recorded for this NPC yet.'));
                 return;
@@ -182,6 +238,18 @@
             const table = element('table', 'npc-event-history-table');
             const thead = document.createElement('thead');
             const headerRow = document.createElement('tr');
+            const selectHeader = element('th', 'npc-event-history-select');
+            selectAllBox = document.createElement('input');
+            selectAllBox.type = 'checkbox';
+            selectAllBox.setAttribute('aria-label', 'Select all loaded events');
+            selectAllBox.addEventListener('change', function () {
+                const selectAll = selectAllBox.checked;
+                selectedRowIds.clear();
+                if (selectAll) deletableRowIds.forEach(function (rowId) { selectedRowIds.add(rowId); });
+                updateSelectionUi();
+            });
+            selectHeader.appendChild(selectAllBox);
+            headerRow.appendChild(selectHeader);
             ['Type', 'Event', 'People Present', 'Fallout Time', 'Time (UTC)', ''].forEach(function (label) {
                 headerRow.appendChild(element('th', '', label));
             });
@@ -191,6 +259,7 @@
                 const row = document.createElement('tr');
                 if (event.virtual) {
                     row.className = 'npc-event-history-virtual';
+                    row.appendChild(element('td', 'npc-event-history-select'));
                     const typeCell = element('td', 'npc-event-history-type');
                     typeCell.appendChild(element('span', 'rel-timeline-type', event.type || 'relationship'));
                     row.appendChild(typeCell);
@@ -211,6 +280,21 @@
                     tbody.appendChild(row);
                     return;
                 }
+                const rowId = Number(event.rowid);
+                const selectCell = element('td', 'npc-event-history-select');
+                const selectBox = document.createElement('input');
+                selectBox.type = 'checkbox';
+                selectBox.value = String(rowId);
+                selectBox.setAttribute('data-history-select-row', '');
+                selectBox.setAttribute('aria-label', 'Select ' + (event.type || 'event') + ' event'
+                    + (event.fallout_time ? ' from ' + event.fallout_time : ''));
+                selectBox.addEventListener('change', function () {
+                    if (selectBox.checked) selectedRowIds.add(rowId);
+                    else selectedRowIds.delete(rowId);
+                    updateSelectionUi();
+                });
+                selectCell.appendChild(selectBox);
+                row.appendChild(selectCell);
                 row.appendChild(element('td', 'npc-event-history-type', event.type || 'Event'));
                 row.appendChild(element('td', 'npc-event-history-data', event.data || ''));
                 row.appendChild(element(
@@ -223,22 +307,27 @@
                 const deleteButton = element('button', 'npc-event-history-delete', 'Delete');
                 deleteButton.type = 'button';
                 deleteButton.addEventListener('click', async function () {
+                    if (busy) return;
                     const shared = Array.isArray(event.recipients) && event.recipients.length > 1;
                     const warning = shared ? ' This removes it from every listed NPC history.' : '';
                     if (!global.confirm('Delete this event?' + warning)) return;
-                    deleteButton.disabled = true;
+                    setBusy(true);
                     try {
                         await requestJson(apiUrl, {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({operation: 'delete_event', id: npcId, rowid: Number(event.rowid)})
+                            body: JSON.stringify({operation: 'delete_event', id: npcId, rowid: rowId, history_token: historyToken})
                         });
-                        setStatus('Event deleted.', false);
-                        await load();
                     } catch (error) {
-                        setStatus('Delete failed: ' + (error.message || error), true);
-                        deleteButton.disabled = false;
+                        setBusy(false);
+                        setEventsStatus('Delete failed: ' + (error.message || error), true);
+                        deleteButton.focus();
+                        return;
                     }
+                    setBusy(false);
+                    setEventsStatus('Event deleted.', false);
+                    await load();
+                    refreshButton.focus();
                 });
                 const actions = document.createElement('td');
                 actions.appendChild(deleteButton);
@@ -248,23 +337,80 @@
             table.append(thead, tbody);
             tableWrap.appendChild(table);
             list.appendChild(tableWrap);
+            updateSelectionUi();
         }
 
         async function load() {
-            if (npcId <= 0) return;
-            refreshButton.disabled = true;
+            if (npcId <= 0 || busy) return;
+            const generation = ++loadGeneration;
+            selectedRowIds.clear();
+            deletableRowIds = [];
+            sharedRowIds = new Set();
+            selectAllBox = null;
+            historyToken = '';
             list.replaceChildren(element('p', 'npc-event-history-empty', 'Loading recent events...'));
+            updateSelectionUi();
+            refreshButton.disabled = true;
             try {
                 const query = new URLSearchParams({operation: 'history', id: String(npcId), limit: '100'});
                 if (selectedEventType) query.set('event_type', selectedEventType);
                 const data = await requestJson(apiUrl + '?' + query.toString(), {cache: 'no-store'});
+                if (generation !== loadGeneration) return;
+                // The same id can name another NPC after a playthrough switch; never show or
+                // delete that NPC's rows under this panel's name.
+                const loadedName = String((data.npc && data.npc.name) || '').trim();
+                if (npcName && loadedName && loadedName.toLowerCase() !== npcName.toLowerCase()) {
+                    list.replaceChildren(element('p', 'npc-event-history-empty is-error',
+                        'This NPC record changed (for example after a playthrough switch). Reopen the NPC to view its history.'));
+                    return;
+                }
+                historyToken = String(data.history_token || '');
                 renderFilters(data.filters || {});
                 renderEvents(Array.isArray(data.events) ? data.events : []);
             } catch (error) {
+                if (generation !== loadGeneration) return;
                 list.replaceChildren(element('p', 'npc-event-history-empty is-error', 'History failed to load: ' + (error.message || error)));
             } finally {
-                refreshButton.disabled = false;
+                if (generation === loadGeneration) refreshButton.disabled = busy;
             }
+        }
+
+        // Delete the checked rows in one all-or-nothing request after confirming the impact.
+        async function deleteSelected() {
+            if (busy || selectedRowIds.size === 0) return;
+            const rowIds = Array.from(selectedRowIds);
+            const count = rowIds.length;
+            const noun = count === 1 ? 'event' : 'events';
+            const sharedCount = rowIds.filter(function (rowId) { return sharedRowIds.has(rowId); }).length;
+            let message = 'Delete ' + count + ' selected ' + noun + ' from ' + (npcName || 'this NPC') + '\'s history?';
+            if (sharedCount > 0) {
+                message += ' ' + sharedCount + ' of them ' + (sharedCount === 1 ? 'is' : 'are')
+                    + ' shared and will be removed from every listed NPC history.';
+            }
+            message += ' This cannot be undone.';
+            if (!global.confirm(message)) {
+                deleteSelectedButton.focus();
+                return;
+            }
+            setBusy(true);
+            setEventsStatus('Deleting ' + count + ' ' + noun + '...', false);
+            let data = null;
+            try {
+                data = await requestJson(apiUrl, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({operation: 'delete_events', id: npcId, rowids: rowIds, history_token: historyToken})
+                });
+            } catch (error) {
+                setBusy(false);
+                setEventsStatus('Delete failed: ' + (error.message || error), true);
+                deleteSelectedButton.focus();
+                return;
+            }
+            setBusy(false);
+            setEventsStatus((data && data.message) || (count + ' ' + noun + ' deleted.'), false);
+            await load();
+            refreshButton.focus();
         }
 
         recipientSearch.addEventListener('input', function () {
@@ -272,6 +418,13 @@
             searchTimer = setTimeout(searchNpcRecipients, 250);
         });
         refreshButton.addEventListener('click', load);
+        deleteSelectedButton.addEventListener('click', deleteSelected);
+        clearSelectionButton.addEventListener('click', function () {
+            selectedRowIds.clear();
+            updateSelectionUi();
+            setEventsStatus('', false);
+            (selectAllBox || refreshButton).focus();
+        });
         eventTypeSelect.addEventListener('change', function () {
             selectedEventType = eventTypeSelect.value;
             load();

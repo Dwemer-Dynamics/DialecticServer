@@ -1,5 +1,5 @@
 .npc-editor-panel-history { grid-template-columns:minmax(0, 1fr) !important; }
-.npc-event-history-shell { display:grid; gap:12px; width:100%; }
+.npc-event-history-shell { display:grid; grid-template-columns:minmax(0, 1fr); gap:12px; width:100%; }
 .npc-event-history-section { padding:14px; border:1px solid #444; border-radius:8px; background:#252525; }
 .npc-event-history-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:10px; }
 .npc-event-history-heading h3 { margin:0 0 3px; color:rgb(255,182,65); font-size:1rem; }
@@ -26,15 +26,25 @@
 .npc-event-history-filter-note { color:#929dab; font-size:.74rem; overflow-wrap:anywhere; }
 .npc-event-history-list { max-height:440px; overflow:auto; }
 .npc-event-history-table-wrap { overflow-x:auto; border:1px solid #3f3f3f; border-radius:6px; background:#1d1d1d; }
-.npc-event-history-table { width:100%; min-width:900px; border-collapse:collapse; color:#e5e5e5; font-size:.78rem; }
+.npc-event-history-table { width:100%; min-width:940px; border-collapse:collapse; color:#e5e5e5; font-size:.78rem; }
 .npc-event-history-table th { position:sticky; top:0; z-index:1; padding:9px 10px; border-bottom:1px solid #555; background:#292929; color:rgb(255,182,65); text-align:left; white-space:nowrap; }
 .npc-event-history-table td { padding:9px 10px; border-bottom:1px solid #363636; vertical-align:top; line-height:1.35; }
 .npc-event-history-table tbody tr:last-child td { border-bottom:0; }
 .npc-event-history-table tbody tr:hover td { background:rgba(255,182,65,.08); }
-.npc-event-history-table th:nth-child(2),
-.npc-event-history-table td:nth-child(2) { min-width:320px; }
 .npc-event-history-table th:nth-child(3),
-.npc-event-history-table td:nth-child(3) { min-width:220px; }
+.npc-event-history-table td:nth-child(3) { min-width:320px; }
+.npc-event-history-table th:nth-child(4),
+.npc-event-history-table td:nth-child(4) { min-width:220px; }
+.npc-event-history-table .npc-event-history-select { width:34px; padding-right:0; }
+.npc-event-history-select input { width:16px; height:16px; margin:0; accent-color:rgb(255,182,65); cursor:pointer; }
+.npc-event-history-select input:disabled { cursor:not-allowed; }
+.npc-event-history-bulkbar { display:flex; align-items:center; flex-wrap:wrap; gap:8px 10px; margin-bottom:10px; }
+.npc-event-history-clear { border:1px solid #555; border-radius:5px; background:#2b2b2b; color:#eee; cursor:pointer; padding:5px 8px; }
+.npc-event-history-clear:hover { border-color:rgb(255,182,65); }
+.npc-event-history-delete:disabled,
+.npc-event-history-clear:disabled { opacity:.5; cursor:not-allowed; }
+.npc-event-history-delete:disabled:hover { border-color:#74424a; }
+.npc-event-history-clear:disabled:hover { border-color:#555; }
 .npc-event-history-type { color:rgb(255,182,65); font-weight:700; white-space:nowrap; }
 .npc-event-history-delete { border:1px solid #74424a; border-radius:5px; background:#442a2e; color:#f5c3c7; cursor:pointer; padding:5px 8px; }
 .npc-event-history-delete:hover { border-color:#bd5d68; }
