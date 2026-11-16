@@ -58,6 +58,8 @@
         let selectAllBox = null;
         let loadGeneration = 0;
         let busy = false;
+        // Server context for the loaded rows; deletes are rejected after a playthrough switch.
+        let historyToken = '';
 
         root.innerHTML = `
             <div class="npc-event-history-shell span-2">
@@ -314,7 +316,7 @@
                         await requestJson(apiUrl, {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({operation: 'delete_event', id: npcId, rowid: rowId})
+                            body: JSON.stringify({operation: 'delete_event', id: npcId, rowid: rowId, history_token: historyToken})
                         });
                     } catch (error) {
                         setBusy(false);
@@ -345,6 +347,7 @@
             deletableRowIds = [];
             sharedRowIds = new Set();
             selectAllBox = null;
+            historyToken = '';
             list.replaceChildren(element('p', 'npc-event-history-empty', 'Loading recent events...'));
             updateSelectionUi();
             refreshButton.disabled = true;
@@ -353,6 +356,15 @@
                 if (selectedEventType) query.set('event_type', selectedEventType);
                 const data = await requestJson(apiUrl + '?' + query.toString(), {cache: 'no-store'});
                 if (generation !== loadGeneration) return;
+                // The same id can name another NPC after a playthrough switch; never show or
+                // delete that NPC's rows under this panel's name.
+                const loadedName = String((data.npc && data.npc.name) || '').trim();
+                if (npcName && loadedName && loadedName.toLowerCase() !== npcName.toLowerCase()) {
+                    list.replaceChildren(element('p', 'npc-event-history-empty is-error',
+                        'This NPC record changed (for example after a playthrough switch). Reopen the NPC to view its history.'));
+                    return;
+                }
+                historyToken = String(data.history_token || '');
                 renderFilters(data.filters || {});
                 renderEvents(Array.isArray(data.events) ? data.events : []);
             } catch (error) {
@@ -387,7 +399,7 @@
                 data = await requestJson(apiUrl, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({operation: 'delete_events', id: npcId, rowids: rowIds})
+                    body: JSON.stringify({operation: 'delete_events', id: npcId, rowids: rowIds, history_token: historyToken})
                 });
             } catch (error) {
                 setBusy(false);

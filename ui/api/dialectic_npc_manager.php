@@ -139,9 +139,40 @@ function dialecticNpcManagerHistoryTypesWhere(): string
     return 'a.type IN (' . implode(',', $escapedAllowedEventTypes) . ')';
 }
 
+// A stale request that must be reloaded rather than retried as-is; nothing was changed.
+class DialecticNpcManagerConflict extends RuntimeException {}
+
+// Bind loaded history to the active playthrough and NPC identity. Every activation
+// rotates PLAYTHROUGH_HOME_REVISION, so rows loaded before a switch cannot target rows
+// that reuse the same IDs afterwards. Installations without Playthrough Saves cannot switch.
+function dialecticNpcManagerHistoryToken(array $npc): string
+{
+    $db = $GLOBALS['db'];
+    $ready = $db->fetchAll(
+        "SELECT to_regclass('dialectic_meta.playthrough_profiles') IS NOT NULL
+            AND to_regclass('dialectic_meta.settings') IS NOT NULL AS ready"
+    );
+    $context = ['uninitialized'];
+    if (($ready[0]['ready'] ?? '') === 't') {
+        $context = [
+            'playthrough',
+            $db->fetchAll('SELECT id, schema_name FROM dialectic_meta.playthrough_profiles WHERE is_active ORDER BY id'),
+            $db->fetchAll("SELECT value FROM dialectic_meta.settings WHERE key = 'PLAYTHROUGH_HOME_REVISION'"),
+        ];
+    }
+    return hash('sha256', json_encode([
+        'npc-history-v1',
+        $context,
+        intval($npc['id'] ?? 0),
+        trim((string)($npc['npc_name'] ?? '')),
+    ]));
+}
+
 function dialecticNpcManagerHistory(array $input): array
 {
     $npc = dialecticNpcManagerFindNpc($input);
+    // Read the context before the rows: a switch in between yields a token that no longer matches.
+    $historyToken = dialecticNpcManagerHistoryToken($npc);
     $npcName = trim((string)($npc['npc_name'] ?? ''));
     $limit = max(1, min(100, intval($input['limit'] ?? 100)));
     $selectedEventType = trim((string)($input['event_type'] ?? ''));
@@ -243,6 +274,7 @@ function dialecticNpcManagerHistory(array $input): array
 
     return [
         'npc' => ['id' => intval($npc['id'] ?? 0), 'name' => $npcName],
+        'history_token' => $historyToken,
         'events' => $mergedEvents,
         'relationship_change_count' => count($relationshipEvents),
         'filters' => [
@@ -318,8 +350,41 @@ function dialecticNpcManagerInjectEvent(array $input): array
     ];
 }
 
+// The root .htaccess allows any origin and Content-Type, so a JSON content type alone does
+// not stop another site's page from posting. Game and CLI clients send no Origin; browsers
+// must be exactly same-origin (a sibling host or another port on this machine is rejected).
+function dialecticNpcManagerRejectCrossOrigin(): void
+{
+    $fetchSite = strtolower(trim((string)($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '')));
+    $origin = trim((string)($_SERVER['HTTP_ORIGIN'] ?? ''));
+    $normalize = static function (string $scheme, string $hostPort): string {
+        $hostPort = strtolower($hostPort);
+        $default = $scheme === 'https' ? ':443' : ':80';
+        return str_ends_with($hostPort, $default) ? substr($hostPort, 0, -strlen($default)) : $hostPort;
+    };
+    $crossOrigin = $fetchSite === 'cross-site' || $fetchSite === 'same-site';
+    if (!$crossOrigin && $origin !== '') {
+        $parts = parse_url($origin);
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $requestScheme = (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off') ? 'https' : 'http';
+        $originHost = (string)($parts['host'] ?? '') . (isset($parts['port']) ? ':' . $parts['port'] : '');
+        $crossOrigin = $origin === 'null' || !is_array($parts) || $originHost === ''
+            || $scheme !== $requestScheme
+            || $normalize($scheme, $originHost) !== $normalize($requestScheme, (string)($_SERVER['HTTP_HOST'] ?? ''));
+    }
+    if ($crossOrigin) {
+        dialecticNpcManagerRespond(['success' => false, 'error' => 'Cross-origin event deletion is not allowed. Nothing was deleted.'], 403);
+    }
+}
+
 function dialecticNpcManagerDeleteEvent(array $input): array
 {
+    // Current panels send their history token and take the guarded batch path; callers
+    // without a token keep the legacy single-row behaviour.
+    if (array_key_exists('history_token', $input)) {
+        $result = dialecticNpcManagerDeleteEvents(['rowids' => [$input['rowid'] ?? null]] + $input);
+        return ['message' => 'Event deleted.', 'rowid' => $result['rowids'][0]];
+    }
     $npc = dialecticNpcManagerFindNpc($input);
     $rowId = intval($input['rowid'] ?? 0);
     if ($rowId <= 0) {
@@ -368,26 +433,43 @@ function dialecticNpcManagerNormalizeEventRowIds($value): array
     return array_values($rowIds);
 }
 
-// Every selected row must still be a visible history event for this NPC; the locked
-// check and delete share one transaction so a stale or mixed batch deletes nothing.
+// Every selected row must still be a visible history event for this NPC in the playthrough
+// the panel loaded. The shared Playthrough Saves advisory lock excludes switch, restore and
+// transfer validation for the whole check-and-delete transaction; a stale or mixed batch
+// deletes nothing.
 function dialecticNpcManagerDeleteEvents(array $input): array
 {
-    $npc = dialecticNpcManagerFindNpc($input);
-    $npcName = trim((string)($npc['npc_name'] ?? ''));
-    if ($npcName === '') {
-        throw new InvalidArgumentException('NPC name is required to delete events');
+    $historyToken = $input['history_token'] ?? null;
+    if (!is_string($historyToken) || !preg_match('/^[0-9a-f]{64}$/D', $historyToken)) {
+        throw new InvalidArgumentException('Refresh this NPC history before deleting events. Nothing was deleted.');
     }
     $rowIds = dialecticNpcManagerNormalizeEventRowIds($input['rowids'] ?? null);
     $db = $GLOBALS['db'];
     $rowIdList = implode(',', $rowIds);
-    $allowedTypesWhere = dialecticNpcManagerHistoryTypesWhere();
-    $visibleWhere = dialecticBuildVisibleEventLogWhereClause($db, '', dialecticGetPersistedEventLogHiddenTypes($db));
-    $peopleWhere = dialecticBuildNpcEventLogPeopleWhereClause($db, $npcName, 'a.people');
 
     if ($db->query('BEGIN') === false) {
         throw new RuntimeException('Could not begin event deletion');
     }
     try {
+        $db->query("SET LOCAL lock_timeout = '2s'");
+        // Same key as ptr_lock(); shared so independent deletes do not block each other.
+        $locked = $db->fetchAll(
+            "SELECT pg_try_advisory_xact_lock_shared(hashtext('dialectic_meta_playthrough_retention')) AS locked"
+        );
+        if (($locked[0]['locked'] ?? '') !== 't') {
+            throw new DialecticNpcManagerConflict('A Playthrough Save operation is running. Try again shortly. Nothing was deleted.');
+        }
+        $npc = dialecticNpcManagerFindNpc($input);
+        if (!hash_equals(dialecticNpcManagerHistoryToken($npc), $historyToken)) {
+            throw new DialecticNpcManagerConflict('The playthrough or NPC changed since this history was loaded. Refresh the history and select again. Nothing was deleted.');
+        }
+        $npcName = trim((string)($npc['npc_name'] ?? ''));
+        if ($npcName === '') {
+            throw new InvalidArgumentException('NPC name is required to delete events');
+        }
+        $allowedTypesWhere = dialecticNpcManagerHistoryTypesWhere();
+        $visibleWhere = dialecticBuildVisibleEventLogWhereClause($db, '', dialecticGetPersistedEventLogHiddenTypes($db));
+        $peopleWhere = dialecticBuildNpcEventLogPeopleWhereClause($db, $npcName, 'a.people');
         $available = $db->fetchAll(
             "SELECT a.rowid FROM eventlog a
              WHERE a.rowid IN ({$rowIdList}) AND {$allowedTypesWhere} AND {$visibleWhere} AND {$peopleWhere}
@@ -608,14 +690,25 @@ try {
         dialecticNpcManagerRespond(['success' => true, 'data' => dialecticNpcManagerInjectEvent($input)]);
     }
     if ($operation === 'delete_event') {
+        // Guarded single deletes come from the current panel; legacy callers send no token.
+        if (array_key_exists('history_token', $input)) {
+            dialecticNpcManagerRejectCrossOrigin();
+        }
         dialecticNpcManagerRespond(['success' => true, 'data' => dialecticNpcManagerDeleteEvent($input)]);
     }
     if ($operation === 'delete_events') {
+        dialecticNpcManagerRejectCrossOrigin();
+        // A JSON content type needs a CORS preflight, so a plain cross-site form cannot submit it.
+        if (strtolower(trim(explode(';', (string)($_SERVER['CONTENT_TYPE'] ?? ''))[0])) !== 'application/json') {
+            dialecticNpcManagerRespond(['success' => false, 'error' => 'Content-Type application/json is required'], 415);
+        }
         dialecticNpcManagerRespond(['success' => true, 'data' => dialecticNpcManagerDeleteEvents($input)]);
     }
     throw new InvalidArgumentException('Unsupported NPC manager operation');
 } catch (InvalidArgumentException $error) {
     dialecticNpcManagerRespond(['success' => false, 'error' => $error->getMessage()], 400);
+} catch (DialecticNpcManagerConflict $error) {
+    dialecticNpcManagerRespond(['success' => false, 'error' => $error->getMessage()], 409);
 } catch (Throwable $error) {
     Logger::error('Dialectic NPC manager API failed: ' . $error->getMessage());
     dialecticNpcManagerRespond(['success' => false, 'error' => 'Unable to process NPC manager request'], 500);
